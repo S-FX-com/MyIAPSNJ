@@ -69,6 +69,11 @@ final class FCRM_WP_Sync_Plugin {
         FCRM_WP_Sync_Engine::get_instance();
         FCRM_WP_Sync_Admin::get_instance();
         FCRM_WP_Sync_REST_API::get_instance();
+
+        // Boot PMPro integration only when Paid Memberships Pro is active.
+        if ( function_exists( 'pmpro_getMembershipLevelForUser' ) ) {
+            FCRM_WP_Sync_PMP_Integration::get_instance();
+        }
     }
 
     public function notice_fluentcrm_missing(): void {
@@ -91,7 +96,11 @@ final class FCRM_WP_Sync_Plugin {
                 'sync_on_profile_update' => true,
                 'sync_on_user_delete'    => true,
                 'sync_on_fcrm_update'    => true,
+                'sync_on_pmp_change'     => false,
             ] );
+        }
+        if ( get_option( 'fcrm_wp_sync_pmp_tag_mappings' ) === false ) {
+            add_option( 'fcrm_wp_sync_pmp_tag_mappings', [] );
         }
     }
 

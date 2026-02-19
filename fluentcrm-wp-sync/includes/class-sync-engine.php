@@ -281,6 +281,36 @@ class FCRM_WP_Sync_Engine {
                 // Fallback to user_meta
                 return get_user_meta( $user_id, $key, true ) ?: null;
 
+            case 'pmp':
+                // Paid Memberships Pro — read from the user's active membership level.
+                if ( ! function_exists( 'pmpro_getMembershipLevelForUser' ) ) {
+                    return null;
+                }
+                $level = pmpro_getMembershipLevelForUser( $user_id );
+                if ( ! $level ) {
+                    return null;
+                }
+                switch ( $key ) {
+                    case 'startdate':
+                        // Stored as a Unix timestamp; convert to Y-m-d for the formatter.
+                        return ! empty( $level->startdate )
+                            ? date( 'Y-m-d', (int) $level->startdate )
+                            : null;
+                    case 'enddate':
+                        // Null / 0 means no expiry.
+                        return ! empty( $level->enddate )
+                            ? date( 'Y-m-d', (int) $level->enddate )
+                            : null;
+                    case 'level_name':
+                        return $level->name ?? null;
+                    case 'level_id':
+                        return isset( $level->id )
+                            ? (int) $level->id
+                            : ( isset( $level->ID ) ? (int) $level->ID : null );
+                    default:
+                        return null;
+                }
+
             case 'meta':
             default:
                 $val = get_user_meta( $user_id, $key, true );
@@ -299,6 +329,11 @@ class FCRM_WP_Sync_Engine {
     public function set_wp_field_value( int $user_id, array $mapping, $value, array &$wp_user_data ): void {
         $key    = $mapping['wp_field_key'];
         $source = $mapping['wp_field_source'] ?? 'user';
+
+        // PMP fields are managed entirely by Paid Memberships Pro — never write back.
+        if ( $source === 'pmp' ) {
+            return;
+        }
 
         // Fields that belong to the WP_User object go through wp_update_user()
         $user_object_keys = [ 'user_email', 'user_url', 'display_name' ];

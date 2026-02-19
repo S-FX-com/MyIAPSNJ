@@ -42,6 +42,7 @@ class FCRM_WP_Sync_Admin {
         add_action( 'wp_ajax_fcrm_wp_sync_bulk_sync',        [ $this, 'ajax_bulk_sync' ] );
         add_action( 'wp_ajax_fcrm_wp_sync_resolve_mismatch', [ $this, 'ajax_resolve_mismatch' ] );
         add_action( 'wp_ajax_fcrm_wp_sync_get_mismatches',   [ $this, 'ajax_get_mismatches' ] );
+        add_action( 'wp_ajax_fcrm_wp_sync_save_pmp_settings', [ $this, 'ajax_save_pmp_settings' ] );
     }
 
     // -----------------------------------------------------------------------
@@ -85,6 +86,18 @@ class FCRM_WP_Sync_Admin {
             'fcrm-wp-sync-mismatches',
             [ $this, 'render_mismatches_page' ]
         );
+
+        // Only show the PMP Integration page when PMPro is active.
+        if ( function_exists( 'pmpro_getMembershipLevelForUser' ) ) {
+            add_submenu_page(
+                'fcrm-wp-sync',
+                __( 'PMP Integration', 'fcrm-wp-sync' ),
+                __( 'PMP Integration', 'fcrm-wp-sync' ),
+                'manage_options',
+                'fcrm-wp-sync-pmp',
+                [ $this, 'render_pmp_page' ]
+            );
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -96,6 +109,7 @@ class FCRM_WP_Sync_Admin {
             'toplevel_page_fcrm-wp-sync',
             'fluentcrm-sync_page_fcrm-wp-sync-sync',
             'fluentcrm-sync_page_fcrm-wp-sync-mismatches',
+            'fluentcrm-sync_page_fcrm-wp-sync-pmp',
         ];
         if ( ! in_array( $hook, $pages, true ) ) {
             return;
@@ -424,6 +438,21 @@ class FCRM_WP_Sync_Admin {
                                 </label>
                             </td>
                         </tr>
+                        <?php if ( function_exists( 'pmpro_getMembershipLevelForUser' ) ) : ?>
+                        <tr>
+                            <th><?php esc_html_e( 'On PMP Membership Change', 'fcrm-wp-sync' ); ?></th>
+                            <td>
+                                <label>
+                                    <input type="checkbox" name="sync_on_pmp_change" value="1"
+                                        <?php checked( ! empty( $settings['sync_on_pmp_change'] ) ); ?>>
+                                    <?php esc_html_e( 'Sync WP user to FluentCRM when their PMPro membership level changes', 'fcrm-wp-sync' ); ?>
+                                </label>
+                                <p class="description">
+                                    <?php esc_html_e( 'Pushes PMP date fields (join date, expiration date) to any mapped FluentCRM fields on every membership change.', 'fcrm-wp-sync' ); ?>
+                                </p>
+                            </td>
+                        </tr>
+                        <?php endif; ?>
                     </table>
 
                     <div id="fcrm-settings-notice" class="fcrm-notice" style="display:none"></div>
@@ -535,6 +564,7 @@ class FCRM_WP_Sync_Admin {
             'sync_on_profile_update',
             'sync_on_user_delete',
             'sync_on_fcrm_update',
+            'sync_on_pmp_change',
         ];
 
         $settings = [];
@@ -658,5 +688,167 @@ class FCRM_WP_Sync_Admin {
         } else {
             wp_send_json_error( 'Resolution failed' );
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Page: PMP Integration
+    // -----------------------------------------------------------------------
+
+    public function render_pmp_page(): void {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( esc_html__( 'Insufficient permissions.', 'fcrm-wp-sync' ) );
+        }
+
+        $settings     = get_option( 'fcrm_wp_sync_settings', [] );
+        $tag_mappings = get_option( 'fcrm_wp_sync_pmp_tag_mappings', [] );
+        $pmp_levels   = FCRM_WP_Sync_PMP_Integration::get_all_levels();
+
+        // Collect FluentCRM tags.
+        $fcrm_tags = [];
+        if ( function_exists( 'FluentCrmApi' ) ) {
+            $tags_collection = FluentCrmApi( 'tags' )->all();
+            foreach ( $tags_collection as $tag ) {
+                $fcrm_tags[] = [ 'id' => (int) $tag->id, 'title' => $tag->title ];
+            }
+        }
+
+        ?>
+        <div class="wrap fcrm-sync-wrap">
+            <h1><?php esc_html_e( 'FluentCRM WP Sync – PMP Integration', 'fcrm-wp-sync' ); ?></h1>
+            <p class="description">
+                <?php esc_html_e( 'Configure how Paid Memberships Pro membership data syncs with FluentCRM.', 'fcrm-wp-sync' ); ?>
+            </p>
+
+            <div id="fcrm-pmp-notice" class="fcrm-notice" style="display:none"></div>
+
+            <!-- ── Field mapping reminder ─────────────────────────────────── -->
+            <div class="fcrm-section">
+                <h2><?php esc_html_e( 'Date & Level Field Mapping', 'fcrm-wp-sync' ); ?></h2>
+                <p>
+                    <?php esc_html_e( 'The following PMP fields are available in the Field Mapping screen:', 'fcrm-wp-sync' ); ?>
+                </p>
+                <ul style="list-style:disc; margin-left:1.5em; line-height:1.8">
+                    <li><strong><?php esc_html_e( 'PMP Join Date', 'fcrm-wp-sync' ); ?></strong> – <?php esc_html_e( "The date the user's current membership level started (startdate).", 'fcrm-wp-sync' ); ?></li>
+                    <li><strong><?php esc_html_e( 'PMP Expiration / Renewal Date', 'fcrm-wp-sync' ); ?></strong> – <?php esc_html_e( 'The date the membership expires or renews (enddate). Empty for non-expiring memberships.', 'fcrm-wp-sync' ); ?></li>
+                    <li><strong><?php esc_html_e( 'PMP Level Name', 'fcrm-wp-sync' ); ?></strong> – <?php esc_html_e( 'The name of the active membership level.', 'fcrm-wp-sync' ); ?></li>
+                    <li><strong><?php esc_html_e( 'PMP Level ID', 'fcrm-wp-sync' ); ?></strong> – <?php esc_html_e( 'The numeric ID of the active membership level.', 'fcrm-wp-sync' ); ?></li>
+                </ul>
+                <p>
+                    <a href="<?php echo esc_url( admin_url( 'admin.php?page=fcrm-wp-sync' ) ); ?>" class="button">
+                        <?php esc_html_e( 'Go to Field Mapping', 'fcrm-wp-sync' ); ?>
+                    </a>
+                </p>
+            </div>
+
+            <!-- ── Sync trigger ───────────────────────────────────────────── -->
+            <div class="fcrm-section">
+                <h2><?php esc_html_e( 'Sync Trigger', 'fcrm-wp-sync' ); ?></h2>
+                <p><?php esc_html_e( 'Enable automatic syncing to FluentCRM when a membership level changes.', 'fcrm-wp-sync' ); ?></p>
+                <label>
+                    <input type="checkbox" id="fcrm-pmp-sync-on-change" value="1"
+                        <?php checked( ! empty( $settings['sync_on_pmp_change'] ) ); ?>>
+                    <?php esc_html_e( 'Sync WP → FluentCRM on every membership level change', 'fcrm-wp-sync' ); ?>
+                </label>
+            </div>
+
+            <!-- ── Tag mappings ───────────────────────────────────────────── -->
+            <div class="fcrm-section">
+                <h2><?php esc_html_e( 'Tag Mappings', 'fcrm-wp-sync' ); ?></h2>
+                <p>
+                    <?php esc_html_e( 'Select which FluentCRM tags to apply when a user belongs to each membership level. Tags assigned by this mapping will be removed automatically when the user\'s level changes.', 'fcrm-wp-sync' ); ?>
+                </p>
+
+                <?php if ( empty( $pmp_levels ) ) : ?>
+                    <p class="description"><?php esc_html_e( 'No membership levels found. Create levels in PMPro first.', 'fcrm-wp-sync' ); ?></p>
+                <?php elseif ( empty( $fcrm_tags ) ) : ?>
+                    <p class="description"><?php esc_html_e( 'No FluentCRM tags found. Create tags in FluentCRM first.', 'fcrm-wp-sync' ); ?></p>
+                <?php else : ?>
+                    <table class="widefat fcrm-pmp-tag-table" style="max-width:800px">
+                        <thead>
+                            <tr>
+                                <th style="width:30%"><?php esc_html_e( 'Membership Level', 'fcrm-wp-sync' ); ?></th>
+                                <th><?php esc_html_e( 'FluentCRM Tags to Apply', 'fcrm-wp-sync' ); ?></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ( $pmp_levels as $level ) :
+                                $level_id    = (int) ( $level->id ?? $level->ID );
+                                $level_name  = esc_html( $level->name );
+                                $saved_tags  = isset( $tag_mappings[ $level_id ] ) ? array_map( 'intval', (array) $tag_mappings[ $level_id ] ) : [];
+                            ?>
+                            <tr>
+                                <td>
+                                    <strong><?php echo $level_name; ?></strong>
+                                    <br><small><?php echo esc_html( sprintf( __( 'Level ID: %d', 'fcrm-wp-sync' ), $level_id ) ); ?></small>
+                                </td>
+                                <td>
+                                    <select multiple
+                                        name="pmp_tag_mappings[<?php echo esc_attr( $level_id ); ?>][]"
+                                        class="fcrm-pmp-tag-select"
+                                        data-level-id="<?php echo esc_attr( $level_id ); ?>"
+                                        style="min-width:300px; min-height:80px">
+                                        <?php foreach ( $fcrm_tags as $tag ) : ?>
+                                            <option value="<?php echo esc_attr( $tag['id'] ); ?>"
+                                                <?php selected( in_array( $tag['id'], $saved_tags, true ) ); ?>>
+                                                <?php echo esc_html( $tag['title'] ); ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                    <p class="description" style="margin-top:4px">
+                                        <?php esc_html_e( 'Hold Ctrl / Cmd to select multiple tags.', 'fcrm-wp-sync' ); ?>
+                                    </p>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                <?php endif; ?>
+            </div>
+
+            <button id="fcrm-save-pmp-settings" class="button button-primary">
+                <?php esc_html_e( 'Save PMP Settings', 'fcrm-wp-sync' ); ?>
+            </button>
+
+        </div>
+        <?php
+    }
+
+    // -----------------------------------------------------------------------
+    // AJAX: Save PMP settings
+    // -----------------------------------------------------------------------
+
+    public function ajax_save_pmp_settings(): void {
+        check_ajax_referer( 'fcrm_wp_sync_nonce', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Insufficient permissions', 403 );
+        }
+
+        // 1. Update the sync_on_pmp_change toggle within the main settings array.
+        $settings                       = get_option( 'fcrm_wp_sync_settings', [] );
+        $settings['sync_on_pmp_change'] = ! empty( $_POST['sync_on_pmp_change'] ); // phpcs:ignore
+        update_option( 'fcrm_wp_sync_settings', $settings );
+
+        // 2. Build and save tag mappings: [ level_id (int) => [ tag_id (int), ... ] ]
+        $raw_mappings  = isset( $_POST['pmp_tag_mappings'] ) ? (array) $_POST['pmp_tag_mappings'] : []; // phpcs:ignore
+        $clean_mappings = [];
+
+        foreach ( $raw_mappings as $level_id => $tag_ids ) {
+            $lid = (int) $level_id;
+            if ( $lid <= 0 ) {
+                continue;
+            }
+            $clean_tags = [];
+            foreach ( (array) $tag_ids as $tid ) {
+                $t = (int) $tid;
+                if ( $t > 0 ) {
+                    $clean_tags[] = $t;
+                }
+            }
+            $clean_mappings[ $lid ] = $clean_tags;
+        }
+
+        update_option( 'fcrm_wp_sync_pmp_tag_mappings', $clean_mappings );
+
+        wp_send_json_success( [ 'levels' => count( $clean_mappings ) ] );
     }
 }

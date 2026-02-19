@@ -105,6 +105,39 @@ class FCRM_WP_Sync_Field_Mapper {
             }
         }
 
+        // 5. Paid Memberships Pro fields (if PMPro is active)
+        if ( function_exists( 'pmpro_getMembershipLevelForUser' ) ) {
+            $pmp_fields = [
+                'pmp__startdate'  => [
+                    'key'    => 'startdate',
+                    'source' => 'pmp',
+                    'label'  => 'PMP Join Date',
+                    'type'   => 'date',
+                ],
+                'pmp__enddate'    => [
+                    'key'    => 'enddate',
+                    'source' => 'pmp',
+                    'label'  => 'PMP Expiration / Renewal Date',
+                    'type'   => 'date',
+                ],
+                'pmp__level_name' => [
+                    'key'    => 'level_name',
+                    'source' => 'pmp',
+                    'label'  => 'PMP Level Name',
+                    'type'   => 'text',
+                ],
+                'pmp__level_id'   => [
+                    'key'    => 'level_id',
+                    'source' => 'pmp',
+                    'label'  => 'PMP Level ID',
+                    'type'   => 'number',
+                ],
+            ];
+            foreach ( $pmp_fields as $uid => $field ) {
+                $fields[ $uid ] = $field;
+            }
+        }
+
         return $fields;
     }
 
