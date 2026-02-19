@@ -440,6 +440,44 @@
     }
 
     // =========================================================================
+    // PMP Integration page
+    // =========================================================================
+
+    $('#fcrm-save-pmp-settings').on('click', function () {
+        var $btn    = $(this);
+        var $notice = $('#fcrm-pmp-notice');
+
+        // Collect sync toggle.
+        var syncOnChange = $('#fcrm-pmp-sync-on-change').is(':checked') ? 1 : 0;
+
+        // Collect tag mappings: { level_id: [tag_id, ...] }
+        var tagMappings = {};
+        $('.fcrm-pmp-tag-select').each(function () {
+            var levelId = $(this).data('level-id');
+            var selected = $(this).val() || [];
+            tagMappings[levelId] = selected;
+        });
+
+        setBtn($btn, i18n.saving, true);
+
+        $.post(ajaxUrl, {
+            action:              'fcrm_wp_sync_save_pmp_settings',
+            nonce:               nonce,
+            sync_on_pmp_change:  syncOnChange,
+            pmp_tag_mappings:    tagMappings,
+        })
+        .done(function (resp) {
+            showNotice($notice, resp.success ? i18n.saved : i18n.error, resp.success ? 'success' : 'error');
+        })
+        .fail(function () {
+            showNotice($notice, i18n.error, 'error');
+        })
+        .always(function () {
+            setBtn($btn, 'Save PMP Settings', false);
+        });
+    });
+
+    // =========================================================================
     // Utilities
     // =========================================================================
 
