@@ -240,6 +240,7 @@ class FCRM_WP_Sync_Admin {
         $wp_label     = $mapping['wp_field_label']     ?? '';
         $fcrm_label   = $mapping['fcrm_field_label']   ?? '';
         $date_fmt_wp  = $mapping['date_format_wp']     ?? 'm/d/Y';
+        $value_map    = $mapping['value_map']          ?? [];
 
         $row_id = $is_template ? '__TEMPLATE__' : ( $id ?: FCRM_WP_Sync_Field_Mapper::generate_id() );
 
@@ -250,12 +251,16 @@ class FCRM_WP_Sync_Admin {
         echo '<select class="fcrm-wp-field" name="mappings[' . esc_attr( $row_id ) . '][wp_uid]">';
         echo '<option value="">' . esc_html__( '— Select WP field —', 'fcrm-wp-sync' ) . '</option>';
         foreach ( $wp_fields as $uid => $f ) {
-            $selected = ( $f['key'] === $wp_key && $f['source'] === $wp_src ) ? ' selected' : '';
+            $selected    = ( $f['key'] === $wp_key && $f['source'] === $wp_src ) ? ' selected' : '';
+            $is_readonly = ! empty( $f['readonly'] ) ? 1 : 0;
+            $options_json = wp_json_encode( $f['options'] ?? [] );
             printf(
-                '<option value="%s" data-type="%s" data-label="%s"%s>%s</option>',
+                '<option value="%s" data-type="%s" data-label="%s" data-readonly="%d" data-options="%s"%s>%s</option>',
                 esc_attr( $uid ),
                 esc_attr( $f['type'] ),
                 esc_attr( $f['label'] ),
+                $is_readonly,
+                esc_attr( $options_json ),
                 $selected,
                 esc_html( $f['label'] )
             );
@@ -268,12 +273,14 @@ class FCRM_WP_Sync_Admin {
         echo '<select class="fcrm-fcrm-field" name="mappings[' . esc_attr( $row_id ) . '][fcrm_uid]">';
         echo '<option value="">' . esc_html__( '— Select FCRM field —', 'fcrm-wp-sync' ) . '</option>';
         foreach ( $fcrm_fields as $uid => $f ) {
-            $selected = ( $f['key'] === $fcrm_key && $f['source'] === $fcrm_src ) ? ' selected' : '';
+            $selected     = ( $f['key'] === $fcrm_key && $f['source'] === $fcrm_src ) ? ' selected' : '';
+            $options_json = wp_json_encode( $f['options'] ?? [] );
             printf(
-                '<option value="%s" data-type="%s" data-label="%s"%s>%s</option>',
+                '<option value="%s" data-type="%s" data-label="%s" data-options="%s"%s>%s</option>',
                 esc_attr( $uid ),
                 esc_attr( $f['type'] ),
                 esc_attr( $f['label'] ),
+                esc_attr( $options_json ),
                 $selected,
                 esc_html( $f['label'] )
             );
@@ -284,6 +291,7 @@ class FCRM_WP_Sync_Admin {
         // --- Field Type ---
         $types = [
             'text'     => __( 'Text', 'fcrm-wp-sync' ),
+            'select'   => __( 'Select / Radio', 'fcrm-wp-sync' ),
             'date'     => __( 'Date', 'fcrm-wp-sync' ),
             'checkbox' => __( 'Checkbox / Multi-select', 'fcrm-wp-sync' ),
             'number'   => __( 'Number', 'fcrm-wp-sync' ),
@@ -302,21 +310,42 @@ class FCRM_WP_Sync_Admin {
         echo '<small>' . esc_html__( 'WP date format:', 'fcrm-wp-sync' ) . ' </small>';
         echo '<input type="text" class="fcrm-date-format-wp small-text" value="' . esc_attr( $date_fmt_wp ) . '" placeholder="m/d/Y" name="mappings[' . esc_attr( $row_id ) . '][date_format_wp]">';
         echo '</div>';
+        // Hidden input carries the saved value_map JSON for JS to read on page-load
+        echo '<input type="hidden" class="fcrm-value-map-json" value="' . esc_attr( wp_json_encode( $value_map ) ) . '">';
         echo '</td>';
 
         // --- Sync Direction ---
+        // Determine whether the chosen WP field is readonly (e.g. User ID).
+        // We look up the currently-selected WP field's readonly flag so the
+        // PHP-rendered row starts with the correct locked state.
+        $wp_uid_selected    = '';
+        foreach ( $wp_fields as $uid => $f ) {
+            if ( $f['key'] === $wp_key && $f['source'] === $wp_src ) {
+                $wp_uid_selected = $uid;
+                break;
+            }
+        }
+        $dir_is_locked = isset( $wp_fields[ $wp_uid_selected ]['readonly'] ) && $wp_fields[ $wp_uid_selected ]['readonly'];
+        if ( $dir_is_locked ) {
+            $direction = 'wp_to_fcrm'; // Force when readonly
+        }
+
         $directions = [
             'both'       => __( '⇄ Both', 'fcrm-wp-sync' ),
             'wp_to_fcrm' => __( '→ WP → FluentCRM', 'fcrm-wp-sync' ),
             'fcrm_to_wp' => __( '← FluentCRM → WP', 'fcrm-wp-sync' ),
         ];
         echo '<td>';
-        echo '<select class="fcrm-sync-direction" name="mappings[' . esc_attr( $row_id ) . '][sync_direction]">';
+        $dir_disabled = $dir_is_locked ? ' disabled' : '';
+        echo '<select class="fcrm-sync-direction" name="mappings[' . esc_attr( $row_id ) . '][sync_direction]"' . $dir_disabled . '>';
         foreach ( $directions as $val => $label ) {
             $sel = selected( $direction, $val, false );
             echo "<option value=\"{$val}\"{$sel}>{$label}</option>";
         }
         echo '</select>';
+        if ( $dir_is_locked ) {
+            echo '<small style="display:block;color:#888">' . esc_html__( 'Read-only field: WP→FluentCRM only', 'fcrm-wp-sync' ) . '</small>';
+        }
         echo '</td>';
 
         // --- Enabled toggle ---
@@ -533,6 +562,25 @@ class FCRM_WP_Sync_Admin {
                 continue;
             }
 
+            // Readonly fields (e.g. User ID) may only sync WP → FluentCRM.
+            $field_type   = sanitize_text_field( $row['field_type'] ?? 'text' );
+            $direction    = sanitize_text_field( $row['sync_direction'] ?? 'both' );
+            if ( ! empty( $wp_f['readonly'] ) ) {
+                $direction = 'wp_to_fcrm';
+            }
+
+            // Sanitise and store value_map for select/radio fields.
+            $value_map = [];
+            if ( $field_type === 'select' && ! empty( $row['value_map'] ) && is_array( $row['value_map'] ) ) {
+                foreach ( $row['value_map'] as $wp_val => $fcrm_val ) {
+                    $wp_val   = sanitize_text_field( $wp_val );
+                    $fcrm_val = sanitize_text_field( $fcrm_val );
+                    if ( $wp_val !== '' && $fcrm_val !== '' ) {
+                        $value_map[ $wp_val ] = $fcrm_val;
+                    }
+                }
+            }
+
             $clean[] = [
                 'id'               => sanitize_text_field( $row_id ),
                 'wp_field_key'     => $wp_f['key'],
@@ -541,13 +589,15 @@ class FCRM_WP_Sync_Admin {
                 'fcrm_field_key'   => $fcrm_f['key'],
                 'fcrm_field_source'=> $fcrm_f['source'],
                 'fcrm_field_label' => $fcrm_f['label'],
-                'field_type'       => sanitize_text_field( $row['field_type'] ?? 'text' ),
-                'sync_direction'   => sanitize_text_field( $row['sync_direction'] ?? 'both' ),
+                'field_type'       => $field_type,
+                'sync_direction'   => $direction,
                 'enabled'          => ! empty( $row['enabled'] ),
                 'date_format_wp'   => sanitize_text_field( $row['date_format_wp'] ?? 'm/d/Y' ),
                 'date_format_fcrm' => 'Y-m-d',
                 // Carry ACF-specific date format through
                 'acf_field_type'   => $wp_f['acf_field_type'] ?? '',
+                // Select/radio value translation map
+                'value_map'        => $value_map,
             ];
         }
 
@@ -731,15 +781,50 @@ class FCRM_WP_Sync_Admin {
             <div class="fcrm-section">
                 <h2><?php esc_html_e( 'Date & Level Field Mapping', 'fcrm-wp-sync' ); ?></h2>
                 <p>
-                    <?php esc_html_e( 'The following PMP fields are available in the Field Mapping screen:', 'fcrm-wp-sync' ); ?>
+                    <?php esc_html_e( 'The following PMPro membership fields are available in the Field Mapping screen. These are read-only and sync WP → FluentCRM only:', 'fcrm-wp-sync' ); ?>
                 </p>
                 <ul style="list-style:disc; margin-left:1.5em; line-height:1.8">
-                    <li><strong><?php esc_html_e( 'PMP Join Date', 'fcrm-wp-sync' ); ?></strong> – <?php esc_html_e( "The date the user's current membership level started (startdate).", 'fcrm-wp-sync' ); ?></li>
-                    <li><strong><?php esc_html_e( 'PMP Expiration / Renewal Date', 'fcrm-wp-sync' ); ?></strong> – <?php esc_html_e( 'The date the membership expires or renews (enddate). Empty for non-expiring memberships.', 'fcrm-wp-sync' ); ?></li>
-                    <li><strong><?php esc_html_e( 'PMP Level Name', 'fcrm-wp-sync' ); ?></strong> – <?php esc_html_e( 'The name of the active membership level.', 'fcrm-wp-sync' ); ?></li>
-                    <li><strong><?php esc_html_e( 'PMP Level ID', 'fcrm-wp-sync' ); ?></strong> – <?php esc_html_e( 'The numeric ID of the active membership level.', 'fcrm-wp-sync' ); ?></li>
+                    <li><strong><?php esc_html_e( 'PMPro Join Date', 'fcrm-wp-sync' ); ?></strong> – <?php esc_html_e( "The date the user's current membership level started.", 'fcrm-wp-sync' ); ?></li>
+                    <li><strong><?php esc_html_e( 'PMPro Expiration / Renewal Date', 'fcrm-wp-sync' ); ?></strong> – <?php esc_html_e( 'The date the membership expires or renews. Empty for non-expiring memberships.', 'fcrm-wp-sync' ); ?></li>
+                    <li><strong><?php esc_html_e( 'PMPro Level Name', 'fcrm-wp-sync' ); ?></strong> – <?php esc_html_e( 'The name of the active membership level.', 'fcrm-wp-sync' ); ?></li>
+                    <li><strong><?php esc_html_e( 'PMPro Level ID', 'fcrm-wp-sync' ); ?></strong> – <?php esc_html_e( 'The numeric ID of the active membership level.', 'fcrm-wp-sync' ); ?></li>
                 </ul>
+            </div>
+
+            <!-- ── Billing address field mapping ─────────────────────────── -->
+            <div class="fcrm-section">
+                <h2><?php esc_html_e( 'Billing Address Field Mapping', 'fcrm-wp-sync' ); ?></h2>
                 <p>
+                    <?php esc_html_e( 'PMPro stores billing address information in WordPress user meta. These fields can be mapped bidirectionally to FluentCRM address fields:', 'fcrm-wp-sync' ); ?>
+                </p>
+                <table class="widefat" style="max-width:700px">
+                    <thead>
+                        <tr>
+                            <th><?php esc_html_e( 'PMPro Field (WP meta key)', 'fcrm-wp-sync' ); ?></th>
+                            <th><?php esc_html_e( 'Suggested FluentCRM Field', 'fcrm-wp-sync' ); ?></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php
+                        $addr_suggestions = [
+                            'PMPro Billing Address Line 1' => 'Address Line 1',
+                            'PMPro Billing Address Line 2' => 'Address Line 2',
+                            'PMPro Billing City'           => 'City',
+                            'PMPro Billing State'          => 'State',
+                            'PMPro Billing Postal Code'    => 'Postal Code',
+                            'PMPro Billing Country'        => 'Country',
+                            'PMPro Billing Phone'          => 'Phone',
+                        ];
+                        foreach ( $addr_suggestions as $wp_lbl => $fcrm_lbl ) :
+                        ?>
+                        <tr>
+                            <td><?php echo esc_html( $wp_lbl ); ?></td>
+                            <td><?php echo esc_html( $fcrm_lbl ); ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+                <p style="margin-top:8px">
                     <a href="<?php echo esc_url( admin_url( 'admin.php?page=fcrm-wp-sync' ) ); ?>" class="button">
                         <?php esc_html_e( 'Go to Field Mapping', 'fcrm-wp-sync' ); ?>
                     </a>

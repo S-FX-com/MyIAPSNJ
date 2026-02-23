@@ -340,6 +340,10 @@ class FCRM_WP_Sync_Engine {
 
         switch ( $source ) {
             case 'user':
+                // WordPress user ID and login are immutable — never write back from FluentCRM.
+                if ( in_array( $key, [ 'ID', 'user_login' ], true ) ) {
+                    return;
+                }
                 if ( in_array( $key, $user_object_keys, true ) ) {
                     $wp_user_data[ $key ] = $value;
                 } else {
@@ -371,9 +375,9 @@ class FCRM_WP_Sync_Engine {
      * Format a raw value according to its field type and sync direction.
      *
      * @param mixed  $value
-     * @param string $type       One of: text, date, checkbox, number, email, textarea
+     * @param string $type       One of: text, select, date, checkbox, number, email, textarea
      * @param string $direction  'to_fcrm' | 'to_wp'
-     * @param array  $mapping    The full mapping row (for date formats etc.)
+     * @param array  $mapping    The full mapping row (for date formats, value_map, etc.)
      * @return mixed
      */
     public function format_value( $value, string $type, string $direction, array $mapping = [] ) {
@@ -383,6 +387,9 @@ class FCRM_WP_Sync_Engine {
 
             case 'checkbox':
                 return $this->format_checkbox( $value, $direction );
+
+            case 'select':
+                return $this->format_select( $value, $direction, $mapping );
 
             case 'number':
                 return is_numeric( $value ) ? (float) $value : $value;
@@ -465,6 +472,37 @@ class FCRM_WP_Sync_Engine {
             return $value !== '' ? [ $value ] : [];
         }
         return [];
+    }
+
+    /**
+     * Select / radio field conversion.
+     *
+     * Applies an optional admin-configured value_map to translate option values
+     * between the WP and FluentCRM option sets (e.g. 'yes' → '1', 'Gold' → 'gold').
+     * If no map is configured the raw string value passes through unchanged.
+     *
+     * Direction semantics:
+     *   to_fcrm  → apply map as-is (wp_value => fcrm_value)
+     *   to_wp    → apply reverse map (fcrm_value => wp_value)
+     */
+    private function format_select( $value, string $direction, array $mapping ): string {
+        $str_value = is_array( $value ) ? (string) reset( $value ) : (string) $value;
+        $value_map = $mapping['value_map'] ?? [];
+
+        if ( empty( $value_map ) || ! is_array( $value_map ) ) {
+            return $str_value;
+        }
+
+        if ( $direction === 'to_fcrm' ) {
+            return isset( $value_map[ $str_value ] ) ? (string) $value_map[ $str_value ] : $str_value;
+        }
+
+        // to_wp: reverse the map
+        $reverse_map = [];
+        foreach ( $value_map as $wp_val => $fcrm_val ) {
+            $reverse_map[ (string) $fcrm_val ] = (string) $wp_val;
+        }
+        return isset( $reverse_map[ $str_value ] ) ? $reverse_map[ $str_value ] : $str_value;
     }
 
     // -----------------------------------------------------------------------
