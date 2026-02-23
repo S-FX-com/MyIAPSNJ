@@ -61,7 +61,10 @@
     // --- Remove row ---
     $tbody.on('click', '.fcrm-remove-row', function () {
         if (!confirm(i18n.confirmDelete)) { return; }
-        $(this).closest('tr').remove();
+        var $row   = $(this).closest('tr');
+        var $vmRow = $row.next('.fcrm-value-map-row');
+        $vmRow.remove(); // remove value-map sub-row if present
+        $row.remove();
         if (!$tbody.find('.fcrm-mapping-row').length) {
             $tbody.append('<tr class="fcrm-empty-row"><td colspan="6">' +
                 'No mappings yet. Click "Add Mapping Row" to begin.</td></tr>');
@@ -70,13 +73,25 @@
 
     // --- Auto-detect field type when both sides are selected ---
     function wireRow($row) {
-        $row.find('.fcrm-wp-field, .fcrm-fcrm-field').on('change', function () {
+        $row.find('.fcrm-wp-field').on('change', function () {
             autoDetectType($row);
+            updateReadOnly($row);
+            updateValueMapRow($row);
+        });
+        $row.find('.fcrm-fcrm-field').on('change', function () {
+            autoDetectType($row);
+            updateValueMapRow($row);
         });
         $row.find('.fcrm-field-type').on('change', function () {
             toggleDateFormatWrap($row);
+            toggleValueMapRow($row);
         });
         autoDetectType($row);
+        updateReadOnly($row);
+        // Restore value-map sub-row for existing select-type rows
+        if ($row.find('.fcrm-field-type').val() === 'select') {
+            toggleValueMapRow($row);
+        }
     }
 
     function autoDetectType($row) {
@@ -94,11 +109,157 @@
             }
         }
         toggleDateFormatWrap($row);
+        toggleValueMapRow($row);
     }
 
     function toggleDateFormatWrap($row) {
         var isDate = $row.find('.fcrm-field-type').val() === 'date';
         $row.find('.fcrm-date-format-wrap').toggle(isDate);
+    }
+
+    /**
+     * Lock the sync direction to WP→FluentCRM when the selected WP field is
+     * read-only (e.g. User ID, PMPro dates, PMPro level fields).
+     */
+    function updateReadOnly($row) {
+        var $wpOpt   = $row.find('.fcrm-wp-field option:selected');
+        var isRO     = parseInt($wpOpt.data('readonly') || 0, 10) === 1;
+        var $dirSel  = $row.find('.fcrm-sync-direction');
+        var $hint    = $row.find('.fcrm-readonly-hint');
+
+        $dirSel.prop('disabled', isRO);
+        if (isRO) {
+            $dirSel.val('wp_to_fcrm');
+            if (!$hint.length) {
+                $dirSel.after('<small class="fcrm-readonly-hint" style="display:block;color:#888">' +
+                    'Read-only field: WP\u2192FluentCRM only</small>');
+            }
+        } else {
+            $hint.remove();
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Value-map sub-row (shown when field type is 'select' / 'radio')
+    // -----------------------------------------------------------------------
+
+    /**
+     * Show or hide the value-map sub-row depending on the current type.
+     */
+    function toggleValueMapRow($row) {
+        var isSelect = $row.find('.fcrm-field-type').val() === 'select';
+        var $vmRow   = $row.next('.fcrm-value-map-row');
+
+        if (isSelect) {
+            if (!$vmRow.length) {
+                $vmRow = buildValueMapRow($row);
+                $row.after($vmRow);
+            }
+            $vmRow.show();
+            populateValueMapRow($row, $vmRow);
+        } else {
+            $vmRow.hide();
+        }
+    }
+
+    /** Alias called when fields change while value map is already visible. */
+    function updateValueMapRow($row) {
+        var $vmRow = $row.next('.fcrm-value-map-row');
+        if ($vmRow.length && $vmRow.is(':visible')) {
+            populateValueMapRow($row, $vmRow);
+        }
+    }
+
+    /**
+     * Create the empty value-map sub-row DOM element.
+     */
+    function buildValueMapRow($row) {
+        var rowId  = $row.data('id');
+        var $vmRow = $(
+            '<tr class="fcrm-value-map-row">' +
+              '<td colspan="6">' +
+                '<div class="fcrm-value-map-container">' +
+                  '<strong style="display:block;margin-bottom:6px">Value Mapping ' +
+                    '<small style="font-weight:normal;color:#666">' +
+                      '(optional – map WP option values to FluentCRM option values)' +
+                    '</small>' +
+                  '</strong>' +
+                  '<table class="fcrm-value-map-table">' +
+                    '<thead><tr>' +
+                      '<th>WordPress Value</th>' +
+                      '<th style="padding-left:16px">\u2192 FluentCRM Value</th>' +
+                    '</tr></thead>' +
+                    '<tbody class="fcrm-vm-tbody"></tbody>' +
+                  '</table>' +
+                '</div>' +
+              '</td>' +
+            '</tr>'
+        );
+        $vmRow.attr('data-parent-id', rowId);
+        return $vmRow;
+    }
+
+    /**
+     * Rebuild the value-map table rows from the current WP / FCRM field options
+     * and the previously saved value_map JSON stored in the hidden input.
+     */
+    function populateValueMapRow($row, $vmRow) {
+        var $tbody = $vmRow.find('.fcrm-vm-tbody');
+        $tbody.empty();
+
+        // Retrieve WP field options
+        var wpOptionsRaw = $row.find('.fcrm-wp-field option:selected').data('options') || '[]';
+        var wpOptions    = [];
+        try { wpOptions = JSON.parse(typeof wpOptionsRaw === 'string' ? wpOptionsRaw : JSON.stringify(wpOptionsRaw)); } catch (e) {}
+
+        // Retrieve FluentCRM field options
+        var fcrmOptionsRaw = $row.find('.fcrm-fcrm-field option:selected').data('options') || '[]';
+        var fcrmOptions    = [];
+        try { fcrmOptions = JSON.parse(typeof fcrmOptionsRaw === 'string' ? fcrmOptionsRaw : JSON.stringify(fcrmOptionsRaw)); } catch (e) {}
+
+        // Load previously saved map
+        var savedMapRaw = $row.find('.fcrm-value-map-json').val() || '{}';
+        var savedMap    = {};
+        try { savedMap = JSON.parse(savedMapRaw); } catch (e) {}
+
+        if (!wpOptions.length && !fcrmOptions.length) {
+            $tbody.append(
+                '<tr><td colspan="2" style="color:#888;font-style:italic">' +
+                'No option lists detected. Enter values manually or choose fields with defined options.' +
+                '</td></tr>'
+            );
+            return;
+        }
+
+        // Use WP options as the source rows when available; otherwise use FCRM options.
+        var sourceOptions = wpOptions.length ? wpOptions : fcrmOptions;
+
+        sourceOptions.forEach(function (opt) {
+            var wpVal    = opt.value;
+            var wpLabel  = opt.label || opt.value;
+            var mappedTo = savedMap[wpVal] !== undefined ? savedMap[wpVal] : '';
+
+            // Build the FCRM side: dropdown if FCRM has options, else text input
+            var $input;
+            if (fcrmOptions.length) {
+                $input = $('<select class="fcrm-vm-select" data-wp-value="' + escHtml(wpVal) + '">');
+                $input.append('<option value="">— same as WP —</option>');
+                fcrmOptions.forEach(function (fopt) {
+                    var $o = $('<option>').val(fopt.value).text(fopt.label || fopt.value);
+                    if (mappedTo === fopt.value) { $o.prop('selected', true); }
+                    $input.append($o);
+                });
+            } else {
+                $input = $('<input type="text" class="regular-text fcrm-vm-select" data-wp-value="' +
+                    escHtml(wpVal) + '" placeholder="FluentCRM value (leave blank to pass through)">');
+                $input.val(mappedTo);
+            }
+
+            var $tr = $('<tr>');
+            $tr.append($('<td style="padding:4px 8px">').text(wpLabel + ' (' + wpVal + ')'));
+            $tr.append($('<td style="padding:4px 8px 4px 16px">').append($input));
+            $tbody.append($tr);
+        });
     }
 
     // Wire existing rows on page load
@@ -125,13 +286,34 @@
             }
             $row.removeClass('fcrm-row-error');
 
+            // Sync direction: respect readonly lock
+            var isRO      = parseInt($row.find('.fcrm-wp-field option:selected').data('readonly') || 0, 10) === 1;
+            var direction = isRO ? 'wp_to_fcrm' : $row.find('.fcrm-sync-direction').val();
+
+            // Collect value_map from the optional sub-row
+            var valueMap = {};
+            var $vmRow   = $row.next('.fcrm-value-map-row');
+            if ($vmRow.length) {
+                $vmRow.find('.fcrm-vm-select').each(function () {
+                    var wpVal   = $(this).data('wp-value');
+                    var fcrmVal = $(this).val();
+                    if (wpVal !== undefined && wpVal !== '' && fcrmVal !== undefined && fcrmVal !== '') {
+                        valueMap[String(wpVal)] = String(fcrmVal);
+                    }
+                });
+            }
+
+            // Persist the current value_map into the hidden input so it survives re-renders
+            $row.find('.fcrm-value-map-json').val(JSON.stringify(valueMap));
+
             mappings[rowId] = {
                 wp_uid:         wpUid,
                 fcrm_uid:       fcrmUid,
                 field_type:     $row.find('.fcrm-field-type').val(),
-                sync_direction: $row.find('.fcrm-sync-direction').val(),
+                sync_direction: direction,
                 enabled:        $row.find('.fcrm-enabled').is(':checked') ? 1 : 0,
                 date_format_wp: $row.find('.fcrm-date-format-wp').val() || 'm/d/Y',
+                value_map:      valueMap,
             };
         });
 

@@ -273,6 +273,36 @@
     border-left: 3px solid #e65100;
 }
 
+/* Value-map sub-row ------------------------------------------------------- */
+.fcrm-value-map-row td {
+    background: #f9f9fc;
+    border-top: 1px dashed #c8d0e7;
+    padding: 10px 16px !important;
+}
+.fcrm-value-map-container {
+    max-width: 680px;
+}
+.fcrm-value-map-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 6px;
+}
+.fcrm-value-map-table th {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: #666;
+    padding: 4px 8px;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+}
+.fcrm-value-map-table td {
+    vertical-align: middle;
+}
+.fcrm-vm-select {
+    min-width: 200px;
+}
+
 /* Pagination -------------------------------------------------------------- */
 #fcrm-mismatch-pagination {
     display: flex;

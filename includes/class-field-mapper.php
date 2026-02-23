@@ -9,16 +9,17 @@
  * [
  *   'id'               => 'map_abc123',
  *   'wp_field_key'     => 'first_name',
- *   'wp_field_source'  => 'user' | 'meta' | 'acf',
+ *   'wp_field_source'  => 'user' | 'meta' | 'acf' | 'pmp',
  *   'wp_field_label'   => 'First Name',
  *   'fcrm_field_key'   => 'first_name',
  *   'fcrm_field_source'=> 'default' | 'custom',
  *   'fcrm_field_label' => 'First Name',
- *   'field_type'       => 'text' | 'date' | 'checkbox' | 'number' | 'email' | 'textarea',
+ *   'field_type'       => 'text' | 'select' | 'date' | 'checkbox' | 'number' | 'email' | 'textarea',
  *   'sync_direction'   => 'both' | 'wp_to_fcrm' | 'fcrm_to_wp',
  *   'enabled'          => true,
  *   'date_format_wp'   => 'm/d/Y',   // ACF return format for date pickers
  *   'date_format_fcrm' => 'Y-m-d',   // FluentCRM always uses Y-m-d
+ *   'value_map'        => [ 'wp_value' => 'fcrm_value', ... ],  // select/radio value translation
  * ]
  */
 
@@ -32,13 +33,29 @@ class FCRM_WP_Sync_Field_Mapper {
 
     /**
      * Well-known WP_User object properties (not in user_meta).
+     * Fields with 'readonly' => true can only sync WP → FluentCRM (never written back).
      */
     private static array $wp_user_object_fields = [
+        'ID'                => 'User ID (WP ID)',
         'user_login'        => 'Username (user_login)',
         'user_email'        => 'Email (user_email)',
         'user_url'          => 'Website (user_url)',
         'display_name'      => 'Display Name',
         'user_registered'   => 'Registration Date (user_registered)',
+    ];
+
+    /**
+     * PMPro billing address meta keys stored in wp_usermeta (pmpro_b* prefix).
+     * Exposed as explicit named fields rather than raw DB-discovered meta keys.
+     */
+    private static array $pmp_billing_meta_fields = [
+        'pmpro_baddress1' => 'PMPro Billing Address Line 1',
+        'pmpro_baddress2' => 'PMPro Billing Address Line 2',
+        'pmpro_bcity'     => 'PMPro Billing City',
+        'pmpro_bstate'    => 'PMPro Billing State',
+        'pmpro_bzipcode'  => 'PMPro Billing Postal Code',
+        'pmpro_bcountry'  => 'PMPro Billing Country',
+        'pmpro_bphone'    => 'PMPro Billing Phone',
     ];
 
     /**
@@ -61,12 +78,20 @@ class FCRM_WP_Sync_Field_Mapper {
         $fields = [];
 
         // 1. WP_User object properties
+        $user_obj_readonly = [ 'ID', 'user_login' ]; // immutable or should never be written back
         foreach ( self::$wp_user_object_fields as $key => $label ) {
+            $type = 'text';
+            if ( $key === 'user_registered' ) {
+                $type = 'date';
+            } elseif ( $key === 'ID' ) {
+                $type = 'number';
+            }
             $fields[ 'user__' . $key ] = [
-                'key'    => $key,
-                'source' => 'user',
-                'label'  => $label,
-                'type'   => $key === 'user_registered' ? 'date' : 'text',
+                'key'      => $key,
+                'source'   => 'user',
+                'label'    => $label,
+                'type'     => $type,
+                'readonly' => in_array( $key, $user_obj_readonly, true ),
             ];
         }
 
@@ -107,34 +132,51 @@ class FCRM_WP_Sync_Field_Mapper {
 
         // 5. Paid Memberships Pro fields (if PMPro is active)
         if ( function_exists( 'pmpro_getMembershipLevelForUser' ) ) {
+            // 5a. Level/date fields — read from pmpro_getMembershipLevelForUser()
             $pmp_fields = [
                 'pmp__startdate'  => [
-                    'key'    => 'startdate',
-                    'source' => 'pmp',
-                    'label'  => 'PMP Join Date',
-                    'type'   => 'date',
+                    'key'      => 'startdate',
+                    'source'   => 'pmp',
+                    'label'    => 'PMPro Join Date',
+                    'type'     => 'date',
+                    'readonly' => true,
                 ],
                 'pmp__enddate'    => [
-                    'key'    => 'enddate',
-                    'source' => 'pmp',
-                    'label'  => 'PMP Expiration / Renewal Date',
-                    'type'   => 'date',
+                    'key'      => 'enddate',
+                    'source'   => 'pmp',
+                    'label'    => 'PMPro Expiration / Renewal Date',
+                    'type'     => 'date',
+                    'readonly' => true,
                 ],
                 'pmp__level_name' => [
-                    'key'    => 'level_name',
-                    'source' => 'pmp',
-                    'label'  => 'PMP Level Name',
-                    'type'   => 'text',
+                    'key'      => 'level_name',
+                    'source'   => 'pmp',
+                    'label'    => 'PMPro Level Name',
+                    'type'     => 'text',
+                    'readonly' => true,
                 ],
                 'pmp__level_id'   => [
-                    'key'    => 'level_id',
-                    'source' => 'pmp',
-                    'label'  => 'PMP Level ID',
-                    'type'   => 'number',
+                    'key'      => 'level_id',
+                    'source'   => 'pmp',
+                    'label'    => 'PMPro Level ID',
+                    'type'     => 'number',
+                    'readonly' => true,
                 ],
             ];
             foreach ( $pmp_fields as $uid => $field ) {
                 $fields[ $uid ] = $field;
+            }
+
+            // 5b. Billing address fields — stored in wp_usermeta (pmpro_b* keys).
+            //     Read/write like normal user meta; exposed here with human labels
+            //     so they can be mapped directly to FluentCRM address fields.
+            foreach ( self::$pmp_billing_meta_fields as $meta_key => $label ) {
+                $fields[ 'pmp_addr__' . $meta_key ] = [
+                    'key'    => $meta_key,
+                    'source' => 'meta',
+                    'label'  => $label,
+                    'type'   => 'text',
+                ];
             }
         }
 
@@ -153,15 +195,26 @@ class FCRM_WP_Sync_Field_Mapper {
                 continue;
             }
             foreach ( $acf_fields as $field ) {
+                $sync_type = $this->map_acf_type_to_sync_type( $field['type'] );
+
+                // Collect options for select/radio fields from ACF 'choices'
+                $options = [];
+                if ( in_array( $field['type'], [ 'select', 'radio' ], true ) && ! empty( $field['choices'] ) ) {
+                    foreach ( $field['choices'] as $value => $label ) {
+                        $options[] = [ 'value' => (string) $value, 'label' => (string) $label ];
+                    }
+                }
+
                 $result[] = [
-                    'key'    => $field['name'],
-                    'source' => 'acf',
-                    'label'  => $field['label'] . ' (ACF)',
-                    'type'   => $this->map_acf_type_to_sync_type( $field['type'] ),
+                    'key'            => $field['name'],
+                    'source'         => 'acf',
+                    'label'          => $field['label'] . ' (ACF)',
+                    'type'           => $sync_type,
                     'acf_key'        => $field['key'],
                     'acf_field_type' => $field['type'],
                     // Store ACF date return format when applicable
                     'date_format_wp' => $field['return_format'] ?? 'm/d/Y',
+                    'options'        => $options,
                 ];
             }
         }
@@ -177,8 +230,8 @@ class FCRM_WP_Sync_Field_Mapper {
             'date_time_picker' => 'date',
             'time_picker'      => 'text',
             'checkbox'         => 'checkbox',
-            'radio'            => 'text',
-            'select'           => 'text',
+            'radio'            => 'select',
+            'select'           => 'select',
             'number'           => 'number',
             'email'            => 'email',
             'textarea'         => 'textarea',
@@ -204,10 +257,16 @@ class FCRM_WP_Sync_Field_Mapper {
              LIMIT 300"
         );
 
-        // Filter out ACF internal key prefixes and other WP internals
-        return array_filter( $keys, function ( $k ) {
+        // Filter out ACF internal key prefixes and other WP internals.
+        // Also skip PMPro billing meta keys — they are exposed explicitly in get_wp_fields().
+        $pmp_billing_keys = array_keys( self::$pmp_billing_meta_fields );
+
+        return array_filter( $keys, function ( $k ) use ( $pmp_billing_keys ) {
             if ( strpos( $k, 'field_' ) === 0 ) {
                 return false; // ACF field keys
+            }
+            if ( in_array( $k, $pmp_billing_keys, true ) ) {
+                return false; // Explicitly listed under PMPro billing address section
             }
             $skip = [
                 'wp_capabilities', 'wp_user_level', 'wp_user-settings',
@@ -273,12 +332,31 @@ class FCRM_WP_Sync_Field_Mapper {
                 if ( empty( $cf['slug'] ) ) {
                     continue;
                 }
+                $fcrm_type = $cf['type'] ?? 'text';
+                $sync_type = $this->map_fcrm_type_to_sync_type( $fcrm_type );
+
+                // Normalise FluentCRM options to [ ['value'=>'...', 'label'=>'...'], ... ]
+                $options = [];
+                if ( ! empty( $cf['options'] ) && is_array( $cf['options'] ) ) {
+                    foreach ( $cf['options'] as $opt ) {
+                        if ( is_array( $opt ) ) {
+                            $options[] = [
+                                'value' => (string) ( $opt['value'] ?? $opt['label'] ?? '' ),
+                                'label' => (string) ( $opt['label'] ?? $opt['value'] ?? '' ),
+                            ];
+                        } else {
+                            // Scalar option — treat as both value and label
+                            $options[] = [ 'value' => (string) $opt, 'label' => (string) $opt ];
+                        }
+                    }
+                }
+
                 $fields[ 'custom__' . $cf['slug'] ] = [
                     'key'     => $cf['slug'],
                     'source'  => 'custom',
                     'label'   => ( $cf['label'] ?? $cf['slug'] ) . ' (custom)',
-                    'type'    => $this->map_fcrm_type_to_sync_type( $cf['type'] ?? 'text' ),
-                    'options' => $cf['options'] ?? [],
+                    'type'    => $sync_type,
+                    'options' => $options,
                 ];
             }
         }
@@ -295,8 +373,8 @@ class FCRM_WP_Sync_Field_Mapper {
             'date_time' => 'date',
             'number'    => 'number',
             'checkbox'  => 'checkbox',
-            'select'    => 'text',
-            'radio'     => 'text',
+            'select'    => 'select',
+            'radio'     => 'select',
             'textarea'  => 'textarea',
         ];
         return $map[ $fcrm_type ] ?? 'text';
