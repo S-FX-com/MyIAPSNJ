@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'FCRM_WP_SYNC_VERSION', '1.0.0' );
+define( 'FCRM_WP_SYNC_VERSION', '1.1.0' );
 define( 'FCRM_WP_SYNC_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'FCRM_WP_SYNC_URL',     plugin_dir_url( __FILE__ ) );
 define( 'FCRM_WP_SYNC_FILE',    __FILE__ );
