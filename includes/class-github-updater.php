@@ -259,10 +259,9 @@ class FCRM_WP_Sync_Github_Updater {
 	/**
 	 * Process the manual update-check request.
 	 *
-	 * Flushes the cached release data and the WordPress update_plugins
-	 * transient so that WordPress performs a fresh check immediately.
-	 * Redirects back to plugins.php with a result query arg so the
-	 * admin notice can be shown.
+	 * Makes a direct HTTP call so we can distinguish failure modes
+	 * (network error / no releases published / rate-limited / up-to-date)
+	 * before redirecting back with a specific result param.
 	 *
 	 * Hooked to: admin_init
 	 */
@@ -277,22 +276,42 @@ class FCRM_WP_Sync_Github_Updater {
 			wp_die( esc_html__( 'You do not have permission to do that.', 'fcrm-wp-sync' ) );
 		}
 
-		// Bust the cached release data so get_release_data() hits GitHub fresh.
+		// Flush caches so we always hit GitHub fresh.
 		self::flush_cache();
-
-		// Also delete WordPress's own update_plugins transient so it re-runs
-		// check_for_update() immediately on the next page load.
 		delete_site_transient( 'update_plugins' );
 
-		// Fetch the latest release now so the result is ready for the notice.
-		$release = $this->get_release_data();
-		$result  = 'fail';
+		// Direct HTTP request — gives us the raw status code for better error messages.
+		$api_url  = sprintf(
+			'https://api.github.com/repos/%s/%s/releases/latest',
+			self::GITHUB_USER,
+			self::GITHUB_REPO
+		);
+		$response = wp_remote_get(
+			$api_url,
+			[
+				'headers' => [
+					'Accept'     => 'application/vnd.github.v3+json',
+					'User-Agent' => 'WordPress/' . get_bloginfo( 'version' ) . '; ' . home_url(),
+				],
+				'timeout' => 10,
+			]
+		);
 
-		if ( $release ) {
-			$remote = $this->tag_to_version( $release['tag_name'] );
-			if ( version_compare( $remote, $this->current_version, '>' ) ) {
+		if ( is_wp_error( $response ) ) {
+			$result = 'network_error';
+		} else {
+			$code = (int) wp_remote_retrieve_response_code( $response );
+			$data = json_decode( wp_remote_retrieve_body( $response ), true );
+
+			if ( 404 === $code || empty( $data['tag_name'] ) ) {
+				$result = 'no_releases';
+			} elseif ( 200 !== $code ) {
+				$result = 'api_error';
+			} elseif ( version_compare( $this->tag_to_version( $data['tag_name'] ), $this->current_version, '>' ) ) {
+				set_transient( self::TRANSIENT_KEY, $data, 6 * HOUR_IN_SECONDS );
 				$result = 'update_available';
 			} else {
+				set_transient( self::TRANSIENT_KEY, $data, 6 * HOUR_IN_SECONDS );
 				$result = 'up_to_date';
 			}
 		}
@@ -339,8 +358,18 @@ class FCRM_WP_Sync_Github_Updater {
 				$class = 'notice-success';
 				break;
 
-			default:
-				$message = esc_html__( 'FluentCRM WP Sync: could not reach GitHub to check for updates. Please try again later.', 'fcrm-wp-sync' );
+			case 'no_releases':
+				$message = esc_html__( 'FluentCRM WP Sync: no releases have been published on GitHub yet.', 'fcrm-wp-sync' );
+				$class   = 'notice-info';
+				break;
+
+			case 'network_error':
+				$message = esc_html__( 'FluentCRM WP Sync: could not connect to GitHub. Please check that your server allows outbound HTTPS requests and try again.', 'fcrm-wp-sync' );
+				$class   = 'notice-error';
+				break;
+
+			default: // api_error
+				$message = esc_html__( 'FluentCRM WP Sync: GitHub returned an unexpected response. Please try again later.', 'fcrm-wp-sync' );
 				$class   = 'notice-error';
 				break;
 		}
