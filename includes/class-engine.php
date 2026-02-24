@@ -19,8 +19,13 @@ class FCRM_WP_Sync_Engine {
     /** @var FCRM_WP_Sync_Field_Mapper */
     private FCRM_WP_Sync_Field_Mapper $mapper;
 
-    /** Re-entrancy guard: true while a sync is in progress. */
-    private bool $syncing = false;
+    /**
+     * Re-entrancy guards — kept separate so that a WP→FCRM sync does not
+     * suppress the FCRM→WP hook that FluentCRM fires synchronously during
+     * createOrUpdate(), and vice-versa.
+     */
+    private bool $syncing_to_fcrm = false;
+    private bool $syncing_to_wp   = false;
 
     // -----------------------------------------------------------------------
     public static function get_instance(): self {
@@ -54,8 +59,12 @@ class FCRM_WP_Sync_Engine {
             add_action( 'delete_user',    [ $this, 'on_user_delete' ], 10 );
         }
         if ( ! empty( $settings['sync_on_fcrm_update'] ) ) {
+            // New-style hooks (FluentCRM 2.x+)
             add_action( 'fluent_crm/contact_created', [ $this, 'on_fcrm_contact_saved' ], 20 );
             add_action( 'fluent_crm/contact_updated', [ $this, 'on_fcrm_contact_saved' ], 20 );
+            // Legacy hooks fired by the FluentCRM UI in older versions
+            add_action( 'fluentcrm_contact_created', [ $this, 'on_fcrm_contact_saved' ], 20 );
+            add_action( 'fluentcrm_contact_updated', [ $this, 'on_fcrm_contact_saved' ], 20 );
         }
     }
 
@@ -64,14 +73,14 @@ class FCRM_WP_Sync_Engine {
     // -----------------------------------------------------------------------
 
     public function on_user_register( int $user_id ): void {
-        if ( $this->syncing ) {
+        if ( $this->syncing_to_wp ) {
             return;
         }
         $this->sync_wp_to_fcrm( $user_id );
     }
 
     public function on_profile_update( int $user_id ): void {
-        if ( $this->syncing ) {
+        if ( $this->syncing_to_wp ) {
             return;
         }
         $this->sync_wp_to_fcrm( $user_id );
@@ -82,7 +91,7 @@ class FCRM_WP_Sync_Engine {
      * We schedule a single sync via shutdown action.
      */
     public function on_user_meta_updated( int $meta_id, int $user_id, string $meta_key, $meta_value ): void {
-        if ( $this->syncing ) {
+        if ( $this->syncing_to_wp ) {
             return;
         }
         // Only respond to meta keys we actually have mapped
@@ -95,7 +104,7 @@ class FCRM_WP_Sync_Engine {
         if ( empty( $scheduled[ $user_id ] ) ) {
             $scheduled[ $user_id ] = true;
             add_action( 'shutdown', function () use ( $user_id ) {
-                if ( ! $this->syncing ) {
+                if ( ! $this->syncing_to_wp ) {
                     $this->sync_wp_to_fcrm( $user_id );
                 }
             } );
@@ -116,9 +125,15 @@ class FCRM_WP_Sync_Engine {
     // -----------------------------------------------------------------------
 
     public function on_fcrm_contact_saved( Subscriber $subscriber ): void {
-        if ( $this->syncing ) {
+        if ( $this->syncing_to_fcrm ) {
             return;
         }
+        // Deduplicate: multiple hooks (legacy + new) may fire for the same save.
+        static $processed = [];
+        if ( ! empty( $processed[ $subscriber->id ] ) ) {
+            return;
+        }
+        $processed[ $subscriber->id ] = true;
         $this->sync_fcrm_to_wp( $subscriber );
     }
 
@@ -133,7 +148,7 @@ class FCRM_WP_Sync_Engine {
      * @return Subscriber|WP_Error|null
      */
     public function sync_wp_to_fcrm( int $user_id, array $field_ids = [] ) {
-        $this->syncing = true;
+        $this->syncing_to_fcrm = true;
         try {
             $user_info = get_userdata( $user_id );
             if ( ! $user_info ) {
@@ -195,7 +210,7 @@ class FCRM_WP_Sync_Engine {
             return $contact;
 
         } finally {
-            $this->syncing = false;
+            $this->syncing_to_fcrm = false;
         }
     }
 
@@ -209,7 +224,7 @@ class FCRM_WP_Sync_Engine {
      * @param Subscriber $subscriber
      */
     public function sync_fcrm_to_wp( Subscriber $subscriber, array $field_ids = [] ): void {
-        $this->syncing = true;
+        $this->syncing_to_wp = true;
         try {
             $user_id = $subscriber->user_id;
             if ( ! $user_id ) {
@@ -222,10 +237,10 @@ class FCRM_WP_Sync_Engine {
                 $mappings = array_filter( $mappings, fn( $m ) => in_array( $m['id'] ?? '', $field_ids, true ) );
             }
             $custom_fields = $subscriber->custom_fields();
-            $wp_user_data  = []; // for wp_update_user()
+            $wp_user_data  = [];
 
             foreach ( $mappings as $mapping ) {
-                if ( ! in_array( $mapping['sync_direction'], [ 'both', 'fcrm_to_wp' ], true ) ) {
+                if ( ! in_array( $mapping['sync_direction'] ?? '', [ 'both', 'fcrm_to_wp' ], true ) ) {
                     continue;
                 }
 
@@ -258,7 +273,7 @@ class FCRM_WP_Sync_Engine {
             }
 
         } finally {
-            $this->syncing = false;
+            $this->syncing_to_wp = false;
         }
     }
 
@@ -557,35 +572,25 @@ class FCRM_WP_Sync_Engine {
     /**
      * Checkbox / multi-select conversion.
      *
-     * FluentCRM stores checkbox values as JSON arrays.
-     * ACF returns PHP arrays.
+     * FluentCRM's createOrUpdate() API expects a plain PHP array for checkbox/
+     * multiselect custom fields — it handles serialisation internally.
+     * ACF also returns and expects PHP arrays, so both directions use arrays.
      */
     private function format_checkbox( $value, string $direction ) {
-        if ( $direction === 'to_fcrm' ) {
-            if ( is_array( $value ) ) {
-                return wp_json_encode( $value );
-            }
-            if ( is_string( $value ) ) {
-                $decoded = json_decode( $value, true );
-                return wp_json_encode( $decoded !== null ? $decoded : ( $value !== '' ? [ $value ] : [] ) );
-            }
-            return wp_json_encode( [] );
-        }
-
-        // to_wp (ACF expects a plain PHP array)
+        // Normalise any incoming value to a PHP array first.
         if ( is_array( $value ) ) {
-            return $value;
+            return array_values( $value );
         }
-        if ( is_string( $value ) ) {
+        if ( is_string( $value ) && $value !== '' ) {
             $decoded = json_decode( $value, true );
             if ( $decoded !== null ) {
-                return (array) $decoded;
+                return array_values( (array) $decoded );
             }
             $unserialized = maybe_unserialize( $value );
             if ( is_array( $unserialized ) ) {
-                return $unserialized;
+                return array_values( $unserialized );
             }
-            return $value !== '' ? [ $value ] : [];
+            return [ $value ];
         }
         return [];
     }
@@ -649,6 +654,6 @@ class FCRM_WP_Sync_Engine {
      * Whether the engine is currently mid-sync (used externally for debugging).
      */
     public function is_syncing(): bool {
-        return $this->syncing;
+        return $this->syncing_to_fcrm || $this->syncing_to_wp;
     }
 }
