@@ -263,6 +263,73 @@ class FCRM_WP_Sync_Engine {
     }
 
     // -----------------------------------------------------------------------
+    // Preview: read current values for all active mappings for one user
+    // -----------------------------------------------------------------------
+
+    /**
+     * Return both WP-side and FluentCRM-side values for every active mapping
+     * for the given WordPress user.  Used by the Sample Data Preview feature.
+     *
+     * @param int $user_id
+     * @return array[]  [ [ 'id', 'wp_label', 'fcrm_label', 'direction', 'wp_value', 'fcrm_value', 'match' ], … ]
+     */
+    public function get_field_values_for_user( int $user_id ): array {
+        $user_info = get_userdata( $user_id );
+        if ( ! $user_info ) {
+            return [];
+        }
+
+        $mappings = $this->mapper->get_active_mappings();
+        if ( empty( $mappings ) ) {
+            return [];
+        }
+
+        // Try to find a linked FluentCRM contact.
+        $contact       = null;
+        $custom_fields = [];
+        if ( class_exists( '\FluentCrm\App\Models\Subscriber' ) ) {
+            $found = \FluentCrm\App\Models\Subscriber::where( 'user_id', $user_id )->first();
+            if ( $found instanceof \FluentCrm\App\Models\Subscriber ) {
+                $contact       = $found;
+                $custom_fields = $contact->custom_fields() ?: [];
+            }
+        }
+
+        $rows = [];
+        foreach ( $mappings as $mapping ) {
+            // WP side
+            $wp_raw = $this->get_wp_field_value( $user_id, $user_info, $mapping );
+
+            // FluentCRM side
+            $fcrm_raw = null;
+            if ( $contact ) {
+                $fcrm_key = $mapping['fcrm_field_key'];
+                if ( ( $mapping['fcrm_field_source'] ?? 'default' ) === 'custom' ) {
+                    $fcrm_raw = $custom_fields[ $fcrm_key ] ?? null;
+                } else {
+                    $fcrm_raw = $contact->{ $fcrm_key } ?? null;
+                }
+            }
+
+            // Flatten arrays/objects to a readable string.
+            $wp_display   = is_array( $wp_raw )   ? implode( ', ', $wp_raw )   : (string) ( $wp_raw   ?? '' );
+            $fcrm_display = is_array( $fcrm_raw ) ? implode( ', ', $fcrm_raw ) : (string) ( $fcrm_raw ?? '' );
+
+            $rows[] = [
+                'id'         => $mapping['id'] ?? '',
+                'wp_label'   => $mapping['wp_field_label']   ?? $mapping['wp_field_key'],
+                'fcrm_label' => $mapping['fcrm_field_label'] ?? $mapping['fcrm_field_key'],
+                'direction'  => $mapping['sync_direction'] ?? 'both',
+                'wp_value'   => $wp_display,
+                'fcrm_value' => $fcrm_display,
+                'match'      => $wp_display === $fcrm_display,
+            ];
+        }
+
+        return $rows;
+    }
+
+    // -----------------------------------------------------------------------
     // Field value getters / setters
     // -----------------------------------------------------------------------
 
