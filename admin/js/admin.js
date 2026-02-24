@@ -108,6 +108,16 @@
                 $typeSelect.val(detected);
             }
         }
+        // Auto-fill the WP date format when type becomes 'date'.
+        if ($typeSelect.val() === 'date') {
+            var $fmtInput = $row.find('.fcrm-date-format-wp');
+            // Prefer the ACF-provided format stored on the option, then fall
+            // back to the site's date_format setting passed from PHP.
+            var wpFmt = $row.find('.fcrm-wp-field option:selected').data('date-format') || '';
+            if (!$fmtInput.val() || $fmtInput.val() === 'm/d/Y') {
+                $fmtInput.val(wpFmt || (fcrmWpSync.dateFormat || 'm/d/Y'));
+            }
+        }
         toggleDateFormatWrap($row);
         toggleValueMapRow($row);
     }
@@ -345,8 +355,131 @@
     });
 
     // =========================================================================
+    // Sample Data Preview (Field Mapping page)
+    // =========================================================================
+
+    var $previewInput   = $('#fcrm-preview-user-input');
+    var $previewLoad    = $('#fcrm-preview-load');
+    var $previewSuggs   = $('#fcrm-user-suggestions');
+    var $previewResults = $('#fcrm-preview-results');
+    var selectedUserId  = 0;
+    var searchTimer;
+
+    // Debounced user search autocomplete
+    $previewInput.on('input', function () {
+        clearTimeout(searchTimer);
+        var q = $(this).val().trim();
+        selectedUserId = 0;
+        $previewLoad.prop('disabled', true);
+
+        if (q.length < 2) {
+            $previewSuggs.hide().empty();
+            return;
+        }
+
+        searchTimer = setTimeout(function () {
+            $.post(ajaxUrl, {
+                action: 'fcrm_wp_sync_search_users',
+                nonce:  nonce,
+                query:  q,
+            }).done(function (resp) {
+                $previewSuggs.empty();
+                if (!resp.success || !resp.data.length) {
+                    $previewSuggs.hide();
+                    return;
+                }
+                $.each(resp.data, function (i, u) {
+                    $('<div class="fcrm-user-suggestion-item"></div>')
+                        .text(u.label)
+                        .attr('data-id', u.id)
+                        .appendTo($previewSuggs);
+                });
+                $previewSuggs.show();
+            });
+        }, 300);
+    });
+
+    // Pick a suggestion
+    $previewSuggs.on('click', '.fcrm-user-suggestion-item', function () {
+        selectedUserId = parseInt($(this).data('id'), 10);
+        $previewInput.val($(this).text());
+        $previewSuggs.hide().empty();
+        $previewLoad.prop('disabled', false);
+    });
+
+    // Dismiss suggestions on outside click
+    $(document).on('click', function (e) {
+        if (!$(e.target).closest('.fcrm-user-search-wrap').length) {
+            $previewSuggs.hide();
+        }
+    });
+
+    // Load preview data
+    $previewLoad.on('click', function () {
+        if (!selectedUserId) { return; }
+        $previewResults.show().html('<p>' + i18n.loading + '</p>');
+
+        $.post(ajaxUrl, {
+            action:  'fcrm_wp_sync_sample_data',
+            nonce:   nonce,
+            user_id: selectedUserId,
+        }).done(function (resp) {
+            if (!resp.success) {
+                $previewResults.html('<p class="fcrm-error">' + i18n.error + '</p>');
+                return;
+            }
+            var d   = resp.data;
+            var html = '<div class="fcrm-preview-user-info">'
+                + '<strong>' + $('<span>').text(d.user.display_name).html() + '</strong>'
+                + ' &lt;' + $('<span>').text(d.user.email).html() + '&gt;'
+                + ' <span class="fcrm-preview-uid">#' + d.user.id + '</span>'
+                + '</div>';
+
+            if (!d.rows.length) {
+                html += '<p>' + i18n.noMappings + '</p>';
+            } else {
+                html += '<table class="widefat fcrm-preview-table striped"><thead><tr>'
+                    + '<th>' + i18n.previewWpField   + '</th>'
+                    + '<th>' + i18n.previewWpVal     + '</th>'
+                    + '<th>' + i18n.previewFcrmField  + '</th>'
+                    + '<th>' + i18n.previewFcrmVal   + '</th>'
+                    + '<th>' + i18n.previewMatch     + '</th>'
+                    + '</tr></thead><tbody>';
+
+                $.each(d.rows, function (i, row) {
+                    var matchCell = row.match
+                        ? '<td class="fcrm-match-yes">&#10003;</td>'
+                        : '<td class="fcrm-match-no">&#10007;</td>';
+                    html += '<tr>'
+                        + '<td>' + $('<span>').text(row.wp_label).html()   + '</td>'
+                        + '<td class="fcrm-preview-value">'  + $('<span>').text(row.wp_value   || '—').html() + '</td>'
+                        + '<td>' + $('<span>').text(row.fcrm_label).html() + '</td>'
+                        + '<td class="fcrm-preview-value">'  + $('<span>').text(row.fcrm_value || '—').html() + '</td>'
+                        + matchCell
+                        + '</tr>';
+                });
+
+                html += '</tbody></table>';
+            }
+            $previewResults.html(html);
+        }).fail(function () {
+            $previewResults.html('<p class="fcrm-error">' + i18n.error + '</p>');
+        });
+    });
+
+    // =========================================================================
     // Sync & Settings page
     // =========================================================================
+
+    // --- Field selection toggles ---
+    $('#fcrm-field-sel-all').on('click', function (e) {
+        e.preventDefault();
+        $('.fcrm-field-sel-cb').prop('checked', true);
+    });
+    $('#fcrm-field-sel-none').on('click', function (e) {
+        e.preventDefault();
+        $('.fcrm-field-sel-cb').prop('checked', false);
+    });
 
     // --- Bulk Sync ---
     function runBulkSync(direction) {
@@ -364,14 +497,22 @@
         var synced  = 0;
         var errList = [];
 
+        var fieldIds = $('.fcrm-field-sel-cb:checked').map(function () {
+            return $(this).val();
+        }).get();
+
         function doPage() {
-            $.post(ajaxUrl, {
+            var payload = {
                 action:    'fcrm_wp_sync_bulk_sync',
                 nonce:     nonce,
                 direction: direction,
                 per_page:  perPage,
                 offset:    offset,
-            })
+            };
+            if (fieldIds.length) {
+                payload['field_ids[]'] = fieldIds;
+            }
+            $.post(ajaxUrl, payload)
             .done(function (resp) {
                 if (!resp.success) {
                     $status.text(i18n.error);

@@ -43,6 +43,8 @@ class FCRM_WP_Sync_Admin {
         add_action( 'wp_ajax_fcrm_wp_sync_resolve_mismatch', [ $this, 'ajax_resolve_mismatch' ] );
         add_action( 'wp_ajax_fcrm_wp_sync_get_mismatches',   [ $this, 'ajax_get_mismatches' ] );
         add_action( 'wp_ajax_fcrm_wp_sync_save_pmp_settings', [ $this, 'ajax_save_pmp_settings' ] );
+        add_action( 'wp_ajax_fcrm_wp_sync_search_users',     [ $this, 'ajax_search_users' ] );
+        add_action( 'wp_ajax_fcrm_wp_sync_sample_data',      [ $this, 'ajax_sample_data' ] );
     }
 
     // -----------------------------------------------------------------------
@@ -135,16 +137,24 @@ class FCRM_WP_Sync_Admin {
             'nonce'     => wp_create_nonce( 'fcrm_wp_sync_nonce' ),
             'restUrl'   => rest_url( 'fcrm-wp-sync/v1' ),
             'restNonce' => wp_create_nonce( 'wp_rest' ),
+            'dateFormat' => get_option( 'date_format', 'm/d/Y' ),
             'i18n'      => [
-                'saving'        => __( 'Saving…', 'fcrm-wp-sync' ),
-                'saved'         => __( 'Saved!', 'fcrm-wp-sync' ),
-                'error'         => __( 'Error. Please try again.', 'fcrm-wp-sync' ),
-                'syncing'       => __( 'Syncing…', 'fcrm-wp-sync' ),
-                'syncDone'      => __( 'Sync complete.', 'fcrm-wp-sync' ),
-                'resolving'     => __( 'Resolving…', 'fcrm-wp-sync' ),
-                'resolved'      => __( 'Resolved!', 'fcrm-wp-sync' ),
-                'confirmDelete' => __( 'Remove this mapping row?', 'fcrm-wp-sync' ),
-                'loading'       => __( 'Loading…', 'fcrm-wp-sync' ),
+                'saving'           => __( 'Saving…', 'fcrm-wp-sync' ),
+                'saved'            => __( 'Saved!', 'fcrm-wp-sync' ),
+                'error'            => __( 'Error. Please try again.', 'fcrm-wp-sync' ),
+                'syncing'          => __( 'Syncing…', 'fcrm-wp-sync' ),
+                'syncDone'         => __( 'Sync complete.', 'fcrm-wp-sync' ),
+                'resolving'        => __( 'Resolving…', 'fcrm-wp-sync' ),
+                'resolved'         => __( 'Resolved!', 'fcrm-wp-sync' ),
+                'confirmDelete'    => __( 'Remove this mapping row?', 'fcrm-wp-sync' ),
+                'loading'          => __( 'Loading…', 'fcrm-wp-sync' ),
+                'noMappings'       => __( 'No active mappings to preview.', 'fcrm-wp-sync' ),
+                'noFluentCRM'      => __( 'No linked FluentCRM contact found for this user.', 'fcrm-wp-sync' ),
+                'previewWpField'   => __( 'WordPress Field', 'fcrm-wp-sync' ),
+                'previewWpVal'     => __( 'WP Value', 'fcrm-wp-sync' ),
+                'previewFcrmField' => __( 'FluentCRM Field', 'fcrm-wp-sync' ),
+                'previewFcrmVal'   => __( 'FCRM Value', 'fcrm-wp-sync' ),
+                'previewMatch'     => __( 'Match?', 'fcrm-wp-sync' ),
             ],
         ] );
     }
@@ -221,6 +231,30 @@ class FCRM_WP_Sync_Admin {
             <script id="fcrm-fcrm-fields-data" type="application/json">
                 <?php echo wp_json_encode( array_values( $fcrm_fields ) ); ?>
             </script>
+
+            <!-- Sample Data Preview -->
+            <div class="fcrm-section" id="fcrm-preview-section" style="margin-top:28px">
+                <h2><?php esc_html_e( 'Sample Data Preview', 'fcrm-wp-sync' ); ?></h2>
+                <p class="description">
+                    <?php esc_html_e( 'Select a WordPress user to preview how their data currently sits in both WordPress and FluentCRM, side by side.', 'fcrm-wp-sync' ); ?>
+                </p>
+
+                <div class="fcrm-preview-search">
+                    <div class="fcrm-user-search-wrap">
+                        <input type="text"
+                               id="fcrm-preview-user-input"
+                               class="regular-text"
+                               placeholder="<?php esc_attr_e( 'Search by name, email or username…', 'fcrm-wp-sync' ); ?>"
+                               autocomplete="off">
+                        <div id="fcrm-user-suggestions" class="fcrm-user-suggestions" style="display:none"></div>
+                    </div>
+                    <button id="fcrm-preview-load" class="button button-primary" disabled>
+                        <?php esc_html_e( 'Preview Data', 'fcrm-wp-sync' ); ?>
+                    </button>
+                </div>
+
+                <div id="fcrm-preview-results" style="display:none; margin-top:16px"></div>
+            </div>
         </div>
         <?php
     }
@@ -253,14 +287,16 @@ class FCRM_WP_Sync_Admin {
         foreach ( $wp_fields as $uid => $f ) {
             $selected    = ( $f['key'] === $wp_key && $f['source'] === $wp_src ) ? ' selected' : '';
             $is_readonly = ! empty( $f['readonly'] ) ? 1 : 0;
-            $options_json = wp_json_encode( $f['options'] ?? [] );
+            $options_json  = wp_json_encode( $f['options'] ?? [] );
+            $date_fmt_attr = esc_attr( $f['date_format_wp'] ?? '' );
             printf(
-                '<option value="%s" data-type="%s" data-label="%s" data-readonly="%d" data-options="%s"%s>%s</option>',
+                '<option value="%s" data-type="%s" data-label="%s" data-readonly="%d" data-options="%s" data-date-format="%s"%s>%s</option>',
                 esc_attr( $uid ),
                 esc_attr( $f['type'] ),
                 esc_attr( $f['label'] ),
                 $is_readonly,
                 esc_attr( $options_json ),
+                $date_fmt_attr,
                 $selected,
                 esc_html( $f['label'] )
             );
@@ -371,12 +407,13 @@ class FCRM_WP_Sync_Admin {
             wp_die( esc_html__( 'Insufficient permissions.', 'fcrm-wp-sync' ) );
         }
 
-        $settings    = get_option( 'fcrm_wp_sync_settings', [] );
-        $last_sync   = get_option( 'fcrm_wp_sync_last_bulk_sync', '' );
-        $total_users = count_users()['total_users'];
-        $total_fcrm  = class_exists( '\FluentCrm\App\Models\Subscriber' )
+        $settings       = get_option( 'fcrm_wp_sync_settings', [] );
+        $last_sync      = get_option( 'fcrm_wp_sync_last_bulk_sync', '' );
+        $total_users    = count_users()['total_users'];
+        $total_fcrm     = class_exists( '\FluentCrm\App\Models\Subscriber' )
             ? \FluentCrm\App\Models\Subscriber::count()
             : 0;
+        $active_mappings = $this->mapper->get_active_mappings();
 
         ?>
         <div class="wrap fcrm-sync-wrap">
@@ -404,6 +441,43 @@ class FCRM_WP_Sync_Admin {
             <div class="fcrm-section">
                 <h2><?php esc_html_e( 'Bulk Sync', 'fcrm-wp-sync' ); ?></h2>
                 <p><?php esc_html_e( 'Sync all records in batch. Large sites may take several minutes. The operation runs in pages to avoid timeouts.', 'fcrm-wp-sync' ); ?></p>
+
+                <?php if ( ! empty( $active_mappings ) ) : ?>
+                <div class="fcrm-field-selection">
+                    <div class="fcrm-field-selection-header">
+                        <strong><?php esc_html_e( 'Fields to sync', 'fcrm-wp-sync' ); ?></strong>
+                        <span class="fcrm-field-sel-toggle">
+                            <a href="#" id="fcrm-field-sel-all"><?php esc_html_e( 'All', 'fcrm-wp-sync' ); ?></a>
+                            &nbsp;/&nbsp;
+                            <a href="#" id="fcrm-field-sel-none"><?php esc_html_e( 'None', 'fcrm-wp-sync' ); ?></a>
+                        </span>
+                    </div>
+                    <div class="fcrm-field-selection-list">
+                        <?php foreach ( $active_mappings as $mapping ) : ?>
+                            <?php
+                            $map_id    = esc_attr( $mapping['id'] );
+                            $wp_label  = esc_html( $mapping['wp_field_label']   ?? $mapping['wp_field_key'] );
+                            $crm_label = esc_html( $mapping['fcrm_field_label'] ?? $mapping['fcrm_field_key'] );
+                            $dir_map   = [
+                                'both'       => '↔',
+                                'wp_to_fcrm' => '→',
+                                'fcrm_to_wp' => '←',
+                            ];
+                            $dir_icon = $dir_map[ $mapping['sync_direction'] ?? 'both' ] ?? '↔';
+                            ?>
+                            <label class="fcrm-field-sel-item">
+                                <input type="checkbox"
+                                       class="fcrm-field-sel-cb"
+                                       name="field_ids[]"
+                                       value="<?php echo $map_id; ?>"
+                                       checked>
+                                <span class="fcrm-field-sel-dir"><?php echo esc_html( $dir_icon ); ?></span>
+                                <?php echo $wp_label; ?> &rarr; <?php echo $crm_label; ?>
+                            </label>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+                <?php endif; ?>
 
                 <div class="fcrm-bulk-controls">
                     <button id="fcrm-bulk-wp-to-fcrm" class="button button-primary">
@@ -650,6 +724,12 @@ class FCRM_WP_Sync_Admin {
         $per_page  = max( 1, (int) ( $_POST['per_page'] ?? 50 ) );               // phpcs:ignore
         $offset    = max( 0, (int) ( $_POST['offset']   ?? 0  ) );               // phpcs:ignore
 
+        // Optional field-ID filter: empty array means "sync all fields".
+        $raw_ids   = isset( $_POST['field_ids'] ) && is_array( $_POST['field_ids'] ) // phpcs:ignore
+            ? $_POST['field_ids']  // phpcs:ignore
+            : [];
+        $field_ids = array_map( 'sanitize_text_field', $raw_ids );
+
         $engine    = FCRM_WP_Sync_Engine::get_instance();
         $success   = [];
         $errors    = [];
@@ -663,7 +743,7 @@ class FCRM_WP_Sync_Admin {
             ] );
             foreach ( $users as $user ) {
                 try {
-                    $engine->sync_wp_to_fcrm( $user->ID );
+                    $engine->sync_wp_to_fcrm( $user->ID, $field_ids );
                     $success[] = $user->ID;
                 } catch ( \Throwable $e ) {
                     $errors[] = [ 'id' => $user->ID, 'error' => $e->getMessage() ];
@@ -677,7 +757,7 @@ class FCRM_WP_Sync_Admin {
                 ->get();
             foreach ( $contacts as $contact ) {
                 try {
-                    $engine->sync_fcrm_to_wp( $contact );
+                    $engine->sync_fcrm_to_wp( $contact, $field_ids );
                     $success[] = $contact->user_id;
                 } catch ( \Throwable $e ) {
                     $errors[] = [ 'id' => $contact->id, 'error' => $e->getMessage() ];
@@ -941,5 +1021,72 @@ class FCRM_WP_Sync_Admin {
         update_option( 'fcrm_wp_sync_pmp_tag_mappings', $clean_mappings );
 
         wp_send_json_success( [ 'levels' => count( $clean_mappings ) ] );
+    }
+
+    // -----------------------------------------------------------------------
+    // AJAX: user search autocomplete (for Sample Data Preview)
+    // -----------------------------------------------------------------------
+
+    public function ajax_search_users(): void {
+        check_ajax_referer( 'fcrm_wp_sync_nonce', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Insufficient permissions', 403 );
+        }
+
+        $query = sanitize_text_field( $_POST['query'] ?? '' ); // phpcs:ignore
+        if ( strlen( $query ) < 2 ) {
+            wp_send_json_success( [] );
+        }
+
+        $users = get_users( [
+            'search'         => '*' . $query . '*',
+            'search_columns' => [ 'user_login', 'user_email', 'display_name' ],
+            'number'         => 10,
+            'fields'         => [ 'ID', 'user_login', 'user_email', 'display_name' ],
+        ] );
+
+        $result = [];
+        foreach ( $users as $u ) {
+            $result[] = [
+                'id'    => (int) $u->ID,
+                'label' => $u->display_name . ' (' . $u->user_email . ')',
+                'email' => $u->user_email,
+            ];
+        }
+
+        wp_send_json_success( $result );
+    }
+
+    // -----------------------------------------------------------------------
+    // AJAX: sample data preview
+    // -----------------------------------------------------------------------
+
+    public function ajax_sample_data(): void {
+        check_ajax_referer( 'fcrm_wp_sync_nonce', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Insufficient permissions', 403 );
+        }
+
+        $user_id = (int) ( $_POST['user_id'] ?? 0 ); // phpcs:ignore
+        if ( ! $user_id ) {
+            wp_send_json_error( __( 'Invalid user ID.', 'fcrm-wp-sync' ) );
+        }
+
+        $user = get_userdata( $user_id );
+        if ( ! $user ) {
+            wp_send_json_error( __( 'User not found.', 'fcrm-wp-sync' ) );
+        }
+
+        $engine = FCRM_WP_Sync_Engine::get_instance();
+        $rows   = $engine->get_field_values_for_user( $user_id );
+
+        wp_send_json_success( [
+            'user' => [
+                'id'           => $user->ID,
+                'display_name' => $user->display_name,
+                'email'        => $user->user_email,
+            ],
+            'rows' => $rows,
+        ] );
     }
 }
