@@ -313,6 +313,16 @@ class FCRM_WP_Sync_Mismatch_Detector {
                 // so createOrUpdate() can still find the contact by the existing
                 // (lookup) email rather than the new (WP) email.
                 if ( $fcrm_key === 'email' && $subscriber ) {
+                    // Guard against a UNIQUE constraint violation: if another
+                    // subscriber already owns the target email address (e.g. a
+                    // duplicate contact created before this fix), skip the update
+                    // rather than throwing a SQL duplicate-entry error.
+                    $conflict = Subscriber::where( 'email', $value )
+                        ->where( 'id', '!=', $subscriber->id )
+                        ->first();
+                    if ( $conflict instanceof Subscriber ) {
+                        return false;
+                    }
                     $subscriber->email = $value;
                     $subscriber->save();
                     return true;
