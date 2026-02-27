@@ -3,7 +3,7 @@
  * Plugin Name:       FluentCRM WordPress Sync
  * Plugin URI:        https://github.com/S-FX-com/WP-FluentCRM-Sync
  * Description:       Bidirectional sync between FluentCRM contacts and WordPress users with configurable field mapping, ACF support, and mismatch resolution.
- * Version:           1.5.5
+ * Version:           1.6
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Requires Plugins:  fluent-crm
