@@ -397,8 +397,13 @@ class FCRM_WP_Sync_Mismatch_Detector {
 
         switch ( $type ) {
             case 'date':
-                $ts = strtotime( (string) $value );
-                return $ts !== false ? date( 'Y-m-d', $ts ) : (string) $value;
+                // Delegate to the engine's format-aware date normaliser so that
+                // ACF's raw Ymd values, configured WP formats (m/d/Y, d/m/Y,
+                // etc.), and FluentCRM's Y-m-d strings all resolve to the same
+                // canonical Y-m-d form — preventing false-positive mismatches
+                // caused by strtotime() treating m/d/Y and d/m/Y differently.
+                $normalised = $this->engine->normalize_date( (string) $value, $mapping );
+                return $normalised !== '' ? $normalised : (string) $value;
 
             case 'checkbox':
                 if ( is_string( $value ) ) {
@@ -431,6 +436,20 @@ class FCRM_WP_Sync_Mismatch_Detector {
         if ( $value === null || $value === '' ) {
             return '(empty)';
         }
+
+        if ( $type === 'date' ) {
+            // Always show dates in a consistent, unambiguous human-readable form
+            // (e.g. "Jan 7, 2025") regardless of whether the raw value is in
+            // Ymd (ACF), Y-m-d (FluentCRM), m/d/Y, d/m/Y, or another format.
+            $str = (string) $value;
+            // Compact Ymd (ACF raw storage)
+            if ( is_numeric( $str ) && strlen( $str ) === 8 ) {
+                $str = substr( $str, 0, 4 ) . '-' . substr( $str, 4, 2 ) . '-' . substr( $str, 6, 2 );
+            }
+            $ts = strtotime( $str );
+            return $ts !== false ? date( 'M j, Y', $ts ) : (string) $value;
+        }
+
         if ( $type === 'checkbox' && is_string( $value ) ) {
             $decoded = json_decode( $value, true );
             if ( is_array( $decoded ) ) {

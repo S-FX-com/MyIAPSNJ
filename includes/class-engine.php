@@ -416,7 +416,12 @@ class FCRM_WP_Sync_Engine {
 
             case 'acf':
                 if ( function_exists( 'get_field' ) ) {
-                    return get_field( $key, 'user_' . $user_id );
+                    // For date fields, skip ACF's Return Format formatting and
+                    // fetch the raw stored value (Ymd, e.g. "20250107").  This
+                    // avoids strtotime() ambiguity between m/d/Y and d/m/Y — the
+                    // compact 8-digit form is always unambiguous.
+                    $raw_for_date = ( ( $mapping['field_type'] ?? 'text' ) === 'date' );
+                    return get_field( $key, 'user_' . $user_id, ! $raw_for_date ) ?: null;
                 }
                 // Fallback to user_meta
                 return get_user_meta( $user_id, $key, true ) ?: null;
@@ -584,7 +589,7 @@ class FCRM_WP_Sync_Engine {
      *
      * Returns '' when the value cannot be parsed.
      */
-    private function normalize_date( string $value, array $mapping ): string {
+    public function normalize_date( string $value, array $mapping ): string {
         if ( $value === '' ) {
             return '';
         }
