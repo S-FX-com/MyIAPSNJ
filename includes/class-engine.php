@@ -27,6 +27,18 @@ class FCRM_WP_Sync_Engine {
     private bool $syncing_to_fcrm = false;
     private bool $syncing_to_wp   = false;
 
+    /**
+     * Allow the mismatch resolver (or other callers) to activate / deactivate
+     * the re-entrancy guards from outside the normal sync methods.
+     */
+    public function set_syncing_to_fcrm( bool $state ): void {
+        $this->syncing_to_fcrm = $state;
+    }
+
+    public function set_syncing_to_wp( bool $state ): void {
+        $this->syncing_to_wp = $state;
+    }
+
     // -----------------------------------------------------------------------
     public static function get_instance(): self {
         if ( null === self::$instance ) {
@@ -602,21 +614,34 @@ class FCRM_WP_Sync_Engine {
             return '';
         }
 
-        // 1. Compact YYYYMMDD
+        // 1. Compact YYYYMMDD (ACF raw storage format)
         if ( is_numeric( $value ) && strlen( $value ) === 8 ) {
             $iso = substr( $value, 0, 4 ) . '-' . substr( $value, 4, 2 ) . '-' . substr( $value, 6, 2 );
             $ts  = strtotime( $iso );
             return $ts !== false ? date( 'Y-m-d', $ts ) : '';
         }
 
-        // 2. Parse using the known WP format (avoids strtotime() locale ambiguity)
-        $wp_fmt = $mapping['date_format_wp'] ?? 'Y-m-d';
-        $date   = \DateTime::createFromFormat( $wp_fmt, $value );
-        if ( $date && $date->format( $wp_fmt ) === $value ) {
-            return $date->format( 'Y-m-d' );
+        // 2. Try canonical Y-m-d FIRST — this is the format used by FluentCRM
+        //    and by our own acf_date_to_ymd() converter.  Checking this before
+        //    the WP format prevents a value like "2019-08-01" from accidentally
+        //    matching a WP pattern and being misinterpreted.
+        $date = \DateTime::createFromFormat( 'Y-m-d', $value );
+        if ( $date && $date->format( 'Y-m-d' ) === $value ) {
+            return $value;
         }
 
-        // 3. Fallback — handles Y-m-d from FluentCRM and other unambiguous formats
+        // 3. Parse using the known WP format (avoids strtotime() locale ambiguity)
+        $wp_fmt = $mapping['date_format_wp'] ?? 'Y-m-d';
+        if ( $wp_fmt !== 'Y-m-d' ) {
+            $date = \DateTime::createFromFormat( $wp_fmt, $value );
+            if ( $date && $date->format( $wp_fmt ) === $value ) {
+                return $date->format( 'Y-m-d' );
+            }
+        }
+
+        // 4. Fallback — handles other unambiguous formats via strtotime().
+        //    Note: strtotime() treats "/" as US m/d/Y which can swap month/day
+        //    for d/m/Y values.  Steps 2-3 above should catch those cases.
         $ts = strtotime( $value );
         return $ts !== false ? date( 'Y-m-d', $ts ) : '';
     }
