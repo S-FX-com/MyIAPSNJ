@@ -666,6 +666,19 @@ class FCRM_WP_Sync_Engine {
     }
 
     /**
+     * Convenience: normalize only if the mapping is a date field.
+     * Used by the mismatch-resolver verification step to compare values
+     * that may be in different surface formats (Ymd vs Y-m-d vs m/d/Y).
+     */
+    public function normalize_date_if_date( string $value, array $mapping ): string {
+        if ( ( $mapping['field_type'] ?? 'text' ) === 'date' && $value !== '' ) {
+            $canonical = $this->normalize_date( $value, $mapping );
+            return $canonical !== '' ? $canonical : $value;
+        }
+        return $value;
+    }
+
+    /**
      * Convert an ACF-formatted date string to canonical Y-m-d.
      *
      * ACF's get_field() returns dates formatted per the field's "Return
