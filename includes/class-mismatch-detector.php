@@ -169,8 +169,8 @@ class FCRM_WP_Sync_Mismatch_Detector {
                     'mapping_id'  => $mapping['id'] ?? '',
                     'field_label' => $this->get_label( $mapping ),
                     'field_type'  => $mapping['field_type'] ?? 'text',
-                    'wp_value'    => $this->display_value( $wp_raw,   $mapping['field_type'] ?? 'text' ),
-                    'fcrm_value'  => $this->display_value( $fcrm_raw, $mapping['field_type'] ?? 'text' ),
+                    'wp_value'    => $this->display_value( $wp_raw,   $mapping['field_type'] ?? 'text', $mapping ),
+                    'fcrm_value'  => $this->display_value( $fcrm_raw, $mapping['field_type'] ?? 'text', $mapping ),
                 ];
             }
         }
@@ -325,11 +325,28 @@ class FCRM_WP_Sync_Mismatch_Detector {
             return false;
         }
 
+        // Activate sync guards so that the automatic hook-based sync does not
+        // immediately re-sync stale data on top of the value we are about to
+        // write.  Without these guards the FluentCRM contact_updated hook (or
+        // the WP updated_user_meta hook) would fire and overwrite the corrected
+        // value with the old one before we even return.
+        $this->engine->set_syncing_to_fcrm( true );
+        $this->engine->set_syncing_to_wp( true );
+
+        try {
+            return $this->do_resolve_field( $user_id, $wp_user, $mapping, $direction );
+        } finally {
+            $this->engine->set_syncing_to_fcrm( false );
+            $this->engine->set_syncing_to_wp( false );
+        }
+    }
+
+    /**
+     * Internal implementation of single-field resolution (called inside sync guards).
+     */
+    private function do_resolve_field( int $user_id, \WP_User $wp_user, array $mapping, string $direction ): bool {
         if ( $direction === 'use_wp' ) {
             // Push the WP value to FluentCRM.
-            // Use createOrUpdate() (same path as the main engine) to avoid calling
-            // methods directly on a model object that may be a Builder in some
-            // FluentCRM versions.
             $raw   = $this->engine->get_wp_field_value( $user_id, $wp_user, $mapping );
             $value = $this->engine->format_value(
                 $raw,
@@ -346,10 +363,20 @@ class FCRM_WP_Sync_Mismatch_Detector {
             // email differs from the linked FluentCRM subscriber's email.
             $subscriber   = $this->find_subscriber_for_user( $wp_user );
             $lookup_email = $subscriber ? $subscriber->email : $wp_user->user_email;
-            $data         = [ 'email' => $lookup_email ];
 
             if ( ( $mapping['fcrm_field_source'] ?? 'default' ) === 'custom' ) {
-                $data['custom_values'] = [ $fcrm_key => $value ];
+                // Write custom field values directly on the subscriber model so
+                // the update is guaranteed to persist.  createOrUpdate() does not
+                // always propagate custom_values for existing contacts reliably.
+                if ( $subscriber ) {
+                    $existing = $subscriber->custom_fields();
+                    $existing[ $fcrm_key ] = $value;
+                    $subscriber->custom_fields = $existing;
+                    $subscriber->save();
+                } else {
+                    $data = [ 'email' => $lookup_email, 'custom_values' => [ $fcrm_key => $value ] ];
+                    FluentCrmApi( 'contacts' )->createOrUpdate( $data );
+                }
             } else {
                 // For the email field itself, update the subscriber model directly
                 // so createOrUpdate() can still find the contact by the existing
@@ -369,10 +396,9 @@ class FCRM_WP_Sync_Mismatch_Detector {
                     $subscriber->save();
                     return true;
                 }
-                $data[ $fcrm_key ] = $value;
+                $data = [ 'email' => $lookup_email, $fcrm_key => $value ];
+                FluentCrmApi( 'contacts' )->createOrUpdate( $data );
             }
-
-            FluentCrmApi( 'contacts' )->createOrUpdate( $data );
             return true;
         }
 
@@ -474,22 +500,22 @@ class FCRM_WP_Sync_Mismatch_Detector {
         return $a !== $b;
     }
 
-    private function display_value( $value, string $type ): string {
+    private function display_value( $value, string $type, array $mapping = [] ): string {
         if ( $value === null || $value === '' ) {
             return '(empty)';
         }
 
         if ( $type === 'date' ) {
-            // Always show dates in a consistent, unambiguous human-readable form
-            // (e.g. "Jan 7, 2025") regardless of whether the raw value is in
-            // Ymd (ACF), Y-m-d (FluentCRM), m/d/Y, d/m/Y, or another format.
-            $str = (string) $value;
-            // Compact Ymd (ACF raw storage)
-            if ( is_numeric( $str ) && strlen( $str ) === 8 ) {
-                $str = substr( $str, 0, 4 ) . '-' . substr( $str, 4, 2 ) . '-' . substr( $str, 6, 2 );
+            // Use the engine's format-aware normaliser to convert the raw value
+            // to canonical Y-m-d first.  This avoids the ambiguity of
+            // strtotime() which treats "/" dates as US m/d/Y — producing the
+            // wrong result for d/m/Y formatted values.
+            $canonical = $this->engine->normalize_date( (string) $value, $mapping );
+            if ( $canonical !== '' ) {
+                $ts = strtotime( $canonical );
+                return $ts !== false ? date( 'M j, Y', $ts ) : (string) $value;
             }
-            $ts = strtotime( $str );
-            return $ts !== false ? date( 'M j, Y', $ts ) : (string) $value;
+            return (string) $value;
         }
 
         if ( $type === 'checkbox' && is_string( $value ) ) {
