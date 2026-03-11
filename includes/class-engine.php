@@ -519,6 +519,20 @@ class FCRM_WP_Sync_Engine {
 
             case 'acf':
                 if ( function_exists( 'update_field' ) ) {
+                    // ACF date pickers store dates internally in Ymd format
+                    // (e.g. "20190108").  Convert here so that the correct
+                    // value is persisted even when ACF's update_value filter
+                    // does not fire (field lookup can fail for user fields
+                    // during AJAX requests).
+                    if ( ( $mapping['field_type'] ?? 'text' ) === 'date' && $value !== '' && $value !== null ) {
+                        $canonical = $this->normalize_date( (string) $value, $mapping );
+                        if ( $canonical !== '' ) {
+                            $dt = \DateTime::createFromFormat( 'Y-m-d', $canonical );
+                            if ( $dt ) {
+                                $value = $dt->format( 'Ymd' );
+                            }
+                        }
+                    }
                     update_field( $key, $value, 'user_' . $user_id );
                 } else {
                     update_user_meta( $user_id, $key, $value );
