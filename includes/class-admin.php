@@ -258,15 +258,25 @@ class My_IAPSNJ_Admin {
                                     $this->render_mapping_row( $m, $wp_fields, $fcrm_fields );
                                 }
                             } else {
-                                // Synthetic mapping: FCRM side pre-set, WP side blank.
+                                // No saved mapping — auto-recommend a WP field.
+                                $rec_uid      = $this->mapper->get_recommended_wp_field(
+                                    $fcrm_field['key'],
+                                    $fcrm_field['type'],
+                                    $wp_fields
+                                );
+                                $rec_wp_field = $rec_uid ? ( $wp_fields[ $rec_uid ] ?? null ) : null;
                                 $this->render_mapping_row(
                                     [
                                         'fcrm_field_key'    => $fcrm_field['key'],
                                         'fcrm_field_source' => $fcrm_field['source'],
                                         'fcrm_field_label'  => $fcrm_field['label'],
+                                        'wp_field_key'      => $rec_wp_field ? $rec_wp_field['key']    : '',
+                                        'wp_field_source'   => $rec_wp_field ? $rec_wp_field['source'] : '',
+                                        'wp_field_label'    => $rec_wp_field ? $rec_wp_field['label']  : '',
                                         'field_type'        => $fcrm_field['type'],
                                         'sync_direction'    => 'both',
                                         'enabled'           => false,
+                                        'is_recommendation' => ! empty( $rec_uid ),
                                     ],
                                     $wp_fields,
                                     $fcrm_fields
@@ -343,6 +353,7 @@ class My_IAPSNJ_Admin {
         $date_fmt_wp  = $mapping['date_format_wp']     ?? 'm/d/Y';
         $value_map    = $mapping['value_map']          ?? [];
 
+        $is_recommendation = ! empty( $mapping['is_recommendation'] );
         $row_id = $is_template ? '__TEMPLATE__' : ( $id ?: My_IAPSNJ_Field_Mapper::generate_id() );
 
         // Human-readable labels used for hint text beneath each dropdown.
@@ -389,7 +400,9 @@ class My_IAPSNJ_Admin {
             return $sync_type_labels[ $f['type'] ] ?? ucfirst( $f['type'] );
         };
 
-        echo '<tr class="fcrm-mapping-row" data-id="' . esc_attr( $row_id ) . '">';
+        $row_class = 'fcrm-mapping-row' . ( $is_recommendation ? ' fcrm-row-suggested' : '' );
+        $row_data  = 'data-id="' . esc_attr( $row_id ) . '"' . ( $is_recommendation ? ' data-suggested="1"' : '' );
+        echo '<tr class="' . esc_attr( $row_class ) . '" ' . $row_data . '>';
 
         // --- Column 1: FluentCRM Field ---
         // Compute the initial hint text (JS will keep it live on change).
@@ -447,6 +460,9 @@ class My_IAPSNJ_Admin {
         }
 
         echo '<td>';
+        if ( $is_recommendation && $wp_uid_selected ) {
+            echo '<span class="fcrm-suggested-badge">' . esc_html__( 'Suggested', 'my-iapsnj' ) . '</span>';
+        }
         echo '<select class="fcrm-wp-field" name="mappings[' . esc_attr( $row_id ) . '][wp_uid]">';
         echo '<option value="">' . esc_html__( '— Don\'t map —', 'my-iapsnj' ) . '</option>';
         foreach ( $wp_fields as $uid => $f ) {

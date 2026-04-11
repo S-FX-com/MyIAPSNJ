@@ -413,6 +413,116 @@ class My_IAPSNJ_Field_Mapper {
     }
 
     // -----------------------------------------------------------------------
+    // Auto-recommendation
+    // -----------------------------------------------------------------------
+
+    /**
+     * Suggests the best-matching WordPress field UID for a given FluentCRM field.
+     *
+     * Strategy (applied in order, first hit wins):
+     *  1. Hard-coded IAPSNJ semantic aliases (e.g. FCRM "phone" → ACF "primary_phone").
+     *  2. Exact key match (same string, any source) — prefers ACF > meta > user.
+     *  3. Normalized key match (lowercase, underscores stripped).
+     *  4. Suffix match: WP key ends with FCRM key or vice-versa.
+     *
+     * Returns a WP field UID string (e.g. "acf__primary_phone") or '' when no
+     * good match is found.
+     *
+     * @param string $fcrm_key   FluentCRM field slug.
+     * @param string $fcrm_type  Internal sync type (text, date, select, …).
+     * @param array  $wp_fields  Result of get_wp_fields().
+     * @return string WP field UID or empty string.
+     */
+    public function get_recommended_wp_field( string $fcrm_key, string $fcrm_type, array $wp_fields ): string {
+
+        // ---- 1. IAPSNJ semantic aliases ----------------------------------------
+        // Maps FCRM field slug → preferred WP field UID.
+        // Entries are tried only when the UID actually exists in $wp_fields.
+        $aliases = [
+            'email'           => 'user__user_email',
+            'first_name'      => 'meta__first_name',
+            'last_name'       => 'meta__last_name',
+            'phone'           => 'acf__primary_phone',
+            'address_line_1'  => 'acf__address',
+            'address_line_2'  => 'acf__address2',
+            'city'            => 'acf__city',
+            'state'           => 'acf__state',
+            'postal_code'     => 'acf__zip_code',
+            'date_of_birth'   => 'acf__date_of_birth',
+            'gender'          => 'acf__gender',
+            'prefix'          => 'acf__prefix',
+            'country'         => 'acf__country',
+        ];
+
+        if ( isset( $aliases[ $fcrm_key ] ) ) {
+            $preferred = $aliases[ $fcrm_key ];
+            if ( isset( $wp_fields[ $preferred ] ) ) {
+                return $preferred;
+            }
+            // Alias exists but preferred source not found — fall through to key match.
+        }
+
+        // ---- Build source-priority index of WP fields -------------------------
+        // Priority: ACF (0) > meta (1) > user object (2) > pmp (3)
+        $source_priority = [ 'acf' => 0, 'meta' => 1, 'user' => 2, 'pmp' => 3 ];
+
+        // Index by exact key (multiple sources possible).
+        $by_key = [];
+        // Index by normalized key.
+        $by_norm = [];
+
+        foreach ( $wp_fields as $uid => $f ) {
+            $key  = $f['key'];
+            $norm = strtolower( str_replace( [ '_', '-', ' ' ], '', $key ) );
+            $prio = $source_priority[ $f['source'] ] ?? 9;
+
+            $entry = [ 'uid' => $uid, 'prio' => $prio, 'field' => $f ];
+
+            $by_key[ $key ][] = $entry;
+            if ( ! isset( $by_norm[ $norm ] ) ) {
+                $by_norm[ $norm ] = [];
+            }
+            $by_norm[ $norm ][] = $entry;
+        }
+
+        $best = static function ( array $candidates ): string {
+            usort( $candidates, fn( $a, $b ) => $a['prio'] - $b['prio'] );
+            return $candidates[0]['uid'];
+        };
+
+        // ---- 2. Exact key match -----------------------------------------------
+        if ( isset( $by_key[ $fcrm_key ] ) ) {
+            return $best( $by_key[ $fcrm_key ] );
+        }
+
+        // ---- 3. Normalized key match ------------------------------------------
+        $fcrm_norm = strtolower( str_replace( [ '_', '-', ' ' ], '', $fcrm_key ) );
+        if ( isset( $by_norm[ $fcrm_norm ] ) ) {
+            return $best( $by_norm[ $fcrm_norm ] );
+        }
+
+        // ---- 4. Suffix / prefix match (partial) ------------------------------
+        $candidates = [];
+        foreach ( $by_norm as $norm => $entries ) {
+            if (
+                str_ends_with( $norm, $fcrm_norm ) ||
+                str_ends_with( $fcrm_norm, $norm ) ||
+                str_starts_with( $norm, $fcrm_norm ) ||
+                str_starts_with( $fcrm_norm, $norm )
+            ) {
+                foreach ( $entries as $e ) {
+                    $candidates[] = $e;
+                }
+            }
+        }
+        if ( ! empty( $candidates ) ) {
+            return $best( $candidates );
+        }
+
+        return '';
+    }
+
+    // -----------------------------------------------------------------------
     // IAPSNJ default field mappings seed
     // -----------------------------------------------------------------------
 
