@@ -3,7 +3,7 @@
  * Plugin Name:       FluentCRM WordPress Sync
  * Plugin URI:        https://github.com/S-FX-com/WP-FluentCRM-Sync
  * Description:       Bidirectional sync between FluentCRM contacts and WordPress users with configurable field mapping, ACF support, and mismatch resolution.
- * Version:           1.7.7
+ * Version:           1.8.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Requires Plugins:  fluent-crm
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'FCRM_WP_SYNC_VERSION', '1.7.7' );
+define( 'FCRM_WP_SYNC_VERSION', '1.8.0' );
 define( 'FCRM_WP_SYNC_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'FCRM_WP_SYNC_URL',     plugin_dir_url( __FILE__ ) );
 define( 'FCRM_WP_SYNC_FILE',    __FILE__ );
@@ -83,6 +83,7 @@ final class FCRM_WP_Sync_Plugin {
         // Boot PMPro integration only when Paid Memberships Pro is active.
         if ( function_exists( 'pmpro_getMembershipLevelForUser' ) ) {
             FCRM_WP_Sync_PMP_Integration::get_instance();
+            add_action( 'fcrm_wp_sync_pmp_expiry_cron', [ 'FCRM_WP_Sync_PMP_Integration', 'run_expiry_cron' ] );
         }
     }
 
@@ -112,9 +113,22 @@ final class FCRM_WP_Sync_Plugin {
         if ( get_option( 'fcrm_wp_sync_pmp_tag_mappings' ) === false ) {
             add_option( 'fcrm_wp_sync_pmp_tag_mappings', [] );
         }
+        if ( get_option( 'fcrm_wp_sync_pmp_expiry_cron_enabled' ) === false ) {
+            add_option( 'fcrm_wp_sync_pmp_expiry_cron_enabled', false );
+        }
+        if ( get_option( 'fcrm_wp_sync_pmp_expiry_last_sync' ) === false ) {
+            add_option( 'fcrm_wp_sync_pmp_expiry_last_sync', '' );
+        }
+        // Re-schedule the cron if it was already enabled (e.g. re-activation).
+        if ( get_option( 'fcrm_wp_sync_pmp_expiry_cron_enabled' ) ) {
+            if ( ! wp_next_scheduled( 'fcrm_wp_sync_pmp_expiry_cron' ) ) {
+                wp_schedule_event( time(), 'daily', 'fcrm_wp_sync_pmp_expiry_cron' );
+            }
+        }
     }
 
     public static function deactivate(): void {
-        // Intentionally keep data on deactivation.
+        // Clear the expiry cron on deactivation; data is preserved.
+        wp_clear_scheduled_hook( 'fcrm_wp_sync_pmp_expiry_cron' );
     }
 }

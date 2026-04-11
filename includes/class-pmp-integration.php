@@ -189,6 +189,122 @@ class FCRM_WP_Sync_PMP_Integration {
         return $level ? [ $level ] : [];
     }
 
+    /**
+     * Returns the "smart" expiration date for a PMPro member.
+     *
+     * Resolution order:
+     *  1. $level->enddate > 0  — fixed end date (non-recurring, or recurring with a
+     *     defined billing cycle end). This covers the vast majority of cases.
+     *  2. enddate = 0, recurring — look up the next scheduled payment date from the
+     *     user's most recent successful order via MemberOrder::getLastMemberOrder()
+     *     + pmpro_next_payment() (gateway-aware) or $order->next_payment_date
+     *     (direct property set by some gateways).
+     *  3. Truly unlimited / no date determinable — return null. The engine treats
+     *     null as "nothing to sync" and leaves the FluentCRM field unchanged.
+     *
+     * @param int    $user_id
+     * @param object $level   Already-resolved result of pmpro_getMembershipLevelForUser().
+     * @return string|null    Y-m-d, or null.
+     */
+    public static function get_smart_expiration_date( int $user_id, object $level ): ?string {
+        // Case 1: fixed end date.
+        if ( ! empty( $level->enddate ) && (int) $level->enddate > 0 ) {
+            return date( 'Y-m-d', (int) $level->enddate );
+        }
+
+        // Case 2: recurring with enddate = 0 — query the last order.
+        if ( ! class_exists( 'MemberOrder' ) ) {
+            return null;
+        }
+
+        $order = new MemberOrder();
+        $order->getLastMemberOrder( $user_id, 'success' );
+
+        if ( empty( $order->id ) ) {
+            return null;
+        }
+
+        // Try pmpro_next_payment() first — it queries the payment gateway for the
+        // next scheduled billing date. Third param false = use cached/local data only.
+        if ( function_exists( 'pmpro_next_payment' ) ) {
+            $next_ts = pmpro_next_payment( $order, 'timestamp', false );
+            if ( $next_ts && (int) $next_ts > 0 ) {
+                return date( 'Y-m-d', (int) $next_ts );
+            }
+        }
+
+        // Fallback: some gateways write next_payment_date directly on the order object.
+        if ( ! empty( $order->next_payment_date ) ) {
+            $ts = strtotime( $order->next_payment_date );
+            if ( false !== $ts && $ts > 0 ) {
+                return date( 'Y-m-d', $ts );
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * WP-Cron callback: sync expiration dates for all active PMPro members.
+     *
+     * Processes in batches of 50 to avoid memory exhaustion on large sites.
+     * Only runs if a pmp__expiration_date mapping is active.
+     */
+    public static function run_expiry_cron(): void {
+        if ( ! function_exists( 'pmpro_getMembershipLevelForUser' ) ) {
+            return;
+        }
+
+        global $wpdb;
+
+        $engine   = FCRM_WP_Sync_Engine::get_instance();
+        $mappings = $engine->get_mapper()->get_active_mappings();
+
+        $expiry_mapping_ids = [];
+        foreach ( $mappings as $m ) {
+            if ( ( $m['wp_field_key'] ?? '' ) === 'expiration_date'
+                && ( $m['wp_field_source'] ?? '' ) === 'pmp'
+            ) {
+                $expiry_mapping_ids[] = $m['id'];
+            }
+        }
+
+        if ( empty( $expiry_mapping_ids ) ) {
+            return;
+        }
+
+        $per_page = 50;
+        $offset   = 0;
+
+        do {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+            $user_ids = $wpdb->get_col( $wpdb->prepare(
+                "SELECT DISTINCT user_id FROM {$wpdb->prefix}pmpro_memberships_users
+                 WHERE status = 'active'
+                 ORDER BY user_id ASC
+                 LIMIT %d OFFSET %d",
+                $per_page,
+                $offset
+            ) );
+
+            if ( empty( $user_ids ) ) {
+                break;
+            }
+
+            foreach ( $user_ids as $user_id ) {
+                try {
+                    $engine->sync_wp_to_fcrm( (int) $user_id, $expiry_mapping_ids );
+                } catch ( \Throwable $e ) {
+                    error_log( 'FCRM WP Sync expiry cron error for user ' . $user_id . ': ' . $e->getMessage() );
+                }
+            }
+
+            $offset += $per_page;
+        } while ( count( $user_ids ) === $per_page );
+
+        update_option( 'fcrm_wp_sync_pmp_expiry_last_sync', current_time( 'mysql' ) );
+    }
+
     // -----------------------------------------------------------------------
     // Private helpers
     // -----------------------------------------------------------------------

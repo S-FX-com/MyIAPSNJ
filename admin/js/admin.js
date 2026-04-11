@@ -971,6 +971,145 @@
     });
 
     // =========================================================================
+    // PMP Integration — Expiration Date Sync
+    // =========================================================================
+
+    // Auto-Setup Mapping
+    $('#fcrm-pmp-setup-expiry-mapping').on('click', function () {
+        var $btn    = $(this);
+        var $notice = $('#fcrm-expiry-notice');
+
+        setBtn($btn, i18n.setupMapping || 'Setting up\u2026', true);
+        $notice.hide();
+
+        $.post(ajaxUrl, {
+            action: 'fcrm_wp_sync_pmp_setup_expiry_mapping',
+            nonce:  nonce,
+        })
+        .done(function (resp) {
+            if (resp.success) {
+                var msg = resp.data.already_existed
+                    ? (i18n.mappingExists || 'Mapping already exists.')
+                    : (i18n.mappingCreated || 'Mapping created successfully.');
+                showNotice($notice, msg, 'success');
+                // Mapping now exists — enable the bulk sync button.
+                $('#fcrm-pmp-bulk-expiry-sync').prop('disabled', false);
+            } else {
+                var errMsg = (resp.data && resp.data.message)
+                    ? resp.data.message
+                    : (i18n.fieldNotFound || 'FluentCRM expiration_date field not found.');
+                showNotice($notice, errMsg, 'error');
+            }
+        })
+        .fail(function () {
+            showNotice($notice, i18n.error, 'error');
+        })
+        .always(function () {
+            setBtn($btn, 'Auto-Setup Mapping', false);
+        });
+    });
+
+    // Bulk Expiry Sync
+    $('#fcrm-pmp-bulk-expiry-sync').on('click', function () {
+        var $btn          = $(this);
+        var $notice       = $('#fcrm-expiry-notice');
+        var $progressWrap = $('#fcrm-expiry-progress');
+        var $bar          = $('#fcrm-expiry-progress-bar');
+        var $status       = $('#fcrm-expiry-sync-status');
+
+        $btn.prop('disabled', true);
+        $progressWrap.show();
+        $bar.css('width', '0%');
+        $status.text(i18n.syncingExpiry || 'Syncing\u2026');
+        $notice.hide();
+
+        var perPage = 50;
+        var offset  = 0;
+        var total   = 0;
+        var synced  = 0;
+        var errList = [];
+
+        function doExpiryPage() {
+            $.post(ajaxUrl, {
+                action:   'fcrm_wp_sync_pmp_bulk_expiry_sync',
+                nonce:    nonce,
+                per_page: perPage,
+                offset:   offset,
+            })
+            .done(function (resp) {
+                if (!resp.success) {
+                    var errMsg = (resp.data && resp.data.message) ? resp.data.message : i18n.error;
+                    $status.text(errMsg);
+                    showNotice($notice, errMsg, 'error');
+                    $btn.prop('disabled', false);
+                    return;
+                }
+                var d = resp.data;
+                total   = d.total  || total;
+                synced += d.success || 0;
+                errList = errList.concat(d.errors || []);
+                offset  = d.next_offset;
+
+                var pct = total > 0 ? Math.min(100, Math.round(synced / total * 100)) : 100;
+                $bar.css('width', pct + '%');
+                $status.text((i18n.syncingExpiry || 'Syncing\u2026') + ' ' + synced + ' / ' + total);
+
+                if (d.has_more) {
+                    doExpiryPage();
+                } else {
+                    var msg = (i18n.syncExpiryDone || 'Sync complete.') + ' ' + synced + ' records synced.';
+                    if (errList.length) {
+                        msg += ' ' + errList.length + ' error(s).';
+                    }
+                    $status.text(msg);
+                    $bar.css('width', '100%');
+                    showNotice($notice, msg, 'success');
+                    $btn.prop('disabled', false);
+                }
+            })
+            .fail(function () {
+                $status.text(i18n.error);
+                showNotice($notice, i18n.error, 'error');
+                $btn.prop('disabled', false);
+            });
+        }
+
+        doExpiryPage();
+    });
+
+    // Save Cron Setting
+    $('#fcrm-pmp-save-expiry-cron').on('click', function () {
+        var $btn     = $(this);
+        var $notice  = $('#fcrm-expiry-notice');
+        var enabled  = $('#fcrm-pmp-expiry-cron-enabled').is(':checked') ? 1 : 0;
+
+        setBtn($btn, i18n.saving, true);
+
+        $.post(ajaxUrl, {
+            action:  'fcrm_wp_sync_pmp_save_expiry_cron',
+            nonce:   nonce,
+            enabled: enabled,
+        })
+        .done(function (resp) {
+            if (resp.success) {
+                var msg = resp.data.message || i18n.saved;
+                if (resp.data.next_run) {
+                    msg += ' ' + resp.data.next_run;
+                }
+                showNotice($notice, msg, 'success');
+            } else {
+                showNotice($notice, i18n.error, 'error');
+            }
+        })
+        .fail(function () {
+            showNotice($notice, i18n.error, 'error');
+        })
+        .always(function () {
+            setBtn($btn, 'Save Cron Setting', false);
+        });
+    });
+
+    // =========================================================================
     // Utilities
     // =========================================================================
 

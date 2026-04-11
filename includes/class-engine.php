@@ -466,6 +466,10 @@ class FCRM_WP_Sync_Engine {
                         return ! empty( $level->enddate )
                             ? date( 'Y-m-d', (int) $level->enddate )
                             : null;
+                    case 'expiration_date':
+                        // Smart field: uses enddate for non-recurring members, falls
+                        // back to next billing date for recurring members (enddate = 0).
+                        return FCRM_WP_Sync_PMP_Integration::get_smart_expiration_date( $user_id, $level );
                     case 'level_name':
                         return $level->name ?? null;
                     case 'level_id':
