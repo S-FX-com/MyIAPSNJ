@@ -1,10 +1,10 @@
-/* global fcrmWpSync, jQuery */
+/* global myIapsnj, jQuery */
 (function ($) {
     'use strict';
 
-    var nonce   = fcrmWpSync.nonce;
-    var ajaxUrl = fcrmWpSync.ajaxUrl;
-    var i18n    = fcrmWpSync.i18n;
+    var nonce   = myIapsnj.nonce;
+    var ajaxUrl = myIapsnj.ajaxUrl;
+    var i18n    = myIapsnj.i18n;
 
     // =========================================================================
     // Utility helpers
@@ -136,7 +136,7 @@
             // back to the site's date_format setting passed from PHP.
             var wpFmt = $row.find('.fcrm-wp-field option:selected').data('date-format') || '';
             if (!$fmtInput.val() || $fmtInput.val() === 'm/d/Y') {
-                $fmtInput.val(wpFmt || (fcrmWpSync.dateFormat || 'm/d/Y'));
+                $fmtInput.val(wpFmt || (myIapsnj.dateFormat || 'm/d/Y'));
             }
         }
         toggleDateFormatWrap($row);
@@ -362,7 +362,7 @@
         setBtn($btn, i18n.saving, true);
 
         $.post(ajaxUrl, {
-            action:   'fcrm_wp_sync_save_mappings',
+            action:   'my_iapsnj_save_mappings',
             nonce:    nonce,
             mappings: mappings,
         })
@@ -406,7 +406,7 @@
 
         searchTimer = setTimeout(function () {
             $.post(ajaxUrl, {
-                action: 'fcrm_wp_sync_search_users',
+                action: 'my_iapsnj_search_users',
                 nonce:  nonce,
                 query:  q,
             }).done(function (resp) {
@@ -447,7 +447,7 @@
         $previewResults.show().html('<p>' + i18n.loading + '</p>');
 
         $.post(ajaxUrl, {
-            action:  'fcrm_wp_sync_sample_data',
+            action:  'my_iapsnj_sample_data',
             nonce:   nonce,
             user_id: selectedUserId,
         }).done(function (resp) {
@@ -530,7 +530,7 @@
 
         function doPage() {
             var payload = {
-                action:    'fcrm_wp_sync_bulk_sync',
+                action:    'my_iapsnj_bulk_sync',
                 nonce:     nonce,
                 direction: direction,
                 per_page:  perPage,
@@ -586,7 +586,7 @@
         e.preventDefault();
         var $btn    = $(this).find('[type="submit"]');
         var $notice = $('#fcrm-settings-notice');
-        var data    = { action: 'fcrm_wp_sync_save_settings', nonce: nonce };
+        var data    = { action: 'my_iapsnj_save_settings', nonce: nonce };
 
         $(this).find('input[type="checkbox"]').each(function () {
             data[$(this).attr('name')] = $(this).is(':checked') ? 1 : 0;
@@ -644,7 +644,7 @@
         $resolveNotice.hide();
 
         $.post(ajaxUrl, {
-            action: 'fcrm_wp_sync_sync_all_empty',
+            action: 'my_iapsnj_sync_all_empty',
             nonce:  nonce,
         })
         .done(function (resp) {
@@ -677,7 +677,7 @@
         $status.text(i18n.loading);
 
         $.get(ajaxUrl, {
-            action:   'fcrm_wp_sync_get_mismatches',
+            action:   'my_iapsnj_get_mismatches',
             nonce:    nonce,
             page:     mismatchPage,
             per_page: 10,
@@ -825,7 +825,7 @@
         $row.next('.fcrm-resolve-log-row').remove();
 
         $.post(ajaxUrl, {
-            action:     'fcrm_wp_sync_resolve_mismatch',
+            action:     'my_iapsnj_resolve_mismatch',
             nonce:      nonce,
             user_id:    userId,
             mapping_id: mappingId,
@@ -863,7 +863,7 @@
         $btn.prop('disabled', true).text(i18n.resolving);
 
         $.post(ajaxUrl, {
-            action:    'fcrm_wp_sync_resolve_mismatch',
+            action:    'my_iapsnj_resolve_mismatch',
             nonce:     nonce,
             user_id:   userId,
             direction: direction,
@@ -899,7 +899,7 @@
         $btn.prop('disabled', true).text(i18n.resolving);
 
         $.post(ajaxUrl, {
-            action:  'fcrm_wp_sync_resolve_mismatch',
+            action:  'my_iapsnj_resolve_mismatch',
             nonce:   nonce,
             user_id: userId,
             scope:   'empty',
@@ -954,7 +954,7 @@
         setBtn($btn, i18n.saving, true);
 
         $.post(ajaxUrl, {
-            action:              'fcrm_wp_sync_save_pmp_settings',
+            action:              'my_iapsnj_save_pmp_settings',
             nonce:               nonce,
             sync_on_pmp_change:  syncOnChange,
             pmp_tag_mappings:    tagMappings,
@@ -983,7 +983,7 @@
         $notice.hide();
 
         $.post(ajaxUrl, {
-            action: 'fcrm_wp_sync_pmp_setup_expiry_mapping',
+            action: 'my_iapsnj_pmp_setup_expiry_mapping',
             nonce:  nonce,
         })
         .done(function (resp) {
@@ -1031,7 +1031,7 @@
 
         function doExpiryPage() {
             $.post(ajaxUrl, {
-                action:   'fcrm_wp_sync_pmp_bulk_expiry_sync',
+                action:   'my_iapsnj_pmp_bulk_expiry_sync',
                 nonce:    nonce,
                 per_page: perPage,
                 offset:   offset,
@@ -1086,7 +1086,7 @@
         setBtn($btn, i18n.saving, true);
 
         $.post(ajaxUrl, {
-            action:  'fcrm_wp_sync_pmp_save_expiry_cron',
+            action:  'my_iapsnj_pmp_save_expiry_cron',
             nonce:   nonce,
             enabled: enabled,
         })
@@ -1121,5 +1121,130 @@
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
     }
+
+    // =========================================================================
+    // CRM Assistant chat
+    // =========================================================================
+
+    var chatHistory = [];
+    var $chatWrap     = $('#my-iapsnj-chat-wrap');
+    var $chatHistory  = $('#my-iapsnj-chat-history');
+    var $chatInput    = $('#my-iapsnj-chat-input');
+    var $chatSend     = $('#my-iapsnj-chat-send');
+    var $toolLog      = $('#my-iapsnj-tool-log-content');
+
+    if ($chatWrap.length) {
+        $chatSend.on('click', function () {
+            sendChatMessage();
+        });
+
+        $chatInput.on('keydown', function (e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendChatMessage();
+            }
+        });
+    }
+
+    function sendChatMessage() {
+        var message = $.trim($chatInput.val());
+        if (!message) { return; }
+
+        appendChatBubble('user', message);
+        $chatInput.val('').focus();
+
+        var $typing = $('<div class="chat-bubble ai chat-typing"><span></span><span></span><span></span></div>');
+        $chatHistory.append($typing);
+        scrollChat();
+
+        $chatSend.prop('disabled', true);
+
+        $.post(ajaxUrl, {
+            action:  'my_iapsnj_crm_assistant_chat',
+            nonce:   nonce,
+            message: message,
+            history: JSON.stringify(chatHistory)
+        })
+        .done(function (res) {
+            $typing.remove();
+            if (res.success) {
+                var reply = res.data.reply || '(No response)';
+                appendChatBubble('ai', reply);
+                chatHistory.push({ role: 'user',      content: message });
+                chatHistory.push({ role: 'assistant',  content: reply });
+
+                if (res.data.tool_log && res.data.tool_log.length) {
+                    $.each(res.data.tool_log, function (_, entry) {
+                        var html = '<div class="tool-log-entry">';
+                        html += '<strong>' + escapeHtml(entry.tool) + '</strong>';
+                        html += '<pre>' + escapeHtml(JSON.stringify(entry.input, null, 2)) + '</pre>';
+                        html += '<pre>' + escapeHtml(JSON.stringify(entry.result, null, 2).substring(0, 500)) + '</pre>';
+                        html += '</div>';
+                        $toolLog.append(html);
+                    });
+                }
+            } else {
+                var errMsg = (res.data && res.data.message) ? res.data.message : (i18n.chatError || 'Error');
+                appendChatBubble('ai', errMsg);
+            }
+        })
+        .fail(function () {
+            $typing.remove();
+            appendChatBubble('ai', i18n.chatError || 'Error communicating with AI provider.');
+        })
+        .always(function () {
+            $chatSend.prop('disabled', false);
+        });
+    }
+
+    function appendChatBubble(role, text) {
+        var cls = 'chat-bubble ' + (role === 'user' ? 'user' : 'ai');
+        var $bubble = $('<div class="' + cls + '"></div>').text(text);
+        $chatHistory.append($bubble);
+        scrollChat();
+    }
+
+    function scrollChat() {
+        if ($chatHistory.length) {
+            $chatHistory.scrollTop($chatHistory[0].scrollHeight);
+        }
+    }
+
+    // =========================================================================
+    // AI Settings form (on Sync & Settings page)
+    // =========================================================================
+
+    $('#my-iapsnj-ai-settings-form').on('submit', function (e) {
+        e.preventDefault();
+        var $form   = $(this);
+        var $btn    = $form.find('button[type="submit"]');
+        var $aiNotice = $('#my-iapsnj-ai-settings-notice');
+
+        var data = {
+            action:            'my_iapsnj_save_settings',
+            nonce:             nonce,
+            ai_provider:       $form.find('[name="ai_provider"]').val(),
+            anthropic_api_key: $form.find('[name="anthropic_api_key"]').val(),
+            openai_api_key:    $form.find('[name="openai_api_key"]').val(),
+            gemini_api_key:    $form.find('[name="gemini_api_key"]').val()
+        };
+
+        setBtn($btn, i18n.saving, true);
+
+        $.post(ajaxUrl, data)
+            .done(function (res) {
+                if (res.success) {
+                    showNotice($aiNotice, i18n.saved, 'success');
+                } else {
+                    showNotice($aiNotice, i18n.error, 'error');
+                }
+            })
+            .fail(function () {
+                showNotice($aiNotice, i18n.error, 'error');
+            })
+            .always(function () {
+                setBtn($btn, 'Save AI Settings', false);
+            });
+    });
 
 }(jQuery));

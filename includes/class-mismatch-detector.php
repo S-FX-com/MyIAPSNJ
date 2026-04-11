@@ -1,44 +1,26 @@
 <?php
 /**
- * FCRM_WP_Sync_Mismatch_Detector
+ * My_IAPSNJ_Mismatch_Detector
  *
  * Compares WordPress user field values against FluentCRM contact field values
  * (for all active mappings) and reports any discrepancies.
- *
- * Mismatch record shape:
- * [
- *   'user_id'       => 42,
- *   'user_email'    => 'jane@example.com',
- *   'user_display'  => 'Jane Doe',
- *   'subscriber_id' => 17,
- *   'fields'        => [
- *     [
- *       'mapping_id'    => 'map_abc123',
- *       'field_label'   => 'Phone',
- *       'field_type'    => 'text',
- *       'wp_value'      => '555-0100',
- *       'fcrm_value'    => '555-0199',
- *     ],
- *     ...
- *   ],
- * ]
  */
 
 defined( 'ABSPATH' ) || exit;
 
 use FluentCrm\App\Models\Subscriber;
 
-class FCRM_WP_Sync_Mismatch_Detector {
+class My_IAPSNJ_Mismatch_Detector {
 
-    /** @var FCRM_WP_Sync_Field_Mapper */
-    private FCRM_WP_Sync_Field_Mapper $mapper;
+    /** @var My_IAPSNJ_Field_Mapper */
+    private My_IAPSNJ_Field_Mapper $mapper;
 
-    /** @var FCRM_WP_Sync_Engine */
-    private FCRM_WP_Sync_Engine $engine;
+    /** @var My_IAPSNJ_Engine */
+    private My_IAPSNJ_Engine $engine;
 
     public function __construct() {
-        $this->mapper = new FCRM_WP_Sync_Field_Mapper();
-        $this->engine = FCRM_WP_Sync_Engine::get_instance();
+        $this->mapper = new My_IAPSNJ_Field_Mapper();
+        $this->engine = My_IAPSNJ_Engine::get_instance();
     }
 
     // -----------------------------------------------------------------------
@@ -59,9 +41,6 @@ class FCRM_WP_Sync_Mismatch_Detector {
             return [ 'items' => [], 'total' => 0, 'pages' => 0 ];
         }
 
-        // Scan ALL users so that pagination is over mismatch *results*, not over
-        // raw user rows.  Without this, a page of 20 users that happen to all be
-        // in-sync would return 0 items even though later users have mismatches.
         $users     = get_users( [ 'fields' => 'all', 'number' => -1, 'orderby' => 'ID', 'order' => 'ASC' ] );
         $all_items = [];
 
@@ -74,23 +53,19 @@ class FCRM_WP_Sync_Mismatch_Detector {
             $field_mismatches = $this->compare_fields( $wp_user->ID, $wp_user, $subscriber, $mappings );
 
             if ( ! empty( $field_mismatches ) ) {
-                // Flag when the linked FCRM contact has a different email than
-                // the WP user.  This can happen when the subscriber was matched
-                // by user_id (not email) and may indicate a mis-linkage — e.g.
-                // a deleted user's FCRM contact was re-assigned to a new WP user.
-                $sub_email         = $subscriber->email ?? '';
-                $emails_differ     = ( strtolower( $sub_email ) !== strtolower( $wp_user->user_email ) );
+                $sub_email     = $subscriber->email ?? '';
+                $emails_differ = ( strtolower( $sub_email ) !== strtolower( $wp_user->user_email ) );
 
                 $all_items[] = [
-                    'user_id'                  => $wp_user->ID,
-                    'user_email'               => $wp_user->user_email,
-                    'user_display'             => $wp_user->display_name,
-                    'subscriber_id'            => $subscriber->id,
-                    'subscriber_email'         => $sub_email,
-                    'subscriber_email_mismatch'=> $emails_differ,
-                    'wp_edit_url'              => admin_url( 'user-edit.php?user_id=' . $wp_user->ID ),
-                    'fcrm_contact_url'         => admin_url( 'admin.php?page=fluentcrm-admin&route=contacts&id=' . $subscriber->id ),
-                    'fields'                   => $field_mismatches,
+                    'user_id'                   => $wp_user->ID,
+                    'user_email'                => $wp_user->user_email,
+                    'user_display'              => $wp_user->display_name,
+                    'subscriber_id'             => $subscriber->id,
+                    'subscriber_email'          => $sub_email,
+                    'subscriber_email_mismatch' => $emails_differ,
+                    'wp_edit_url'               => admin_url( 'user-edit.php?user_id=' . $wp_user->ID ),
+                    'fcrm_contact_url'          => admin_url( 'admin.php?page=fluentcrm-admin&route=contacts&id=' . $subscriber->id ),
+                    'fields'                    => $field_mismatches,
                 ];
             }
         }
@@ -108,7 +83,6 @@ class FCRM_WP_Sync_Mismatch_Detector {
 
     /**
      * Quick count of users with at least one mismatch.
-     * Scans all users — call sparingly on large sites.
      */
     public function count_mismatches_total( array $mappings = [] ): int {
         if ( empty( $mappings ) ) {
@@ -145,22 +119,18 @@ class FCRM_WP_Sync_Mismatch_Detector {
         $custom_fields = $subscriber->custom_fields();
 
         foreach ( $mappings as $mapping ) {
-            // Only compare fields that sync in both directions
             if ( ( $mapping['sync_direction'] ?? 'both' ) !== 'both' ) {
                 continue;
             }
 
-            // --- WP value ---
             $wp_raw = $this->engine->get_wp_field_value( $user_id, $wp_user, $mapping );
 
-            // --- FCRM value ---
             $fcrm_key  = $mapping['fcrm_field_key'];
             $fcrm_src  = $mapping['fcrm_field_source'] ?? 'default';
             $fcrm_raw  = ( $fcrm_src === 'custom' )
                 ? ( $custom_fields[ $fcrm_key ] ?? null )
                 : ( $subscriber->{ $fcrm_key } ?? null );
 
-            // Normalise both sides to a comparable canonical form
             $wp_norm   = $this->normalise( $wp_raw,   $mapping );
             $fcrm_norm = $this->normalise( $fcrm_raw, $mapping );
 
@@ -184,10 +154,6 @@ class FCRM_WP_Sync_Mismatch_Detector {
 
     /**
      * Resolve ALL mismatches for a single user by syncing in the chosen direction.
-     *
-     * @param int    $user_id
-     * @param string $direction  'use_wp' | 'use_fcrm'
-     * @return bool
      */
     public function resolve_user( int $user_id, string $direction ): bool {
         if ( $direction === 'use_wp' ) {
@@ -209,15 +175,6 @@ class FCRM_WP_Sync_Mismatch_Detector {
 
     /**
      * Resolve only the "empty-side" mismatches for a single user.
-     *
-     * For each mismatched field:
-     *  - WP populated + FCRM empty  → push WP value to FCRM  (use_wp)
-     *  - FCRM populated + WP empty  → push FCRM value to WP  (use_fcrm)
-     *  - Both populated but different → skip (a true conflict; admin must decide)
-     *  - Both empty → skip (should not appear as a mismatch but guard anyway)
-     *
-     * @param int $user_id
-     * @return bool
      */
     public function resolve_user_empty_fields( int $user_id ): bool {
         $wp_user = get_userdata( $user_id );
@@ -234,7 +191,6 @@ class FCRM_WP_Sync_Mismatch_Detector {
         $custom_fields = $subscriber->custom_fields();
 
         foreach ( $mappings as $mapping ) {
-            // Only process bidirectional fields — same filter as compare_fields().
             if ( ( $mapping['sync_direction'] ?? 'both' ) !== 'both' ) {
                 continue;
             }
@@ -244,10 +200,8 @@ class FCRM_WP_Sync_Mismatch_Detector {
                 continue;
             }
 
-            // Raw WP value
             $wp_raw = $this->engine->get_wp_field_value( $user_id, $wp_user, $mapping );
 
-            // Raw FCRM value
             $fcrm_key = $mapping['fcrm_field_key'];
             $fcrm_src = $mapping['fcrm_field_source'] ?? 'default';
             $fcrm_raw = ( $fcrm_src === 'custom' )
@@ -262,7 +216,6 @@ class FCRM_WP_Sync_Mismatch_Detector {
             } elseif ( ! $wp_empty && $fcrm_empty ) {
                 $this->resolve_field( $user_id, $mapping_id, 'use_wp' );
             }
-            // Both non-empty (true conflict) or both empty → leave untouched.
         }
 
         return true;
@@ -270,16 +223,8 @@ class FCRM_WP_Sync_Mismatch_Detector {
 
     /**
      * Resolve empty-side mismatches across ALL users in a single pass.
-     *
-     * Iterates every WP user that has a linked FluentCRM subscriber and calls
-     * resolve_user_empty_fields() on each.  Fields where both sides are
-     * populated but different are left untouched — those require a manual
-     * "Use WP" / "Use FCRM" decision.
-     *
-     * @return int  Number of users for whom at least one empty field was filled.
      */
     public function resolve_all_empty_globally(): int {
-        // Allow more execution time — large user bases can be slow.
         // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
         @set_time_limit( 300 );
 
@@ -300,18 +245,7 @@ class FCRM_WP_Sync_Mismatch_Detector {
     }
 
     /**
-     * Resolve a SINGLE field mismatch.
-     *
-     * @param int    $user_id
-     * @param string $mapping_id  The mapping 'id' to resolve.
-     * @param string $direction   'use_wp' | 'use_fcrm'
-     * @return bool
-     */
-    /**
      * Resolve a single field mismatch.
-     *
-     * Returns an array with 'ok' (bool) and 'steps' (log entries) so the
-     * AJAX handler can relay detailed progress to the admin UI.
      *
      * @return array{ ok: bool, steps: array<array{ text: string, status: string }> }
      */
@@ -333,11 +267,6 @@ class FCRM_WP_Sync_Mismatch_Detector {
             return [ 'ok' => false, 'steps' => [ [ 'text' => 'WordPress user not found.', 'status' => 'error' ] ] ];
         }
 
-        // Activate sync guards so that the automatic hook-based sync does not
-        // immediately re-sync stale data on top of the value we are about to
-        // write.  Without these guards the FluentCRM contact_updated hook (or
-        // the WP updated_user_meta hook) would fire and overwrite the corrected
-        // value with the old one before we even return.
         $this->engine->set_syncing_to_fcrm( true );
         $this->engine->set_syncing_to_wp( true );
 
@@ -350,10 +279,7 @@ class FCRM_WP_Sync_Mismatch_Detector {
     }
 
     /**
-     * Internal implementation of single-field resolution (called inside sync guards).
-     *
-     * Returns an array with 'ok' (bool) and 'steps' (log messages) so the UI
-     * can show detailed progress to the admin.
+     * Internal implementation of single-field resolution.
      *
      * @return array{ ok: bool, steps: array<array{ text: string, status: string }> }
      */
@@ -362,7 +288,6 @@ class FCRM_WP_Sync_Mismatch_Detector {
         $field_label = $mapping['wp_field_label'] ?? $mapping['wp_field_key'] ?? '?';
 
         if ( $direction === 'use_wp' ) {
-            // ------ Read WP value ------
             $raw   = $this->engine->get_wp_field_value( $user_id, $wp_user, $mapping );
             $steps[] = [
                 'text'   => sprintf( 'Read WP value for "%s": %s', $field_label, $this->describe_value( $raw ) ),
@@ -380,8 +305,7 @@ class FCRM_WP_Sync_Mismatch_Detector {
                 'status' => 'ok',
             ];
 
-            $fcrm_key = $mapping['fcrm_field_key'];
-
+            $fcrm_key     = $mapping['fcrm_field_key'];
             $subscriber   = $this->find_subscriber_for_user( $wp_user );
             $lookup_email = $subscriber ? $subscriber->email : $wp_user->user_email;
 
@@ -394,7 +318,6 @@ class FCRM_WP_Sync_Mismatch_Detector {
                 'status' => 'ok',
             ];
 
-            // ------ Write to FluentCRM ------
             if ( ( $mapping['fcrm_field_source'] ?? 'default' ) === 'custom' ) {
                 $existing = $subscriber->custom_fields();
                 $existing[ $fcrm_key ] = $value;
@@ -420,7 +343,6 @@ class FCRM_WP_Sync_Mismatch_Detector {
                 $steps[] = [ 'text' => 'Wrote standard field to FluentCRM.', 'status' => 'ok' ];
             }
 
-            // ------ Verify ------
             $subscriber_fresh = Subscriber::where( 'id', $subscriber->id )->first();
             if ( $subscriber_fresh instanceof Subscriber ) {
                 $fresh_custom = $subscriber_fresh->custom_fields();
@@ -444,7 +366,6 @@ class FCRM_WP_Sync_Mismatch_Detector {
         }
 
         if ( $direction === 'use_fcrm' ) {
-            // ------ Find subscriber ------
             $subscriber = $this->find_subscriber_for_user( $wp_user );
             if ( ! $subscriber ) {
                 $steps[] = [ 'text' => 'No linked FluentCRM subscriber found.', 'status' => 'error' ];
@@ -455,7 +376,6 @@ class FCRM_WP_Sync_Mismatch_Detector {
                 'status' => 'ok',
             ];
 
-            // ------ Read FCRM value ------
             $fcrm_key      = $mapping['fcrm_field_key'];
             $custom_fields = $subscriber->custom_fields();
             $raw = ( ( $mapping['fcrm_field_source'] ?? 'default' ) === 'custom' )
@@ -477,7 +397,6 @@ class FCRM_WP_Sync_Mismatch_Detector {
                 'status' => 'ok',
             ];
 
-            // ------ Write to WP ------
             $dummy_wp_user_data = [];
             $this->engine->set_wp_field_value( $user_id, $mapping, $value, $dummy_wp_user_data );
             if ( ! empty( $dummy_wp_user_data ) ) {
@@ -488,7 +407,6 @@ class FCRM_WP_Sync_Mismatch_Detector {
                 $steps[] = [ 'text' => 'Wrote value to WordPress user meta.', 'status' => 'ok' ];
             }
 
-            // ------ Verify ------
             $wp_user_fresh = get_userdata( $user_id );
             $stored        = $this->engine->get_wp_field_value( $user_id, $wp_user_fresh, $mapping );
             $stored_norm   = $this->engine->normalize_date_if_date( (string) ( $stored ?? '' ), $mapping );
@@ -511,9 +429,6 @@ class FCRM_WP_Sync_Mismatch_Detector {
         return [ 'ok' => false, 'steps' => $steps ];
     }
 
-    /**
-     * Short human-readable description of a value for the resolve log.
-     */
     private function describe_value( $val ): string {
         if ( $val === null || $val === '' ) {
             return '(empty)';
@@ -526,12 +441,6 @@ class FCRM_WP_Sync_Mismatch_Detector {
     // Helpers
     // -----------------------------------------------------------------------
 
-    /**
-     * Find the FluentCRM subscriber for a WP user.
-     * First tries user_id, then email.
-     * Guards against FluentCRM's query builder returning itself instead of null
-     * when no record is found (observed in some FluentCRM versions).
-     */
     public function find_subscriber_for_user( \WP_User $wp_user ): ?Subscriber {
         $sub = Subscriber::where( 'user_id', $wp_user->ID )->first();
         if ( $sub instanceof Subscriber ) {
@@ -541,9 +450,6 @@ class FCRM_WP_Sync_Mismatch_Detector {
         return ( $sub instanceof Subscriber ) ? $sub : null;
     }
 
-    /**
-     * Normalise a value to a canonical string form for comparison.
-     */
     private function normalise( $value, array $mapping ): string {
         if ( $value === null || $value === '' || $value === false ) {
             return '';
@@ -553,11 +459,6 @@ class FCRM_WP_Sync_Mismatch_Detector {
 
         switch ( $type ) {
             case 'date':
-                // Delegate to the engine's format-aware date normaliser so that
-                // ACF's raw Ymd values, configured WP formats (m/d/Y, d/m/Y,
-                // etc.), and FluentCRM's Y-m-d strings all resolve to the same
-                // canonical Y-m-d form — preventing false-positive mismatches
-                // caused by strtotime() treating m/d/Y and d/m/Y differently.
                 $normalised = $this->engine->normalize_date( (string) $value, $mapping );
                 return $normalised !== '' ? $normalised : (string) $value;
 
@@ -594,10 +495,6 @@ class FCRM_WP_Sync_Mismatch_Detector {
         }
 
         if ( $type === 'date' ) {
-            // Use the engine's format-aware normaliser to convert the raw value
-            // to canonical Y-m-d first.  This avoids the ambiguity of
-            // strtotime() which treats "/" dates as US m/d/Y — producing the
-            // wrong result for d/m/Y formatted values.
             $canonical = $this->engine->normalize_date( (string) $value, $mapping );
             if ( $canonical !== '' ) {
                 $ts = strtotime( $canonical );
@@ -619,9 +516,8 @@ class FCRM_WP_Sync_Mismatch_Detector {
     }
 
     private function get_label( array $mapping ): string {
-        // Prefer stored labels, fall back to keys
-        $wp_label   = $mapping['wp_field_label']   ?? $mapping['wp_field_key']   ?? '?';
-        $fcrm_label = $mapping['fcrm_field_label']  ?? $mapping['fcrm_field_key'] ?? '?';
-        return "{$wp_label} ↔ {$fcrm_label}";
+        $wp_label   = $mapping['wp_field_label']  ?? $mapping['wp_field_key']   ?? '?';
+        $fcrm_label = $mapping['fcrm_field_label'] ?? $mapping['fcrm_field_key'] ?? '?';
+        return "{$wp_label} \u{2194} {$fcrm_label}";
     }
 }

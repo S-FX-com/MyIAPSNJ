@@ -1,6 +1,6 @@
 <?php
 /**
- * FCRM_WP_Sync_Admin
+ * My_IAPSNJ_Admin
  *
  * Registers the WordPress admin menu and renders three sub-pages:
  *  1. Field Mapping   – build the WP ↔ FluentCRM field map.
@@ -10,16 +10,16 @@
 
 defined( 'ABSPATH' ) || exit;
 
-class FCRM_WP_Sync_Admin {
+class My_IAPSNJ_Admin {
 
     /** @var self|null */
     private static ?self $instance = null;
 
-    /** @var FCRM_WP_Sync_Field_Mapper */
-    private FCRM_WP_Sync_Field_Mapper $mapper;
+    /** @var My_IAPSNJ_Field_Mapper */
+    private My_IAPSNJ_Field_Mapper $mapper;
 
-    /** @var FCRM_WP_Sync_Mismatch_Detector */
-    private FCRM_WP_Sync_Mismatch_Detector $detector;
+    /** @var My_IAPSNJ_Mismatch_Detector */
+    private My_IAPSNJ_Mismatch_Detector $detector;
 
     public static function get_instance(): self {
         if ( null === self::$instance ) {
@@ -29,26 +29,26 @@ class FCRM_WP_Sync_Admin {
     }
 
     private function __construct() {
-        $this->mapper   = new FCRM_WP_Sync_Field_Mapper();
-        $this->detector = new FCRM_WP_Sync_Mismatch_Detector();
+        $this->mapper   = new My_IAPSNJ_Field_Mapper();
+        $this->detector = new My_IAPSNJ_Mismatch_Detector();
 
         add_action( 'admin_menu',            [ $this, 'register_menu' ] );
         add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_assets' ] );
 
         // AJAX handlers
-        add_action( 'wp_ajax_fcrm_wp_sync_save_mappings',    [ $this, 'ajax_save_mappings' ] );
-        add_action( 'wp_ajax_fcrm_wp_sync_save_settings',    [ $this, 'ajax_save_settings' ] );
-        add_action( 'wp_ajax_fcrm_wp_sync_get_fields',       [ $this, 'ajax_get_fields' ] );
-        add_action( 'wp_ajax_fcrm_wp_sync_bulk_sync',        [ $this, 'ajax_bulk_sync' ] );
-        add_action( 'wp_ajax_fcrm_wp_sync_resolve_mismatch', [ $this, 'ajax_resolve_mismatch' ] );
-        add_action( 'wp_ajax_fcrm_wp_sync_get_mismatches',   [ $this, 'ajax_get_mismatches' ] );
-        add_action( 'wp_ajax_fcrm_wp_sync_sync_all_empty',   [ $this, 'ajax_sync_all_empty' ] );
-        add_action( 'wp_ajax_fcrm_wp_sync_save_pmp_settings', [ $this, 'ajax_save_pmp_settings' ] );
-        add_action( 'wp_ajax_fcrm_wp_sync_search_users',     [ $this, 'ajax_search_users' ] );
-        add_action( 'wp_ajax_fcrm_wp_sync_sample_data',      [ $this, 'ajax_sample_data' ] );
-        add_action( 'wp_ajax_fcrm_wp_sync_pmp_setup_expiry_mapping', [ $this, 'ajax_pmp_setup_expiry_mapping' ] );
-        add_action( 'wp_ajax_fcrm_wp_sync_pmp_bulk_expiry_sync',     [ $this, 'ajax_pmp_bulk_expiry_sync' ] );
-        add_action( 'wp_ajax_fcrm_wp_sync_pmp_save_expiry_cron',     [ $this, 'ajax_pmp_save_expiry_cron' ] );
+        add_action( 'wp_ajax_my_iapsnj_save_mappings',    [ $this, 'ajax_save_mappings' ] );
+        add_action( 'wp_ajax_my_iapsnj_save_settings',    [ $this, 'ajax_save_settings' ] );
+        add_action( 'wp_ajax_my_iapsnj_get_fields',       [ $this, 'ajax_get_fields' ] );
+        add_action( 'wp_ajax_my_iapsnj_bulk_sync',        [ $this, 'ajax_bulk_sync' ] );
+        add_action( 'wp_ajax_my_iapsnj_resolve_mismatch', [ $this, 'ajax_resolve_mismatch' ] );
+        add_action( 'wp_ajax_my_iapsnj_get_mismatches',   [ $this, 'ajax_get_mismatches' ] );
+        add_action( 'wp_ajax_my_iapsnj_sync_all_empty',   [ $this, 'ajax_sync_all_empty' ] );
+        add_action( 'wp_ajax_my_iapsnj_save_pmp_settings', [ $this, 'ajax_save_pmp_settings' ] );
+        add_action( 'wp_ajax_my_iapsnj_search_users',     [ $this, 'ajax_search_users' ] );
+        add_action( 'wp_ajax_my_iapsnj_sample_data',      [ $this, 'ajax_sample_data' ] );
+        add_action( 'wp_ajax_my_iapsnj_pmp_setup_expiry_mapping', [ $this, 'ajax_pmp_setup_expiry_mapping' ] );
+        add_action( 'wp_ajax_my_iapsnj_pmp_bulk_expiry_sync',     [ $this, 'ajax_pmp_bulk_expiry_sync' ] );
+        add_action( 'wp_ajax_my_iapsnj_pmp_save_expiry_cron',     [ $this, 'ajax_pmp_save_expiry_cron' ] );
     }
 
     // -----------------------------------------------------------------------
@@ -57,53 +57,62 @@ class FCRM_WP_Sync_Admin {
 
     public function register_menu(): void {
         add_menu_page(
-            __( 'FluentCRM Sync', 'fcrm-wp-sync' ),
-            __( 'FluentCRM Sync', 'fcrm-wp-sync' ),
+            __( 'My IAPSNJ', 'my-iapsnj' ),
+            __( 'My IAPSNJ', 'my-iapsnj' ),
             'manage_options',
-            'fcrm-wp-sync',
+            'my-iapsnj',
             [ $this, 'render_field_mapping_page' ],
             'dashicons-randomize',
             56
         );
 
         add_submenu_page(
-            'fcrm-wp-sync',
-            __( 'Field Mapping', 'fcrm-wp-sync' ),
-            __( 'Field Mapping', 'fcrm-wp-sync' ),
+            'my-iapsnj',
+            __( 'Field Mapping', 'my-iapsnj' ),
+            __( 'Field Mapping', 'my-iapsnj' ),
             'manage_options',
-            'fcrm-wp-sync',
+            'my-iapsnj',
             [ $this, 'render_field_mapping_page' ]
         );
 
         add_submenu_page(
-            'fcrm-wp-sync',
-            __( 'Sync & Settings', 'fcrm-wp-sync' ),
-            __( 'Sync & Settings', 'fcrm-wp-sync' ),
+            'my-iapsnj',
+            __( 'Sync & Settings', 'my-iapsnj' ),
+            __( 'Sync & Settings', 'my-iapsnj' ),
             'manage_options',
-            'fcrm-wp-sync-sync',
+            'my-iapsnj-sync',
             [ $this, 'render_sync_page' ]
         );
 
         add_submenu_page(
-            'fcrm-wp-sync',
-            __( 'Mismatch Resolver', 'fcrm-wp-sync' ),
-            __( 'Mismatch Resolver', 'fcrm-wp-sync' ),
+            'my-iapsnj',
+            __( 'Mismatch Resolver', 'my-iapsnj' ),
+            __( 'Mismatch Resolver', 'my-iapsnj' ),
             'manage_options',
-            'fcrm-wp-sync-mismatches',
+            'my-iapsnj-mismatches',
             [ $this, 'render_mismatches_page' ]
         );
 
-        // Only show the PMP Integration page when PMPro is active.
+        // Only show the Memberships page when PMPro is active.
         if ( function_exists( 'pmpro_getMembershipLevelForUser' ) ) {
             add_submenu_page(
-                'fcrm-wp-sync',
-                __( 'PMP Integration', 'fcrm-wp-sync' ),
-                __( 'PMP Integration', 'fcrm-wp-sync' ),
+                'my-iapsnj',
+                __( 'Memberships', 'my-iapsnj' ),
+                __( 'Memberships', 'my-iapsnj' ),
                 'manage_options',
-                'fcrm-wp-sync-pmp',
+                'my-iapsnj-pmp',
                 [ $this, 'render_pmp_page' ]
             );
         }
+
+        add_submenu_page(
+            'my-iapsnj',
+            __( 'CRM Assistant', 'my-iapsnj' ),
+            __( 'CRM Assistant', 'my-iapsnj' ),
+            'manage_options',
+            'my-iapsnj-crm-assistant',
+            [ $this, 'render_crm_assistant_page' ]
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -112,59 +121,63 @@ class FCRM_WP_Sync_Admin {
 
     public function enqueue_assets( string $hook ): void {
         $pages = [
-            'toplevel_page_fcrm-wp-sync',
-            'fluentcrm-sync_page_fcrm-wp-sync-sync',
-            'fluentcrm-sync_page_fcrm-wp-sync-mismatches',
-            'fluentcrm-sync_page_fcrm-wp-sync-pmp',
+            'toplevel_page_my-iapsnj',
+            'my-iapsnj_page_my-iapsnj-sync',
+            'my-iapsnj_page_my-iapsnj-mismatches',
+            'my-iapsnj_page_my-iapsnj-pmp',
+            'my-iapsnj_page_my-iapsnj-crm-assistant',
         ];
         if ( ! in_array( $hook, $pages, true ) ) {
             return;
         }
 
         wp_enqueue_style(
-            'fcrm-wp-sync-admin',
-            FCRM_WP_SYNC_URL . 'admin/css/admin.css',
+            'my-iapsnj-admin',
+            MY_IAPSNJ_URL . 'admin/css/admin.css',
             [],
-            FCRM_WP_SYNC_VERSION
+            MY_IAPSNJ_VERSION
         );
 
         wp_enqueue_script(
-            'fcrm-wp-sync-admin',
-            FCRM_WP_SYNC_URL . 'admin/js/admin.js',
+            'my-iapsnj-admin',
+            MY_IAPSNJ_URL . 'admin/js/admin.js',
             [ 'jquery', 'wp-util' ],
-            FCRM_WP_SYNC_VERSION,
+            MY_IAPSNJ_VERSION,
             true
         );
 
-        wp_localize_script( 'fcrm-wp-sync-admin', 'fcrmWpSync', [
+        wp_localize_script( 'my-iapsnj-admin', 'myIapsnj', [
             'ajaxUrl'   => admin_url( 'admin-ajax.php' ),
-            'nonce'     => wp_create_nonce( 'fcrm_wp_sync_nonce' ),
-            'restUrl'   => rest_url( 'fcrm-wp-sync/v1' ),
+            'nonce'     => wp_create_nonce( 'my_iapsnj_nonce' ),
+            'restUrl'   => rest_url( 'my-iapsnj/v1' ),
             'restNonce' => wp_create_nonce( 'wp_rest' ),
             'dateFormat' => get_option( 'date_format', 'm/d/Y' ),
             'i18n'      => [
-                'saving'           => __( 'Saving…', 'fcrm-wp-sync' ),
-                'saved'            => __( 'Saved!', 'fcrm-wp-sync' ),
-                'error'            => __( 'Error. Please try again.', 'fcrm-wp-sync' ),
-                'syncing'          => __( 'Syncing…', 'fcrm-wp-sync' ),
-                'syncDone'         => __( 'Sync complete.', 'fcrm-wp-sync' ),
-                'resolving'        => __( 'Resolving…', 'fcrm-wp-sync' ),
-                'resolved'         => __( 'Resolved!', 'fcrm-wp-sync' ),
-                'confirmDelete'    => __( 'Remove this mapping row?', 'fcrm-wp-sync' ),
-                'loading'          => __( 'Loading…', 'fcrm-wp-sync' ),
-                'noMappings'       => __( 'No active mappings to preview.', 'fcrm-wp-sync' ),
-                'noFluentCRM'      => __( 'No linked FluentCRM contact found for this user.', 'fcrm-wp-sync' ),
-                'previewWpField'   => __( 'WordPress Field', 'fcrm-wp-sync' ),
-                'previewWpVal'     => __( 'WP Value', 'fcrm-wp-sync' ),
-                'previewFcrmField' => __( 'FluentCRM Field', 'fcrm-wp-sync' ),
-                'previewFcrmVal'   => __( 'FCRM Value', 'fcrm-wp-sync' ),
-                'previewMatch'     => __( 'Match?', 'fcrm-wp-sync' ),
-                'setupMapping'     => __( 'Setting up\u2026', 'fcrm-wp-sync' ),
-                'mappingCreated'   => __( 'Mapping created successfully.', 'fcrm-wp-sync' ),
-                'mappingExists'    => __( 'Mapping already exists and is configured.', 'fcrm-wp-sync' ),
-                'fieldNotFound'    => __( 'FluentCRM expiration_date field not found. Create it in FluentCRM \u2192 Settings \u2192 Custom Fields first.', 'fcrm-wp-sync' ),
-                'syncingExpiry'    => __( 'Syncing expiration dates\u2026', 'fcrm-wp-sync' ),
-                'syncExpiryDone'   => __( 'Expiration date sync complete.', 'fcrm-wp-sync' ),
+                'saving'           => __( 'Saving…', 'my-iapsnj' ),
+                'saved'            => __( 'Saved!', 'my-iapsnj' ),
+                'error'            => __( 'Error. Please try again.', 'my-iapsnj' ),
+                'syncing'          => __( 'Syncing…', 'my-iapsnj' ),
+                'syncDone'         => __( 'Sync complete.', 'my-iapsnj' ),
+                'resolving'        => __( 'Resolving…', 'my-iapsnj' ),
+                'resolved'         => __( 'Resolved!', 'my-iapsnj' ),
+                'confirmDelete'    => __( 'Remove this mapping row?', 'my-iapsnj' ),
+                'loading'          => __( 'Loading…', 'my-iapsnj' ),
+                'noMappings'       => __( 'No active mappings to preview.', 'my-iapsnj' ),
+                'noFluentCRM'      => __( 'No linked FluentCRM contact found for this user.', 'my-iapsnj' ),
+                'previewWpField'   => __( 'WordPress Field', 'my-iapsnj' ),
+                'previewWpVal'     => __( 'WP Value', 'my-iapsnj' ),
+                'previewFcrmField' => __( 'FluentCRM Field', 'my-iapsnj' ),
+                'previewFcrmVal'   => __( 'FCRM Value', 'my-iapsnj' ),
+                'previewMatch'     => __( 'Match?', 'my-iapsnj' ),
+                'setupMapping'     => __( 'Setting up\u2026', 'my-iapsnj' ),
+                'mappingCreated'   => __( 'Mapping created successfully.', 'my-iapsnj' ),
+                'mappingExists'    => __( 'Mapping already exists and is configured.', 'my-iapsnj' ),
+                'fieldNotFound'    => __( 'FluentCRM expiration_date field not found. Create it in FluentCRM \u2192 Settings \u2192 Custom Fields first.', 'my-iapsnj' ),
+                'syncingExpiry'    => __( 'Syncing expiration dates\u2026', 'my-iapsnj' ),
+                'syncExpiryDone'   => __( 'Expiration date sync complete.', 'my-iapsnj' ),
+                'chatSending'      => __( 'Thinking…', 'my-iapsnj' ),
+                'chatError'        => __( 'Error communicating with AI provider.', 'my-iapsnj' ),
+                'chatPlaceholder'  => __( 'Ask about your contacts, tags, or member data…', 'my-iapsnj' ),
             ],
         ] );
     }
@@ -175,7 +188,7 @@ class FCRM_WP_Sync_Admin {
 
     public function render_field_mapping_page(): void {
         if ( ! current_user_can( 'manage_options' ) ) {
-            wp_die( esc_html__( 'Insufficient permissions.', 'fcrm-wp-sync' ) );
+            wp_die( esc_html__( 'Insufficient permissions.', 'my-iapsnj' ) );
         }
 
         $wp_fields   = $this->mapper->get_wp_fields();
@@ -205,19 +218,19 @@ class FCRM_WP_Sync_Admin {
 
         ?>
         <div class="wrap fcrm-sync-wrap">
-            <h1><?php esc_html_e( 'FluentCRM WP Sync – Field Mapping', 'fcrm-wp-sync' ); ?></h1>
+            <h1><?php esc_html_e( 'My IAPSNJ – Field Mapping', 'my-iapsnj' ); ?></h1>
             <p class="description">
-                <?php esc_html_e( 'Every FluentCRM field is listed below. Choose a WordPress field to map it to, or leave "— Don\'t map —" to skip. Field Type is set automatically from the FluentCRM field. Use "+ Add Row" for extra custom pairings.', 'fcrm-wp-sync' ); ?>
+                <?php esc_html_e( 'Every FluentCRM field is listed below. Choose a WordPress field to map it to, or leave "— Don\'t map —" to skip. Field Type is set automatically from the FluentCRM field. Use "+ Add Row" for extra custom pairings.', 'my-iapsnj' ); ?>
             </p>
 
             <div id="fcrm-mapping-notice" class="fcrm-notice" style="display:none"></div>
 
             <div class="fcrm-mapping-toolbar">
                 <button id="fcrm-add-row" class="button button-secondary">
-                    + <?php esc_html_e( 'Add Row', 'fcrm-wp-sync' ); ?>
+                    + <?php esc_html_e( 'Add Row', 'my-iapsnj' ); ?>
                 </button>
                 <button id="fcrm-save-mappings" class="button button-primary">
-                    <?php esc_html_e( 'Save Mappings', 'fcrm-wp-sync' ); ?>
+                    <?php esc_html_e( 'Save Mappings', 'my-iapsnj' ); ?>
                 </button>
             </div>
 
@@ -225,12 +238,12 @@ class FCRM_WP_Sync_Admin {
                 <table class="widefat fcrm-mapping-table" id="fcrm-mapping-table">
                     <thead>
                         <tr>
-                            <th><?php esc_html_e( 'FluentCRM Field', 'fcrm-wp-sync' ); ?></th>
-                            <th><?php esc_html_e( 'WordPress Field', 'fcrm-wp-sync' ); ?></th>
-                            <th><?php esc_html_e( 'Field Type', 'fcrm-wp-sync' ); ?></th>
-                            <th><?php esc_html_e( 'Sync Direction', 'fcrm-wp-sync' ); ?></th>
-                            <th><?php esc_html_e( 'Enabled', 'fcrm-wp-sync' ); ?></th>
-                            <th><?php esc_html_e( 'Remove', 'fcrm-wp-sync' ); ?></th>
+                            <th><?php esc_html_e( 'FluentCRM Field', 'my-iapsnj' ); ?></th>
+                            <th><?php esc_html_e( 'WordPress Field', 'my-iapsnj' ); ?></th>
+                            <th><?php esc_html_e( 'Field Type', 'my-iapsnj' ); ?></th>
+                            <th><?php esc_html_e( 'Sync Direction', 'my-iapsnj' ); ?></th>
+                            <th><?php esc_html_e( 'Enabled', 'my-iapsnj' ); ?></th>
+                            <th><?php esc_html_e( 'Remove', 'my-iapsnj' ); ?></th>
                         </tr>
                     </thead>
                     <tbody id="fcrm-mapping-rows">
@@ -288,9 +301,9 @@ class FCRM_WP_Sync_Admin {
 
             <!-- Sample Data Preview -->
             <div class="fcrm-section" id="fcrm-preview-section" style="margin-top:28px">
-                <h2><?php esc_html_e( 'Sample Data Preview', 'fcrm-wp-sync' ); ?></h2>
+                <h2><?php esc_html_e( 'Sample Data Preview', 'my-iapsnj' ); ?></h2>
                 <p class="description">
-                    <?php esc_html_e( 'Select a WordPress user to preview how their data currently sits in both WordPress and FluentCRM, side by side.', 'fcrm-wp-sync' ); ?>
+                    <?php esc_html_e( 'Select a WordPress user to preview how their data currently sits in both WordPress and FluentCRM, side by side.', 'my-iapsnj' ); ?>
                 </p>
 
                 <div class="fcrm-preview-search">
@@ -298,12 +311,12 @@ class FCRM_WP_Sync_Admin {
                         <input type="text"
                                id="fcrm-preview-user-input"
                                class="regular-text"
-                               placeholder="<?php esc_attr_e( 'Search by name, email or username…', 'fcrm-wp-sync' ); ?>"
+                               placeholder="<?php esc_attr_e( 'Search by name, email or username…', 'my-iapsnj' ); ?>"
                                autocomplete="off">
                         <div id="fcrm-user-suggestions" class="fcrm-user-suggestions" style="display:none"></div>
                     </div>
                     <button id="fcrm-preview-load" class="button button-primary" disabled>
-                        <?php esc_html_e( 'Preview Data', 'fcrm-wp-sync' ); ?>
+                        <?php esc_html_e( 'Preview Data', 'my-iapsnj' ); ?>
                     </button>
                 </div>
 
@@ -330,7 +343,7 @@ class FCRM_WP_Sync_Admin {
         $date_fmt_wp  = $mapping['date_format_wp']     ?? 'm/d/Y';
         $value_map    = $mapping['value_map']          ?? [];
 
-        $row_id = $is_template ? '__TEMPLATE__' : ( $id ?: FCRM_WP_Sync_Field_Mapper::generate_id() );
+        $row_id = $is_template ? '__TEMPLATE__' : ( $id ?: My_IAPSNJ_Field_Mapper::generate_id() );
 
         // Human-readable labels used for hint text beneath each dropdown.
         $wp_source_labels = [
@@ -390,7 +403,7 @@ class FCRM_WP_Sync_Admin {
 
         echo '<td>';
         echo '<select class="fcrm-fcrm-field" name="mappings[' . esc_attr( $row_id ) . '][fcrm_uid]">';
-        echo '<option value="">' . esc_html__( '— Select FluentCRM field —', 'fcrm-wp-sync' ) . '</option>';
+        echo '<option value="">' . esc_html__( '— Select FluentCRM field —', 'my-iapsnj' ) . '</option>';
         foreach ( $fcrm_fields as $uid => $f ) {
             $selected     = ( $f['key'] === $fcrm_key && $f['source'] === $fcrm_src ) ? ' selected' : '';
             $options_json = wp_json_encode( $f['options'] ?? [] );
@@ -435,7 +448,7 @@ class FCRM_WP_Sync_Admin {
 
         echo '<td>';
         echo '<select class="fcrm-wp-field" name="mappings[' . esc_attr( $row_id ) . '][wp_uid]">';
-        echo '<option value="">' . esc_html__( '— Don\'t map —', 'fcrm-wp-sync' ) . '</option>';
+        echo '<option value="">' . esc_html__( '— Don\'t map —', 'my-iapsnj' ) . '</option>';
         foreach ( $wp_fields as $uid => $f ) {
             $selected      = ( $f['key'] === $wp_key && $f['source'] === $wp_src ) ? ' selected' : '';
             $is_readonly   = ! empty( $f['readonly'] ) ? 1 : 0;
@@ -463,13 +476,13 @@ class FCRM_WP_Sync_Admin {
 
         // --- Column 3: Field Type ---
         $types = [
-            'text'     => __( 'Text', 'fcrm-wp-sync' ),
-            'select'   => __( 'Select / Radio', 'fcrm-wp-sync' ),
-            'date'     => __( 'Date', 'fcrm-wp-sync' ),
-            'checkbox' => __( 'Checkbox / Multi-select', 'fcrm-wp-sync' ),
-            'number'   => __( 'Number', 'fcrm-wp-sync' ),
-            'email'    => __( 'Email', 'fcrm-wp-sync' ),
-            'textarea' => __( 'Textarea', 'fcrm-wp-sync' ),
+            'text'     => __( 'Text', 'my-iapsnj' ),
+            'select'   => __( 'Select / Radio', 'my-iapsnj' ),
+            'date'     => __( 'Date', 'my-iapsnj' ),
+            'checkbox' => __( 'Checkbox / Multi-select', 'my-iapsnj' ),
+            'number'   => __( 'Number', 'my-iapsnj' ),
+            'email'    => __( 'Email', 'my-iapsnj' ),
+            'textarea' => __( 'Textarea', 'my-iapsnj' ),
         ];
         echo '<td>';
         echo '<select class="fcrm-field-type" name="mappings[' . esc_attr( $row_id ) . '][field_type]">';
@@ -480,7 +493,7 @@ class FCRM_WP_Sync_Admin {
         echo '</select>';
         // Date format input (shown/hidden via JS when type === 'date')
         echo '<div class="fcrm-date-format-wrap" style="margin-top:4px">';
-        echo '<small>' . esc_html__( 'WP date format:', 'fcrm-wp-sync' ) . ' </small>';
+        echo '<small>' . esc_html__( 'WP date format:', 'my-iapsnj' ) . ' </small>';
         echo '<input type="text" class="fcrm-date-format-wp small-text" value="' . esc_attr( $date_fmt_wp ) . '" placeholder="m/d/Y" name="mappings[' . esc_attr( $row_id ) . '][date_format_wp]">';
         echo '</div>';
         // Hidden input carries the saved value_map JSON for JS to read on page-load
@@ -489,9 +502,9 @@ class FCRM_WP_Sync_Admin {
 
         // --- Column 4: Sync Direction ---
         $directions = [
-            'both'       => __( '⇄ Both', 'fcrm-wp-sync' ),
-            'wp_to_fcrm' => __( '→ WP → FluentCRM', 'fcrm-wp-sync' ),
-            'fcrm_to_wp' => __( '← FluentCRM → WP', 'fcrm-wp-sync' ),
+            'both'       => __( '⇄ Both', 'my-iapsnj' ),
+            'wp_to_fcrm' => __( '→ WP → FluentCRM', 'my-iapsnj' ),
+            'fcrm_to_wp' => __( '← FluentCRM → WP', 'my-iapsnj' ),
         ];
         echo '<td>';
         $dir_disabled = $dir_is_locked ? ' disabled' : '';
@@ -502,7 +515,7 @@ class FCRM_WP_Sync_Admin {
         }
         echo '</select>';
         if ( $dir_is_locked ) {
-            echo '<small style="display:block;color:#888">' . esc_html__( 'Read-only field: WP→FluentCRM only', 'fcrm-wp-sync' ) . '</small>';
+            echo '<small style="display:block;color:#888">' . esc_html__( 'Read-only field: WP→FluentCRM only', 'my-iapsnj' ) . '</small>';
         }
         echo '</td>';
 
@@ -514,7 +527,7 @@ class FCRM_WP_Sync_Admin {
 
         // --- Column 6: Remove button ---
         echo '<td style="text-align:center">';
-        echo '<button type="button" class="button fcrm-remove-row" title="' . esc_attr__( 'Remove', 'fcrm-wp-sync' ) . '">✕</button>';
+        echo '<button type="button" class="button fcrm-remove-row" title="' . esc_attr__( 'Remove', 'my-iapsnj' ) . '">✕</button>';
         echo '</td>';
 
         echo '</tr>';
@@ -526,11 +539,11 @@ class FCRM_WP_Sync_Admin {
 
     public function render_sync_page(): void {
         if ( ! current_user_can( 'manage_options' ) ) {
-            wp_die( esc_html__( 'Insufficient permissions.', 'fcrm-wp-sync' ) );
+            wp_die( esc_html__( 'Insufficient permissions.', 'my-iapsnj' ) );
         }
 
-        $settings       = get_option( 'fcrm_wp_sync_settings', [] );
-        $last_sync      = get_option( 'fcrm_wp_sync_last_bulk_sync', '' );
+        $settings       = get_option( 'my_iapsnj_settings', [] );
+        $last_sync      = get_option( 'my_iapsnj_last_bulk_sync', '' );
         $total_users    = count_users()['total_users'];
         $total_fcrm     = class_exists( '\FluentCrm\App\Models\Subscriber' )
             ? \FluentCrm\App\Models\Subscriber::count()
@@ -539,39 +552,39 @@ class FCRM_WP_Sync_Admin {
 
         ?>
         <div class="wrap fcrm-sync-wrap">
-            <h1><?php esc_html_e( 'FluentCRM WP Sync – Sync & Settings', 'fcrm-wp-sync' ); ?></h1>
+            <h1><?php esc_html_e( 'My IAPSNJ – Sync & Settings', 'my-iapsnj' ); ?></h1>
 
             <!-- Status cards -->
             <div class="fcrm-status-cards">
                 <div class="fcrm-card">
                     <span class="fcrm-card-number"><?php echo esc_html( $total_users ); ?></span>
-                    <span class="fcrm-card-label"><?php esc_html_e( 'WordPress Users', 'fcrm-wp-sync' ); ?></span>
+                    <span class="fcrm-card-label"><?php esc_html_e( 'WordPress Users', 'my-iapsnj' ); ?></span>
                 </div>
                 <div class="fcrm-card">
                     <span class="fcrm-card-number"><?php echo esc_html( $total_fcrm ); ?></span>
-                    <span class="fcrm-card-label"><?php esc_html_e( 'FluentCRM Contacts', 'fcrm-wp-sync' ); ?></span>
+                    <span class="fcrm-card-label"><?php esc_html_e( 'FluentCRM Contacts', 'my-iapsnj' ); ?></span>
                 </div>
                 <?php if ( $last_sync ) : ?>
                 <div class="fcrm-card">
                     <span class="fcrm-card-number" style="font-size:14px"><?php echo esc_html( $last_sync ); ?></span>
-                    <span class="fcrm-card-label"><?php esc_html_e( 'Last Bulk Sync', 'fcrm-wp-sync' ); ?></span>
+                    <span class="fcrm-card-label"><?php esc_html_e( 'Last Bulk Sync', 'my-iapsnj' ); ?></span>
                 </div>
                 <?php endif; ?>
             </div>
 
             <!-- Bulk sync controls -->
             <div class="fcrm-section">
-                <h2><?php esc_html_e( 'Bulk Sync', 'fcrm-wp-sync' ); ?></h2>
-                <p><?php esc_html_e( 'Sync all records in batch. Large sites may take several minutes. The operation runs in pages to avoid timeouts.', 'fcrm-wp-sync' ); ?></p>
+                <h2><?php esc_html_e( 'Bulk Sync', 'my-iapsnj' ); ?></h2>
+                <p><?php esc_html_e( 'Sync all records in batch. Large sites may take several minutes. The operation runs in pages to avoid timeouts.', 'my-iapsnj' ); ?></p>
 
                 <?php if ( ! empty( $active_mappings ) ) : ?>
                 <div class="fcrm-field-selection">
                     <div class="fcrm-field-selection-header">
-                        <strong><?php esc_html_e( 'Fields to sync', 'fcrm-wp-sync' ); ?></strong>
+                        <strong><?php esc_html_e( 'Fields to sync', 'my-iapsnj' ); ?></strong>
                         <span class="fcrm-field-sel-toggle">
-                            <a href="#" id="fcrm-field-sel-all"><?php esc_html_e( 'All', 'fcrm-wp-sync' ); ?></a>
+                            <a href="#" id="fcrm-field-sel-all"><?php esc_html_e( 'All', 'my-iapsnj' ); ?></a>
                             &nbsp;/&nbsp;
-                            <a href="#" id="fcrm-field-sel-none"><?php esc_html_e( 'None', 'fcrm-wp-sync' ); ?></a>
+                            <a href="#" id="fcrm-field-sel-none"><?php esc_html_e( 'None', 'my-iapsnj' ); ?></a>
                         </span>
                     </div>
                     <div class="fcrm-field-selection-list">
@@ -603,10 +616,10 @@ class FCRM_WP_Sync_Admin {
 
                 <div class="fcrm-bulk-controls">
                     <button id="fcrm-bulk-wp-to-fcrm" class="button button-primary">
-                        <?php esc_html_e( 'Sync WP → FluentCRM', 'fcrm-wp-sync' ); ?>
+                        <?php esc_html_e( 'Sync WP → FluentCRM', 'my-iapsnj' ); ?>
                     </button>
                     <button id="fcrm-bulk-fcrm-to-wp" class="button button-secondary">
-                        <?php esc_html_e( 'Sync FluentCRM → WP', 'fcrm-wp-sync' ); ?>
+                        <?php esc_html_e( 'Sync FluentCRM → WP', 'my-iapsnj' ); ?>
                     </button>
                 </div>
 
@@ -620,60 +633,60 @@ class FCRM_WP_Sync_Admin {
 
             <!-- Settings -->
             <div class="fcrm-section">
-                <h2><?php esc_html_e( 'Sync Settings', 'fcrm-wp-sync' ); ?></h2>
+                <h2><?php esc_html_e( 'Sync Settings', 'my-iapsnj' ); ?></h2>
                 <form id="fcrm-settings-form">
                     <table class="form-table">
                         <tr>
-                            <th><?php esc_html_e( 'On User Register', 'fcrm-wp-sync' ); ?></th>
+                            <th><?php esc_html_e( 'On User Register', 'my-iapsnj' ); ?></th>
                             <td>
                                 <label>
                                     <input type="checkbox" name="sync_on_user_register" value="1"
                                         <?php checked( ! empty( $settings['sync_on_user_register'] ) ); ?>>
-                                    <?php esc_html_e( 'Sync new WP user to FluentCRM', 'fcrm-wp-sync' ); ?>
+                                    <?php esc_html_e( 'Sync new WP user to FluentCRM', 'my-iapsnj' ); ?>
                                 </label>
                             </td>
                         </tr>
                         <tr>
-                            <th><?php esc_html_e( 'On Profile Update', 'fcrm-wp-sync' ); ?></th>
+                            <th><?php esc_html_e( 'On Profile Update', 'my-iapsnj' ); ?></th>
                             <td>
                                 <label>
                                     <input type="checkbox" name="sync_on_profile_update" value="1"
                                         <?php checked( ! empty( $settings['sync_on_profile_update'] ) ); ?>>
-                                    <?php esc_html_e( 'Sync WP user changes to FluentCRM', 'fcrm-wp-sync' ); ?>
+                                    <?php esc_html_e( 'Sync WP user changes to FluentCRM', 'my-iapsnj' ); ?>
                                 </label>
                             </td>
                         </tr>
                         <tr>
-                            <th><?php esc_html_e( 'On User Delete', 'fcrm-wp-sync' ); ?></th>
+                            <th><?php esc_html_e( 'On User Delete', 'my-iapsnj' ); ?></th>
                             <td>
                                 <label>
                                     <input type="checkbox" name="sync_on_user_delete" value="1"
                                         <?php checked( ! empty( $settings['sync_on_user_delete'] ) ); ?>>
-                                    <?php esc_html_e( 'Unlink subscriber when WP user is deleted', 'fcrm-wp-sync' ); ?>
+                                    <?php esc_html_e( 'Unlink subscriber when WP user is deleted', 'my-iapsnj' ); ?>
                                 </label>
                             </td>
                         </tr>
                         <tr>
-                            <th><?php esc_html_e( 'On FluentCRM Update', 'fcrm-wp-sync' ); ?></th>
+                            <th><?php esc_html_e( 'On FluentCRM Update', 'my-iapsnj' ); ?></th>
                             <td>
                                 <label>
                                     <input type="checkbox" name="sync_on_fcrm_update" value="1"
                                         <?php checked( ! empty( $settings['sync_on_fcrm_update'] ) ); ?>>
-                                    <?php esc_html_e( 'Sync FluentCRM contact changes to WP user', 'fcrm-wp-sync' ); ?>
+                                    <?php esc_html_e( 'Sync FluentCRM contact changes to WP user', 'my-iapsnj' ); ?>
                                 </label>
                             </td>
                         </tr>
                         <?php if ( function_exists( 'pmpro_getMembershipLevelForUser' ) ) : ?>
                         <tr>
-                            <th><?php esc_html_e( 'On PMP Membership Change', 'fcrm-wp-sync' ); ?></th>
+                            <th><?php esc_html_e( 'On PMP Membership Change', 'my-iapsnj' ); ?></th>
                             <td>
                                 <label>
                                     <input type="checkbox" name="sync_on_pmp_change" value="1"
                                         <?php checked( ! empty( $settings['sync_on_pmp_change'] ) ); ?>>
-                                    <?php esc_html_e( 'Sync WP user to FluentCRM when their PMPro membership level changes', 'fcrm-wp-sync' ); ?>
+                                    <?php esc_html_e( 'Sync WP user to FluentCRM when their PMPro membership level changes', 'my-iapsnj' ); ?>
                                 </label>
                                 <p class="description">
-                                    <?php esc_html_e( 'Pushes PMP date fields (join date, expiration date) to any mapped FluentCRM fields on every membership change.', 'fcrm-wp-sync' ); ?>
+                                    <?php esc_html_e( 'Pushes PMP date fields (join date, expiration date) to any mapped FluentCRM fields on every membership change.', 'my-iapsnj' ); ?>
                                 </p>
                             </td>
                         </tr>
@@ -682,7 +695,61 @@ class FCRM_WP_Sync_Admin {
 
                     <div id="fcrm-settings-notice" class="fcrm-notice" style="display:none"></div>
                     <button type="submit" class="button button-primary">
-                        <?php esc_html_e( 'Save Settings', 'fcrm-wp-sync' ); ?>
+                        <?php esc_html_e( 'Save Settings', 'my-iapsnj' ); ?>
+                    </button>
+                </form>
+            </div>
+
+            <!-- AI Provider Settings -->
+            <div class="fcrm-section">
+                <h2><?php esc_html_e( 'AI CRM Assistant Settings', 'my-iapsnj' ); ?></h2>
+                <form id="my-iapsnj-ai-settings-form">
+                    <table class="form-table">
+                        <tr>
+                            <th><?php esc_html_e( 'AI Provider', 'my-iapsnj' ); ?></th>
+                            <td>
+                                <select name="ai_provider" id="my-iapsnj-ai-provider">
+                                    <option value="anthropic" <?php selected( $settings['ai_provider'] ?? 'anthropic', 'anthropic' ); ?>>
+                                        <?php esc_html_e( 'Anthropic (Claude)', 'my-iapsnj' ); ?>
+                                    </option>
+                                    <option value="openai" <?php selected( $settings['ai_provider'] ?? '', 'openai' ); ?>>
+                                        <?php esc_html_e( 'OpenAI (GPT-4o)', 'my-iapsnj' ); ?>
+                                    </option>
+                                    <option value="gemini" <?php selected( $settings['ai_provider'] ?? '', 'gemini' ); ?>>
+                                        <?php esc_html_e( 'Google Gemini', 'my-iapsnj' ); ?>
+                                    </option>
+                                </select>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th><?php esc_html_e( 'Anthropic API Key', 'my-iapsnj' ); ?></th>
+                            <td>
+                                <input type="password" name="anthropic_api_key" class="regular-text"
+                                       value="<?php echo esc_attr( $settings['anthropic_api_key'] ?? '' ); ?>"
+                                       placeholder="sk-ant-...">
+                            </td>
+                        </tr>
+                        <tr>
+                            <th><?php esc_html_e( 'OpenAI API Key', 'my-iapsnj' ); ?></th>
+                            <td>
+                                <input type="password" name="openai_api_key" class="regular-text"
+                                       value="<?php echo esc_attr( $settings['openai_api_key'] ?? '' ); ?>"
+                                       placeholder="sk-...">
+                            </td>
+                        </tr>
+                        <tr>
+                            <th><?php esc_html_e( 'Gemini API Key', 'my-iapsnj' ); ?></th>
+                            <td>
+                                <input type="password" name="gemini_api_key" class="regular-text"
+                                       value="<?php echo esc_attr( $settings['gemini_api_key'] ?? '' ); ?>"
+                                       placeholder="AIza...">
+                            </td>
+                        </tr>
+                    </table>
+
+                    <div id="my-iapsnj-ai-settings-notice" class="fcrm-notice" style="display:none"></div>
+                    <button type="submit" class="button button-primary">
+                        <?php esc_html_e( 'Save AI Settings', 'my-iapsnj' ); ?>
                     </button>
                 </form>
             </div>
@@ -696,22 +763,22 @@ class FCRM_WP_Sync_Admin {
 
     public function render_mismatches_page(): void {
         if ( ! current_user_can( 'manage_options' ) ) {
-            wp_die( esc_html__( 'Insufficient permissions.', 'fcrm-wp-sync' ) );
+            wp_die( esc_html__( 'Insufficient permissions.', 'my-iapsnj' ) );
         }
 
         ?>
         <div class="wrap fcrm-sync-wrap">
-            <h1><?php esc_html_e( 'FluentCRM WP Sync – Mismatch Resolver', 'fcrm-wp-sync' ); ?></h1>
+            <h1><?php esc_html_e( 'My IAPSNJ – Mismatch Resolver', 'my-iapsnj' ); ?></h1>
             <p class="description">
-                <?php esc_html_e( 'Records below have at least one field where WP and FluentCRM values differ. Choose which value to keep, or skip.', 'fcrm-wp-sync' ); ?>
+                <?php esc_html_e( 'Records below have at least one field where WP and FluentCRM values differ. Choose which value to keep, or skip.', 'my-iapsnj' ); ?>
             </p>
 
             <div class="fcrm-mismatch-controls">
                 <button id="fcrm-scan-mismatches" class="button button-primary">
-                    <?php esc_html_e( 'Scan for Mismatches', 'fcrm-wp-sync' ); ?>
+                    <?php esc_html_e( 'Scan for Mismatches', 'my-iapsnj' ); ?>
                 </button>
                 <button id="fcrm-sync-all-empty-global" class="button button-secondary" style="margin-left:8px">
-                    <?php esc_html_e( 'Sync All Empty Fields (All Records)', 'fcrm-wp-sync' ); ?>
+                    <?php esc_html_e( 'Sync All Empty Fields (All Records)', 'my-iapsnj' ); ?>
                 </button>
                 <span id="fcrm-scan-status" style="margin-left:12px"></span>
             </div>
@@ -719,13 +786,13 @@ class FCRM_WP_Sync_Admin {
             <div id="fcrm-resolve-notice" class="fcrm-notice" style="display:none; margin-top:12px"></div>
 
             <div id="fcrm-mismatches-container" style="margin-top:20px">
-                <p class="fcrm-placeholder"><?php esc_html_e( 'Click "Scan for Mismatches" to begin.', 'fcrm-wp-sync' ); ?></p>
+                <p class="fcrm-placeholder"><?php esc_html_e( 'Click "Scan for Mismatches" to begin.', 'my-iapsnj' ); ?></p>
             </div>
 
             <div id="fcrm-mismatch-pagination" style="display:none; margin-top:12px">
-                <button id="fcrm-prev-page" class="button">&laquo; <?php esc_html_e( 'Previous', 'fcrm-wp-sync' ); ?></button>
+                <button id="fcrm-prev-page" class="button">&laquo; <?php esc_html_e( 'Previous', 'my-iapsnj' ); ?></button>
                 <span id="fcrm-page-info" style="margin:0 8px"></span>
-                <button id="fcrm-next-page" class="button"><?php esc_html_e( 'Next', 'fcrm-wp-sync' ); ?> &raquo;</button>
+                <button id="fcrm-next-page" class="button"><?php esc_html_e( 'Next', 'my-iapsnj' ); ?> &raquo;</button>
             </div>
         </div>
         <?php
@@ -736,7 +803,7 @@ class FCRM_WP_Sync_Admin {
     // -----------------------------------------------------------------------
 
     public function ajax_save_mappings(): void {
-        check_ajax_referer( 'fcrm_wp_sync_nonce', 'nonce' );
+        check_ajax_referer( 'my_iapsnj_nonce', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_send_json_error( 'Insufficient permissions', 403 );
         }
@@ -805,7 +872,7 @@ class FCRM_WP_Sync_Admin {
     }
 
     public function ajax_save_settings(): void {
-        check_ajax_referer( 'fcrm_wp_sync_nonce', 'nonce' );
+        check_ajax_referer( 'my_iapsnj_nonce', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_send_json_error( 'Insufficient permissions', 403 );
         }
@@ -823,12 +890,23 @@ class FCRM_WP_Sync_Admin {
             $settings[ $key ] = ! empty( $_POST[ $key ] ); // phpcs:ignore
         }
 
-        update_option( 'fcrm_wp_sync_settings', $settings );
+        // AI settings (string values, not booleans).
+        $ai_keys  = [ 'ai_provider', 'anthropic_api_key', 'openai_api_key', 'gemini_api_key' ];
+        $existing = get_option( 'my_iapsnj_settings', [] );
+        foreach ( $ai_keys as $key ) {
+            if ( isset( $_POST[ $key ] ) ) { // phpcs:ignore
+                $settings[ $key ] = sanitize_text_field( wp_unslash( $_POST[ $key ] ) ); // phpcs:ignore
+            } elseif ( isset( $existing[ $key ] ) ) {
+                $settings[ $key ] = $existing[ $key ];
+            }
+        }
+
+        update_option( 'my_iapsnj_settings', $settings );
         wp_send_json_success();
     }
 
     public function ajax_get_fields(): void {
-        check_ajax_referer( 'fcrm_wp_sync_nonce', 'nonce' );
+        check_ajax_referer( 'my_iapsnj_nonce', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_send_json_error( 'Insufficient permissions', 403 );
         }
@@ -840,7 +918,7 @@ class FCRM_WP_Sync_Admin {
     }
 
     public function ajax_bulk_sync(): void {
-        check_ajax_referer( 'fcrm_wp_sync_nonce', 'nonce' );
+        check_ajax_referer( 'my_iapsnj_nonce', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_send_json_error( 'Insufficient permissions', 403 );
         }
@@ -855,7 +933,7 @@ class FCRM_WP_Sync_Admin {
             : [];
         $field_ids = array_map( 'sanitize_text_field', $raw_ids );
 
-        $engine    = FCRM_WP_Sync_Engine::get_instance();
+        $engine    = My_IAPSNJ_Engine::get_instance();
         $success   = [];
         $errors    = [];
 
@@ -894,7 +972,7 @@ class FCRM_WP_Sync_Admin {
         $has_more    = ( $offset + $per_page ) < $total_users;
 
         if ( ! $has_more ) {
-            update_option( 'fcrm_wp_sync_last_bulk_sync', current_time( 'mysql' ) );
+            update_option( 'my_iapsnj_last_bulk_sync', current_time( 'mysql' ) );
         }
 
         wp_send_json_success( [
@@ -909,7 +987,7 @@ class FCRM_WP_Sync_Admin {
     }
 
     public function ajax_get_mismatches(): void {
-        check_ajax_referer( 'fcrm_wp_sync_nonce', 'nonce' );
+        check_ajax_referer( 'my_iapsnj_nonce', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_send_json_error( 'Insufficient permissions', 403 );
         }
@@ -922,7 +1000,7 @@ class FCRM_WP_Sync_Admin {
     }
 
     public function ajax_resolve_mismatch(): void {
-        check_ajax_referer( 'fcrm_wp_sync_nonce', 'nonce' );
+        check_ajax_referer( 'my_iapsnj_nonce', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_send_json_error( 'Insufficient permissions', 403 );
         }
@@ -976,7 +1054,7 @@ class FCRM_WP_Sync_Admin {
     // -----------------------------------------------------------------------
 
     public function ajax_sync_all_empty(): void {
-        check_ajax_referer( 'fcrm_wp_sync_nonce', 'nonce' );
+        check_ajax_referer( 'my_iapsnj_nonce', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_send_json_error( 'Insufficient permissions', 403 );
         }
@@ -989,7 +1067,7 @@ class FCRM_WP_Sync_Admin {
                     'Empty fields filled for %d contact.',
                     'Empty fields filled for %d contacts.',
                     $count,
-                    'fcrm-wp-sync'
+                    'my-iapsnj'
                 ),
                 $count
             );
@@ -1005,16 +1083,16 @@ class FCRM_WP_Sync_Admin {
 
     public function render_pmp_page(): void {
         if ( ! current_user_can( 'manage_options' ) ) {
-            wp_die( esc_html__( 'Insufficient permissions.', 'fcrm-wp-sync' ) );
+            wp_die( esc_html__( 'Insufficient permissions.', 'my-iapsnj' ) );
         }
 
-        $settings     = get_option( 'fcrm_wp_sync_settings', [] );
-        $tag_mappings = get_option( 'fcrm_wp_sync_pmp_tag_mappings', [] );
-        $pmp_levels   = FCRM_WP_Sync_PMP_Integration::get_all_levels();
+        $settings     = get_option( 'my_iapsnj_settings', [] );
+        $tag_mappings = get_option( 'my_iapsnj_pmp_tag_mappings', [] );
+        $pmp_levels   = My_IAPSNJ_PMP_Integration::get_all_levels();
 
         // Expiration date sync status.
-        $expiry_cron_enabled = (bool) get_option( 'fcrm_wp_sync_pmp_expiry_cron_enabled', false );
-        $expiry_last_sync    = get_option( 'fcrm_wp_sync_pmp_expiry_last_sync', '' );
+        $expiry_cron_enabled = (bool) get_option( 'my_iapsnj_pmp_expiry_cron_enabled', false );
+        $expiry_last_sync    = get_option( 'my_iapsnj_pmp_expiry_last_sync', '' );
 
         $expiry_field_exists = false;
         $custom_field_defs   = function_exists( 'fluentcrm_get_option' )
@@ -1048,38 +1126,38 @@ class FCRM_WP_Sync_Admin {
 
         ?>
         <div class="wrap fcrm-sync-wrap">
-            <h1><?php esc_html_e( 'FluentCRM WP Sync – PMP Integration', 'fcrm-wp-sync' ); ?></h1>
+            <h1><?php esc_html_e( 'My IAPSNJ – PMP Integration', 'my-iapsnj' ); ?></h1>
             <p class="description">
-                <?php esc_html_e( 'Configure how Paid Memberships Pro membership data syncs with FluentCRM.', 'fcrm-wp-sync' ); ?>
+                <?php esc_html_e( 'Configure how Paid Memberships Pro membership data syncs with FluentCRM.', 'my-iapsnj' ); ?>
             </p>
 
             <div id="fcrm-pmp-notice" class="fcrm-notice" style="display:none"></div>
 
             <!-- ── Field mapping reminder ─────────────────────────────────── -->
             <div class="fcrm-section">
-                <h2><?php esc_html_e( 'Date & Level Field Mapping', 'fcrm-wp-sync' ); ?></h2>
+                <h2><?php esc_html_e( 'Date & Level Field Mapping', 'my-iapsnj' ); ?></h2>
                 <p>
-                    <?php esc_html_e( 'The following PMPro membership fields are available in the Field Mapping screen. These are read-only and sync WP → FluentCRM only:', 'fcrm-wp-sync' ); ?>
+                    <?php esc_html_e( 'The following PMPro membership fields are available in the Field Mapping screen. These are read-only and sync WP → FluentCRM only:', 'my-iapsnj' ); ?>
                 </p>
                 <ul style="list-style:disc; margin-left:1.5em; line-height:1.8">
-                    <li><strong><?php esc_html_e( 'PMPro Join Date', 'fcrm-wp-sync' ); ?></strong> – <?php esc_html_e( "The date the user's current membership level started.", 'fcrm-wp-sync' ); ?></li>
-                    <li><strong><?php esc_html_e( 'PMPro Expiration / Renewal Date', 'fcrm-wp-sync' ); ?></strong> – <?php esc_html_e( 'The date the membership expires or renews. Empty for non-expiring memberships.', 'fcrm-wp-sync' ); ?></li>
-                    <li><strong><?php esc_html_e( 'PMPro Level Name', 'fcrm-wp-sync' ); ?></strong> – <?php esc_html_e( 'The name of the active membership level.', 'fcrm-wp-sync' ); ?></li>
-                    <li><strong><?php esc_html_e( 'PMPro Level ID', 'fcrm-wp-sync' ); ?></strong> – <?php esc_html_e( 'The numeric ID of the active membership level.', 'fcrm-wp-sync' ); ?></li>
+                    <li><strong><?php esc_html_e( 'PMPro Join Date', 'my-iapsnj' ); ?></strong> – <?php esc_html_e( "The date the user's current membership level started.", 'my-iapsnj' ); ?></li>
+                    <li><strong><?php esc_html_e( 'PMPro Expiration / Renewal Date', 'my-iapsnj' ); ?></strong> – <?php esc_html_e( 'The date the membership expires or renews. Empty for non-expiring memberships.', 'my-iapsnj' ); ?></li>
+                    <li><strong><?php esc_html_e( 'PMPro Level Name', 'my-iapsnj' ); ?></strong> – <?php esc_html_e( 'The name of the active membership level.', 'my-iapsnj' ); ?></li>
+                    <li><strong><?php esc_html_e( 'PMPro Level ID', 'my-iapsnj' ); ?></strong> – <?php esc_html_e( 'The numeric ID of the active membership level.', 'my-iapsnj' ); ?></li>
                 </ul>
             </div>
 
             <!-- ── Billing address field mapping ─────────────────────────── -->
             <div class="fcrm-section">
-                <h2><?php esc_html_e( 'Billing Address Field Mapping', 'fcrm-wp-sync' ); ?></h2>
+                <h2><?php esc_html_e( 'Billing Address Field Mapping', 'my-iapsnj' ); ?></h2>
                 <p>
-                    <?php esc_html_e( 'PMPro stores billing address information in WordPress user meta. These fields can be mapped bidirectionally to FluentCRM address fields:', 'fcrm-wp-sync' ); ?>
+                    <?php esc_html_e( 'PMPro stores billing address information in WordPress user meta. These fields can be mapped bidirectionally to FluentCRM address fields:', 'my-iapsnj' ); ?>
                 </p>
                 <table class="widefat" style="max-width:700px">
                     <thead>
                         <tr>
-                            <th><?php esc_html_e( 'PMPro Field (WP meta key)', 'fcrm-wp-sync' ); ?></th>
-                            <th><?php esc_html_e( 'Suggested FluentCRM Field', 'fcrm-wp-sync' ); ?></th>
+                            <th><?php esc_html_e( 'PMPro Field (WP meta key)', 'my-iapsnj' ); ?></th>
+                            <th><?php esc_html_e( 'Suggested FluentCRM Field', 'my-iapsnj' ); ?></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1103,40 +1181,40 @@ class FCRM_WP_Sync_Admin {
                     </tbody>
                 </table>
                 <p style="margin-top:8px">
-                    <a href="<?php echo esc_url( admin_url( 'admin.php?page=fcrm-wp-sync' ) ); ?>" class="button">
-                        <?php esc_html_e( 'Go to Field Mapping', 'fcrm-wp-sync' ); ?>
+                    <a href="<?php echo esc_url( admin_url( 'admin.php?page=my-iapsnj' ) ); ?>" class="button">
+                        <?php esc_html_e( 'Go to Field Mapping', 'my-iapsnj' ); ?>
                     </a>
                 </p>
             </div>
 
             <!-- ── Sync trigger ───────────────────────────────────────────── -->
             <div class="fcrm-section">
-                <h2><?php esc_html_e( 'Sync Trigger', 'fcrm-wp-sync' ); ?></h2>
-                <p><?php esc_html_e( 'Enable automatic syncing to FluentCRM when a membership level changes.', 'fcrm-wp-sync' ); ?></p>
+                <h2><?php esc_html_e( 'Sync Trigger', 'my-iapsnj' ); ?></h2>
+                <p><?php esc_html_e( 'Enable automatic syncing to FluentCRM when a membership level changes.', 'my-iapsnj' ); ?></p>
                 <label>
                     <input type="checkbox" id="fcrm-pmp-sync-on-change" value="1"
                         <?php checked( ! empty( $settings['sync_on_pmp_change'] ) ); ?>>
-                    <?php esc_html_e( 'Sync WP → FluentCRM on every membership level change', 'fcrm-wp-sync' ); ?>
+                    <?php esc_html_e( 'Sync WP → FluentCRM on every membership level change', 'my-iapsnj' ); ?>
                 </label>
             </div>
 
             <!-- ── Tag mappings ───────────────────────────────────────────── -->
             <div class="fcrm-section">
-                <h2><?php esc_html_e( 'Tag Mappings', 'fcrm-wp-sync' ); ?></h2>
+                <h2><?php esc_html_e( 'Tag Mappings', 'my-iapsnj' ); ?></h2>
                 <p>
-                    <?php esc_html_e( 'Select which FluentCRM tags to apply when a user belongs to each membership level. Tags assigned by this mapping will be removed automatically when the user\'s level changes.', 'fcrm-wp-sync' ); ?>
+                    <?php esc_html_e( 'Select which FluentCRM tags to apply when a user belongs to each membership level. Tags assigned by this mapping will be removed automatically when the user\'s level changes.', 'my-iapsnj' ); ?>
                 </p>
 
                 <?php if ( empty( $pmp_levels ) ) : ?>
-                    <p class="description"><?php esc_html_e( 'No membership levels found. Create levels in PMPro first.', 'fcrm-wp-sync' ); ?></p>
+                    <p class="description"><?php esc_html_e( 'No membership levels found. Create levels in PMPro first.', 'my-iapsnj' ); ?></p>
                 <?php elseif ( empty( $fcrm_tags ) ) : ?>
-                    <p class="description"><?php esc_html_e( 'No FluentCRM tags found. Create tags in FluentCRM first.', 'fcrm-wp-sync' ); ?></p>
+                    <p class="description"><?php esc_html_e( 'No FluentCRM tags found. Create tags in FluentCRM first.', 'my-iapsnj' ); ?></p>
                 <?php else : ?>
                     <table class="widefat fcrm-pmp-tag-table" style="max-width:800px">
                         <thead>
                             <tr>
-                                <th style="width:30%"><?php esc_html_e( 'Membership Level', 'fcrm-wp-sync' ); ?></th>
-                                <th><?php esc_html_e( 'FluentCRM Tags to Apply', 'fcrm-wp-sync' ); ?></th>
+                                <th style="width:30%"><?php esc_html_e( 'Membership Level', 'my-iapsnj' ); ?></th>
+                                <th><?php esc_html_e( 'FluentCRM Tags to Apply', 'my-iapsnj' ); ?></th>
                             </tr>
                         </thead>
                         <tbody>
@@ -1148,7 +1226,7 @@ class FCRM_WP_Sync_Admin {
                             <tr>
                                 <td>
                                     <strong><?php echo $level_name; ?></strong>
-                                    <br><small><?php echo esc_html( sprintf( __( 'Level ID: %d', 'fcrm-wp-sync' ), $level_id ) ); ?></small>
+                                    <br><small><?php echo esc_html( sprintf( __( 'Level ID: %d', 'my-iapsnj' ), $level_id ) ); ?></small>
                                 </td>
                                 <td>
                                     <select multiple
@@ -1164,7 +1242,7 @@ class FCRM_WP_Sync_Admin {
                                         <?php endforeach; ?>
                                     </select>
                                     <p class="description" style="margin-top:4px">
-                                        <?php esc_html_e( 'Hold Ctrl / Cmd to select multiple tags.', 'fcrm-wp-sync' ); ?>
+                                        <?php esc_html_e( 'Hold Ctrl / Cmd to select multiple tags.', 'my-iapsnj' ); ?>
                                     </p>
                                 </td>
                             </tr>
@@ -1176,9 +1254,9 @@ class FCRM_WP_Sync_Admin {
 
             <!-- ── Expiration Date Sync ───────────────────────────────────── -->
             <div class="fcrm-section">
-                <h2><?php esc_html_e( 'Expiration Date Sync', 'fcrm-wp-sync' ); ?></h2>
+                <h2><?php esc_html_e( 'Expiration Date Sync', 'my-iapsnj' ); ?></h2>
                 <p>
-                    <?php esc_html_e( 'Automatically sync PMPro membership expiration dates to the FluentCRM custom field "expiration_date". Works for both non-recurring members (uses their fixed end date) and recurring members with no fixed end date (falls back to the next scheduled renewal/billing date).', 'fcrm-wp-sync' ); ?>
+                    <?php esc_html_e( 'Automatically sync PMPro membership expiration dates to the FluentCRM custom field "expiration_date". Works for both non-recurring members (uses their fixed end date) and recurring members with no fixed end date (falls back to the next scheduled renewal/billing date).', 'my-iapsnj' ); ?>
                 </p>
 
                 <!-- Status cards -->
@@ -1186,27 +1264,27 @@ class FCRM_WP_Sync_Admin {
                     <div class="fcrm-card">
                         <span class="fcrm-card-number" style="font-size:14px">
                             <?php if ( $expiry_field_exists ) : ?>
-                                <span style="color:#46b450">&#10003; <?php esc_html_e( 'Found', 'fcrm-wp-sync' ); ?></span>
+                                <span style="color:#46b450">&#10003; <?php esc_html_e( 'Found', 'my-iapsnj' ); ?></span>
                             <?php else : ?>
-                                <span style="color:#dc3232">&#10007; <?php esc_html_e( 'Not Found', 'fcrm-wp-sync' ); ?></span>
+                                <span style="color:#dc3232">&#10007; <?php esc_html_e( 'Not Found', 'my-iapsnj' ); ?></span>
                             <?php endif; ?>
                         </span>
-                        <span class="fcrm-card-label"><?php esc_html_e( 'FluentCRM expiration_date field', 'fcrm-wp-sync' ); ?></span>
+                        <span class="fcrm-card-label"><?php esc_html_e( 'FluentCRM expiration_date field', 'my-iapsnj' ); ?></span>
                     </div>
                     <div class="fcrm-card">
                         <span class="fcrm-card-number" style="font-size:14px">
                             <?php if ( $expiry_mapping_exists ) : ?>
-                                <span style="color:#46b450">&#10003; <?php esc_html_e( 'Configured', 'fcrm-wp-sync' ); ?></span>
+                                <span style="color:#46b450">&#10003; <?php esc_html_e( 'Configured', 'my-iapsnj' ); ?></span>
                             <?php else : ?>
-                                <span style="color:#dc3232">&#10007; <?php esc_html_e( 'Not Set', 'fcrm-wp-sync' ); ?></span>
+                                <span style="color:#dc3232">&#10007; <?php esc_html_e( 'Not Set', 'my-iapsnj' ); ?></span>
                             <?php endif; ?>
                         </span>
-                        <span class="fcrm-card-label"><?php esc_html_e( 'Field Mapping', 'fcrm-wp-sync' ); ?></span>
+                        <span class="fcrm-card-label"><?php esc_html_e( 'Field Mapping', 'my-iapsnj' ); ?></span>
                     </div>
                     <?php if ( $expiry_last_sync ) : ?>
                     <div class="fcrm-card">
                         <span class="fcrm-card-number" style="font-size:12px"><?php echo esc_html( $expiry_last_sync ); ?></span>
-                        <span class="fcrm-card-label"><?php esc_html_e( 'Last Expiry Sync', 'fcrm-wp-sync' ); ?></span>
+                        <span class="fcrm-card-label"><?php esc_html_e( 'Last Expiry Sync', 'my-iapsnj' ); ?></span>
                     </div>
                     <?php endif; ?>
                 </div>
@@ -1215,26 +1293,26 @@ class FCRM_WP_Sync_Admin {
 
                 <?php if ( ! $expiry_field_exists ) : ?>
                 <p class="description" style="color:#b71c1c; margin-bottom:12px">
-                    <?php esc_html_e( 'You must first create a custom field with slug "expiration_date" and type "Date" in FluentCRM (FluentCRM \u2192 Settings \u2192 Custom Fields) before using this tool.', 'fcrm-wp-sync' ); ?>
+                    <?php esc_html_e( 'You must first create a custom field with slug "expiration_date" and type "Date" in FluentCRM (FluentCRM \u2192 Settings \u2192 Custom Fields) before using this tool.', 'my-iapsnj' ); ?>
                 </p>
                 <?php endif; ?>
 
                 <button id="fcrm-pmp-setup-expiry-mapping" class="button button-secondary"
                     <?php echo $expiry_field_exists ? '' : 'disabled'; ?>>
-                    <?php esc_html_e( 'Auto-Setup Mapping', 'fcrm-wp-sync' ); ?>
+                    <?php esc_html_e( 'Auto-Setup Mapping', 'my-iapsnj' ); ?>
                 </button>
                 <span style="margin-left:8px; color:#555; font-size:12px">
-                    <?php esc_html_e( 'Creates the PMPro Smart Expiration Date \u2192 expiration_date field mapping automatically.', 'fcrm-wp-sync' ); ?>
+                    <?php esc_html_e( 'Creates the PMPro Smart Expiration Date \u2192 expiration_date field mapping automatically.', 'my-iapsnj' ); ?>
                 </span>
 
                 <hr style="margin:20px 0">
 
-                <h3 style="margin-top:0"><?php esc_html_e( 'Sync Expiration Dates Now', 'fcrm-wp-sync' ); ?></h3>
-                <p><?php esc_html_e( 'Push expiration dates to FluentCRM for all active PMPro members. Processes in batches of 50 to avoid timeouts.', 'fcrm-wp-sync' ); ?></p>
+                <h3 style="margin-top:0"><?php esc_html_e( 'Sync Expiration Dates Now', 'my-iapsnj' ); ?></h3>
+                <p><?php esc_html_e( 'Push expiration dates to FluentCRM for all active PMPro members. Processes in batches of 50 to avoid timeouts.', 'my-iapsnj' ); ?></p>
 
                 <button id="fcrm-pmp-bulk-expiry-sync" class="button button-primary"
                     <?php echo $expiry_mapping_exists ? '' : 'disabled'; ?>>
-                    <?php esc_html_e( 'Sync Expiration Dates Now', 'fcrm-wp-sync' ); ?>
+                    <?php esc_html_e( 'Sync Expiration Dates Now', 'my-iapsnj' ); ?>
                 </button>
 
                 <div id="fcrm-expiry-progress" style="display:none; margin-top:12px">
@@ -1247,21 +1325,21 @@ class FCRM_WP_Sync_Admin {
 
                 <hr style="margin:20px 0">
 
-                <h3 style="margin-top:0"><?php esc_html_e( 'Automatic Daily Sync', 'fcrm-wp-sync' ); ?></h3>
-                <p><?php esc_html_e( 'Enable a daily WP-Cron task to automatically sync expiration dates for all active members. The cron runs once per day using the WordPress cron scheduler.', 'fcrm-wp-sync' ); ?></p>
+                <h3 style="margin-top:0"><?php esc_html_e( 'Automatic Daily Sync', 'my-iapsnj' ); ?></h3>
+                <p><?php esc_html_e( 'Enable a daily WP-Cron task to automatically sync expiration dates for all active members. The cron runs once per day using the WordPress cron scheduler.', 'my-iapsnj' ); ?></p>
                 <label>
                     <input type="checkbox" id="fcrm-pmp-expiry-cron-enabled" value="1"
                         <?php checked( $expiry_cron_enabled ); ?>>
-                    <?php esc_html_e( 'Enable daily automatic expiration date sync', 'fcrm-wp-sync' ); ?>
+                    <?php esc_html_e( 'Enable daily automatic expiration date sync', 'my-iapsnj' ); ?>
                 </label>
                 <br><br>
                 <button id="fcrm-pmp-save-expiry-cron" class="button button-secondary">
-                    <?php esc_html_e( 'Save Cron Setting', 'fcrm-wp-sync' ); ?>
+                    <?php esc_html_e( 'Save Cron Setting', 'my-iapsnj' ); ?>
                 </button>
             </div>
 
             <button id="fcrm-save-pmp-settings" class="button button-primary">
-                <?php esc_html_e( 'Save PMP Settings', 'fcrm-wp-sync' ); ?>
+                <?php esc_html_e( 'Save PMP Settings', 'my-iapsnj' ); ?>
             </button>
 
         </div>
@@ -1273,15 +1351,15 @@ class FCRM_WP_Sync_Admin {
     // -----------------------------------------------------------------------
 
     public function ajax_save_pmp_settings(): void {
-        check_ajax_referer( 'fcrm_wp_sync_nonce', 'nonce' );
+        check_ajax_referer( 'my_iapsnj_nonce', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_send_json_error( 'Insufficient permissions', 403 );
         }
 
         // 1. Update the sync_on_pmp_change toggle within the main settings array.
-        $settings                       = get_option( 'fcrm_wp_sync_settings', [] );
+        $settings                       = get_option( 'my_iapsnj_settings', [] );
         $settings['sync_on_pmp_change'] = ! empty( $_POST['sync_on_pmp_change'] ); // phpcs:ignore
-        update_option( 'fcrm_wp_sync_settings', $settings );
+        update_option( 'my_iapsnj_settings', $settings );
 
         // 2. Build and save tag mappings: [ level_id (int) => [ tag_id (int), ... ] ]
         $raw_mappings  = isset( $_POST['pmp_tag_mappings'] ) ? (array) $_POST['pmp_tag_mappings'] : []; // phpcs:ignore
@@ -1302,7 +1380,7 @@ class FCRM_WP_Sync_Admin {
             $clean_mappings[ $lid ] = $clean_tags;
         }
 
-        update_option( 'fcrm_wp_sync_pmp_tag_mappings', $clean_mappings );
+        update_option( 'my_iapsnj_pmp_tag_mappings', $clean_mappings );
 
         wp_send_json_success( [ 'levels' => count( $clean_mappings ) ] );
     }
@@ -1316,7 +1394,7 @@ class FCRM_WP_Sync_Admin {
      * pmp__expiration_date → expiration_date mapping record.
      */
     public function ajax_pmp_setup_expiry_mapping(): void {
-        check_ajax_referer( 'fcrm_wp_sync_nonce', 'nonce' );
+        check_ajax_referer( 'my_iapsnj_nonce', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_send_json_error( 'Insufficient permissions', 403 );
         }
@@ -1336,7 +1414,7 @@ class FCRM_WP_Sync_Admin {
 
         if ( ! $fcrm_field ) {
             wp_send_json_error( [
-                'message' => esc_html__( 'FluentCRM custom field "expiration_date" not found. Create it in FluentCRM → Settings → Custom Fields first.', 'fcrm-wp-sync' ),
+                'message' => esc_html__( 'FluentCRM custom field "expiration_date" not found. Create it in FluentCRM → Settings → Custom Fields first.', 'my-iapsnj' ),
             ] );
         }
 
@@ -1349,17 +1427,17 @@ class FCRM_WP_Sync_Admin {
             ) {
                 wp_send_json_success( [
                     'already_existed' => true,
-                    'message'         => esc_html__( 'Mapping already exists and is configured.', 'fcrm-wp-sync' ),
+                    'message'         => esc_html__( 'Mapping already exists and is configured.', 'my-iapsnj' ),
                 ] );
             }
         }
 
         // 3. Create the new mapping record.
         $new_mapping = [
-            'id'                => FCRM_WP_Sync_Field_Mapper::generate_id(),
+            'id'                => My_IAPSNJ_Field_Mapper::generate_id(),
             'wp_field_key'      => 'expiration_date',
             'wp_field_source'   => 'pmp',
-            'wp_field_label'    => esc_html__( 'PMPro Smart Expiration Date', 'fcrm-wp-sync' ),
+            'wp_field_label'    => esc_html__( 'PMPro Smart Expiration Date', 'my-iapsnj' ),
             'fcrm_field_key'    => 'expiration_date',
             'fcrm_field_source' => 'custom',
             'fcrm_field_label'  => ( $fcrm_field['label'] ?? 'expiration_date' ) . ' (custom)',
@@ -1376,7 +1454,7 @@ class FCRM_WP_Sync_Admin {
 
         wp_send_json_success( [
             'already_existed' => false,
-            'message'         => esc_html__( 'Mapping created successfully. You can now sync expiration dates.', 'fcrm-wp-sync' ),
+            'message'         => esc_html__( 'Mapping created successfully. You can now sync expiration dates.', 'my-iapsnj' ),
             'mapping_id'      => $new_mapping['id'],
         ] );
     }
@@ -1391,7 +1469,7 @@ class FCRM_WP_Sync_Admin {
      * POST params: per_page (default 50), offset (default 0)
      */
     public function ajax_pmp_bulk_expiry_sync(): void {
-        check_ajax_referer( 'fcrm_wp_sync_nonce', 'nonce' );
+        check_ajax_referer( 'my_iapsnj_nonce', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_send_json_error( 'Insufficient permissions', 403 );
         }
@@ -1411,7 +1489,7 @@ class FCRM_WP_Sync_Admin {
 
         if ( empty( $expiry_mapping_ids ) ) {
             wp_send_json_error( [
-                'message' => esc_html__( 'No expiration date mapping found. Run Auto-Setup Mapping first.', 'fcrm-wp-sync' ),
+                'message' => esc_html__( 'No expiration date mapping found. Run Auto-Setup Mapping first.', 'my-iapsnj' ),
             ] );
         }
 
@@ -1434,7 +1512,7 @@ class FCRM_WP_Sync_Admin {
             $offset
         ) );
 
-        $engine  = FCRM_WP_Sync_Engine::get_instance();
+        $engine  = My_IAPSNJ_Engine::get_instance();
         $success = [];
         $errors  = [];
 
@@ -1450,7 +1528,7 @@ class FCRM_WP_Sync_Admin {
         $has_more = ( $offset + $per_page ) < $total;
 
         if ( ! $has_more ) {
-            update_option( 'fcrm_wp_sync_pmp_expiry_last_sync', current_time( 'mysql' ) );
+            update_option( 'my_iapsnj_pmp_expiry_last_sync', current_time( 'mysql' ) );
         }
 
         wp_send_json_success( [
@@ -1474,30 +1552,30 @@ class FCRM_WP_Sync_Admin {
      * POST params: enabled (1 or 0)
      */
     public function ajax_pmp_save_expiry_cron(): void {
-        check_ajax_referer( 'fcrm_wp_sync_nonce', 'nonce' );
+        check_ajax_referer( 'my_iapsnj_nonce', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_send_json_error( 'Insufficient permissions', 403 );
         }
 
         $enabled = ! empty( $_POST['enabled'] ); // phpcs:ignore
-        update_option( 'fcrm_wp_sync_pmp_expiry_cron_enabled', $enabled );
+        update_option( 'my_iapsnj_pmp_expiry_cron_enabled', $enabled );
 
         if ( $enabled ) {
-            if ( ! wp_next_scheduled( 'fcrm_wp_sync_pmp_expiry_cron' ) ) {
-                wp_schedule_event( time(), 'daily', 'fcrm_wp_sync_pmp_expiry_cron' );
+            if ( ! wp_next_scheduled( 'my_iapsnj_pmp_expiry_cron' ) ) {
+                wp_schedule_event( time(), 'daily', 'my_iapsnj_pmp_expiry_cron' );
             }
         } else {
-            wp_clear_scheduled_hook( 'fcrm_wp_sync_pmp_expiry_cron' );
+            wp_clear_scheduled_hook( 'my_iapsnj_pmp_expiry_cron' );
         }
 
-        $next_run = wp_next_scheduled( 'fcrm_wp_sync_pmp_expiry_cron' );
+        $next_run = wp_next_scheduled( 'my_iapsnj_pmp_expiry_cron' );
 
         wp_send_json_success( [
             'enabled'  => $enabled,
             'next_run' => $next_run ? date( 'Y-m-d H:i:s', $next_run ) : '',
             'message'  => $enabled
-                ? esc_html__( 'Daily cron enabled.', 'fcrm-wp-sync' )
-                : esc_html__( 'Daily cron disabled.', 'fcrm-wp-sync' ),
+                ? esc_html__( 'Daily cron enabled.', 'my-iapsnj' )
+                : esc_html__( 'Daily cron disabled.', 'my-iapsnj' ),
         ] );
     }
 
@@ -1506,7 +1584,7 @@ class FCRM_WP_Sync_Admin {
     // -----------------------------------------------------------------------
 
     public function ajax_search_users(): void {
-        check_ajax_referer( 'fcrm_wp_sync_nonce', 'nonce' );
+        check_ajax_referer( 'my_iapsnj_nonce', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_send_json_error( 'Insufficient permissions', 403 );
         }
@@ -1540,22 +1618,22 @@ class FCRM_WP_Sync_Admin {
     // -----------------------------------------------------------------------
 
     public function ajax_sample_data(): void {
-        check_ajax_referer( 'fcrm_wp_sync_nonce', 'nonce' );
+        check_ajax_referer( 'my_iapsnj_nonce', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_send_json_error( 'Insufficient permissions', 403 );
         }
 
         $user_id = (int) ( $_POST['user_id'] ?? 0 ); // phpcs:ignore
         if ( ! $user_id ) {
-            wp_send_json_error( __( 'Invalid user ID.', 'fcrm-wp-sync' ) );
+            wp_send_json_error( __( 'Invalid user ID.', 'my-iapsnj' ) );
         }
 
         $user = get_userdata( $user_id );
         if ( ! $user ) {
-            wp_send_json_error( __( 'User not found.', 'fcrm-wp-sync' ) );
+            wp_send_json_error( __( 'User not found.', 'my-iapsnj' ) );
         }
 
-        $engine = FCRM_WP_Sync_Engine::get_instance();
+        $engine = My_IAPSNJ_Engine::get_instance();
         $rows   = $engine->get_field_values_for_user( $user_id );
 
         wp_send_json_success( [
@@ -1566,5 +1644,58 @@ class FCRM_WP_Sync_Admin {
             ],
             'rows' => $rows,
         ] );
+    }
+
+    // -----------------------------------------------------------------------
+    // Page: CRM Assistant
+    // -----------------------------------------------------------------------
+
+    public function render_crm_assistant_page(): void {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( esc_html__( 'Insufficient permissions.', 'my-iapsnj' ) );
+        }
+
+        $settings = get_option( 'my_iapsnj_settings', [] );
+        $provider = $settings['ai_provider'] ?? 'anthropic';
+        $provider_labels = [
+            'anthropic' => 'Anthropic (Claude)',
+            'openai'    => 'OpenAI (GPT-4o)',
+            'gemini'    => 'Google Gemini',
+        ];
+        $provider_label = $provider_labels[ $provider ] ?? $provider;
+
+        ?>
+        <div class="wrap fcrm-sync-wrap">
+            <h1><?php esc_html_e( 'My IAPSNJ – CRM Assistant', 'my-iapsnj' ); ?></h1>
+            <p class="description">
+                <?php esc_html_e( 'Chat with your AI-powered CRM assistant. It can search contacts, view details, update records, and manage tags in FluentCRM.', 'my-iapsnj' ); ?>
+            </p>
+
+            <div class="fcrm-section">
+                <span class="my-iapsnj-provider-badge">
+                    <?php echo esc_html( $provider_label ); ?>
+                </span>
+
+                <div id="my-iapsnj-chat-wrap" class="my-iapsnj-chat-wrap">
+                    <div id="my-iapsnj-chat-history" class="my-iapsnj-chat-history"></div>
+
+                    <div class="my-iapsnj-chat-input-wrap">
+                        <textarea id="my-iapsnj-chat-input"
+                                  class="my-iapsnj-chat-input"
+                                  rows="2"
+                                  placeholder="<?php esc_attr_e( 'Ask about your contacts, tags, or member data…', 'my-iapsnj' ); ?>"></textarea>
+                        <button id="my-iapsnj-chat-send" class="button button-primary">
+                            <?php esc_html_e( 'Send', 'my-iapsnj' ); ?>
+                        </button>
+                    </div>
+                </div>
+
+                <details id="my-iapsnj-tool-log" class="my-iapsnj-tool-log" style="margin-top:12px">
+                    <summary><?php esc_html_e( 'Tool Call Log', 'my-iapsnj' ); ?></summary>
+                    <div id="my-iapsnj-tool-log-content"></div>
+                </details>
+            </div>
+        </div>
+        <?php
     }
 }

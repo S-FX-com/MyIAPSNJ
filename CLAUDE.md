@@ -1,11 +1,11 @@
-# Claude Code Instructions – WP-FluentCRM-Sync
+# Claude Code Instructions – My IAPSNJ
 
 ## Plugin Version
 
 **Increment the plugin version before every commit.** Both locations must be updated together:
 
-1. The `Version:` header in `fluentcrm-wp-sync.php` (line ~6)
-2. The `FCRM_WP_SYNC_VERSION` constant in `fluentcrm-wp-sync.php` (line ~19)
+1. The `Version:` header in `my-iapsnj.php` (line ~6)
+2. The `MY_IAPSNJ_VERSION` constant in `my-iapsnj.php` (line ~19)
 
 ### Versioning scheme (semver)
 
@@ -15,15 +15,15 @@
 | New feature, backward-compatible | Minor — `1.1.x` → `1.2.0` |
 | Breaking change | Major — `1.x.x` → `2.0.0` |
 
-Current version: **1.5.2**
+Current version: **2.0.0**
 
 ### Example workflow
 
 ```bash
 # 1. Edit code
-# 2. Bump version in fluentcrm-wp-sync.php (header + constant)
-# 3. Stage everything including fluentcrm-wp-sync.php
-git add fluentcrm-wp-sync.php <other changed files>
+# 2. Bump version in my-iapsnj.php (header + constant)
+# 3. Stage everything including my-iapsnj.php
+git add my-iapsnj.php <other changed files>
 # 4. Commit
 git commit -m "..."
 # 5. Push
@@ -34,7 +34,7 @@ git push -u origin <branch>
 
 When a PR is merged to `main`, the GitHub Actions workflow
 `.github/workflows/release.yml` reads the `Version:` header and automatically
-creates a tagged GitHub Release (e.g. `v1.5.1`) if one doesn't exist yet.
+creates a tagged GitHub Release (e.g. `v2.0.0`) if one doesn't exist yet.
 **No manual release creation is needed.**
 
 The WordPress auto-updater in the plugin calls the GitHub
@@ -44,7 +44,7 @@ pick up new versions as soon as the PR lands on `main`.
 
 ## Git branch
 
-Always develop on `claude/add-field-mapping-support-kBFeU` (or the branch
+Always develop on `claude/rename-plugin-iapsnj-ydnTw` (or the branch
 specified in the current session's system prompt). Never push to `main` directly.
 
 ## Code conventions
