@@ -1,6 +1,6 @@
 <?php
 /**
- * FCRM_WP_Sync_Engine
+ * My_IAPSNJ_Engine
  *
  * Handles the actual bidirectional synchronisation between WordPress users
  * and FluentCRM contacts.  Uses a re-entrancy guard to prevent infinite
@@ -11,13 +11,13 @@ defined( 'ABSPATH' ) || exit;
 
 use FluentCrm\App\Models\Subscriber;
 
-class FCRM_WP_Sync_Engine {
+class My_IAPSNJ_Engine {
 
     /** @var self|null */
     private static ?self $instance = null;
 
-    /** @var FCRM_WP_Sync_Field_Mapper */
-    private FCRM_WP_Sync_Field_Mapper $mapper;
+    /** @var My_IAPSNJ_Field_Mapper */
+    private My_IAPSNJ_Field_Mapper $mapper;
 
     /**
      * Re-entrancy guards — kept separate so that a WP→FCRM sync does not
@@ -48,7 +48,7 @@ class FCRM_WP_Sync_Engine {
     }
 
     private function __construct() {
-        $this->mapper = new FCRM_WP_Sync_Field_Mapper();
+        $this->mapper = new My_IAPSNJ_Field_Mapper();
         $this->register_hooks();
     }
 
@@ -57,7 +57,7 @@ class FCRM_WP_Sync_Engine {
     // -----------------------------------------------------------------------
 
     private function register_hooks(): void {
-        $settings = get_option( 'fcrm_wp_sync_settings', [] );
+        $settings = get_option( 'my_iapsnj_settings', [] );
 
         if ( ! empty( $settings['sync_on_user_register'] ) ) {
             add_action( 'user_register',  [ $this, 'on_user_register' ], 20 );
@@ -169,9 +169,6 @@ class FCRM_WP_Sync_Engine {
 
             // Find the subscriber that is actually linked to this WP user so we
             // can use their FluentCRM email as the createOrUpdate() lookup key.
-            // Without this, when the WP email differs from the FCRM subscriber's
-            // email, createOrUpdate() fails to find the existing contact and
-            // creates a duplicate instead of updating the correct record.
             $existing_sub = Subscriber::where( 'user_id', $user_id )->first();
             if ( ! ( $existing_sub instanceof Subscriber ) ) {
                 $existing_sub = Subscriber::where( 'email', $user_info->user_email )->first();
@@ -217,31 +214,18 @@ class FCRM_WP_Sync_Engine {
             }
 
             // Resolve the lookup email for createOrUpdate().
-            // Always use the subscriber's existing FCRM email as the key so the
-            // correct contact is found.  If the email field itself is being synced
-            // to a new value, update the subscriber's email directly first so that
-            // the subsequent createOrUpdate() (keyed on the new email) still finds
-            // the right record rather than creating a duplicate.
             $intended_email = null;
             if ( $existing_sub instanceof Subscriber ) {
                 $mapped_email = $data['email'] ?? null;
                 if ( $mapped_email && $mapped_email !== $existing_sub->email ) {
-                    // Only update the email if no other subscriber already owns
-                    // the target address — changing it would violate the UNIQUE
-                    // constraint and throw a SQL duplicate-entry error.
                     $conflict = Subscriber::where( 'email', $mapped_email )
                         ->where( 'id', '!=', $existing_sub->id )
                         ->first();
                     if ( $conflict instanceof Subscriber ) {
-                        // Conflict — keep the FCRM email as the lookup key and
-                        // drop the new email from the update payload.
                         $data['email'] = $existing_sub->email;
                     } else {
-                        // Safe to move the email — update the model first so
-                        // createOrUpdate() can find the contact by the new address.
                         $existing_sub->email = $mapped_email;
                         $existing_sub->save();
-                        // $data['email'] already holds $mapped_email → lookup works.
                     }
                 } elseif ( empty( $data['email'] ) ) {
                     $data['email'] = $existing_sub->email;
@@ -337,7 +321,7 @@ class FCRM_WP_Sync_Engine {
      * for the given WordPress user.  Used by the Sample Data Preview feature.
      *
      * @param int $user_id
-     * @return array[]  [ [ 'id', 'wp_label', 'fcrm_label', 'direction', 'wp_value', 'fcrm_value', 'match' ], … ]
+     * @return array[]
      */
     public function get_field_values_for_user( int $user_id ): array {
         $user_info = get_userdata( $user_id );
@@ -381,8 +365,7 @@ class FCRM_WP_Sync_Engine {
             $wp_display   = is_array( $wp_raw )   ? implode( ', ', $wp_raw )   : (string) ( $wp_raw   ?? '' );
             $fcrm_display = is_array( $fcrm_raw ) ? implode( ', ', $fcrm_raw ) : (string) ( $fcrm_raw ?? '' );
 
-            // For date fields, normalise both sides to Y-m-d before comparing
-            // so that e.g. "08/23/1992" and "1992-08-23" are treated as equal.
+            // For date fields, normalise both sides to Y-m-d before comparing.
             if ( ( $mapping['field_type'] ?? 'text' ) === 'date'
                 && ( $wp_display !== '' || $fcrm_display !== '' )
             ) {
@@ -429,13 +412,6 @@ class FCRM_WP_Sync_Engine {
             case 'acf':
                 if ( function_exists( 'get_field' ) ) {
                     $val = get_field( $key, 'user_' . $user_id );
-                    // For date fields: normalise the ACF-formatted value to
-                    // canonical Y-m-d right here, before the rest of the engine
-                    // or the mismatch detector ever sees it.  ACF's get_field()
-                    // applies the field's "Return Format" setting (m/d/Y, d/m/Y,
-                    // Y-m-d, …).  We use get_field_object() to discover that
-                    // exact format and parse it with DateTime::createFromFormat()
-                    // — which is unambiguous — rather than relying on strtotime().
                     if ( ( $mapping['field_type'] ?? 'text' ) === 'date'
                         && $val !== null && $val !== false && $val !== ''
                     ) {
@@ -447,7 +423,6 @@ class FCRM_WP_Sync_Engine {
                 return get_user_meta( $user_id, $key, true ) ?: null;
 
             case 'pmp':
-                // Paid Memberships Pro — read from the user's active membership level.
                 if ( ! function_exists( 'pmpro_getMembershipLevelForUser' ) ) {
                     return null;
                 }
@@ -457,19 +432,15 @@ class FCRM_WP_Sync_Engine {
                 }
                 switch ( $key ) {
                     case 'startdate':
-                        // Stored as a Unix timestamp; convert to Y-m-d for the formatter.
                         return ! empty( $level->startdate )
                             ? date( 'Y-m-d', (int) $level->startdate )
                             : null;
                     case 'enddate':
-                        // Null / 0 means no expiry.
                         return ! empty( $level->enddate )
                             ? date( 'Y-m-d', (int) $level->enddate )
                             : null;
                     case 'expiration_date':
-                        // Smart field: uses enddate for non-recurring members, falls
-                        // back to next billing date for recurring members (enddate = 0).
-                        return FCRM_WP_Sync_PMP_Integration::get_smart_expiration_date( $user_id, $level );
+                        return My_IAPSNJ_PMP_Integration::get_smart_expiration_date( $user_id, $level );
                     case 'level_name':
                         return $level->name ?? null;
                     case 'level_id':
@@ -516,15 +487,12 @@ class FCRM_WP_Sync_Engine {
                 if ( in_array( $key, $user_object_keys, true ) ) {
                     $wp_user_data[ $key ] = $value;
                 } else {
-                    // first_name, last_name etc. live in usermeta too
                     update_user_meta( $user_id, $key, $value );
                 }
                 break;
 
             case 'acf':
-                // ACF date pickers store dates internally in Ymd format
-                // (e.g. "20190108").  Convert before writing so that ACF's
-                // get_field() can parse the stored value correctly.
+                // ACF date pickers store dates internally in Ymd format.
                 if ( ( $mapping['field_type'] ?? 'text' ) === 'date' && $value !== '' && $value !== null ) {
                     $canonical = $this->normalize_date( (string) $value, $mapping );
                     if ( $canonical !== '' ) {
@@ -534,17 +502,6 @@ class FCRM_WP_Sync_Engine {
                         }
                     }
                 }
-
-                // Write directly to user meta instead of using ACF's
-                // update_field() wrapper.  update_field() relies on ACF's
-                // field-group location rules to resolve the field object;
-                // those rules frequently fail to match in wp-admin AJAX
-                // requests for *user* fields, causing the write to silently
-                // produce no effect.  update_user_meta() bypasses that
-                // lookup entirely and is guaranteed to persist the value.
-                // ACF's get_field() will still read it correctly because the
-                // field-reference meta key (_<name> → field_xxx) already
-                // exists from the initial profile save.
                 update_user_meta( $user_id, $key, $value );
                 break;
 
@@ -594,12 +551,6 @@ class FCRM_WP_Sync_Engine {
 
     /**
      * Date format conversion.
-     *
-     * FluentCRM stores dates as Y-m-d.
-     * ACF date pickers use the return_format defined on the field (default m/d/Y).
-     * Non-ACF WP meta can be anything — we use DateTime::createFromFormat() with
-     * the configured WP format, falling back to strtotime() for ISO strings from
-     * the FluentCRM side.
      */
     private function format_date( $value, string $direction, array $mapping ): string {
         if ( empty( $value ) ) {
@@ -624,13 +575,6 @@ class FCRM_WP_Sync_Engine {
 
     /**
      * Parse any supported date string to a canonical Y-m-d string.
-     *
-     * Tries (in order):
-     *   1. Compact YYYYMMDD integer (e.g. 19920823)
-     *   2. The WP format configured for this mapping (e.g. m/d/Y)
-     *   3. strtotime() as a final fallback for ISO and other common formats
-     *
-     * Returns '' when the value cannot be parsed.
      */
     public function normalize_date( string $value, array $mapping ): string {
         if ( $value === '' ) {
@@ -644,16 +588,13 @@ class FCRM_WP_Sync_Engine {
             return $ts !== false ? date( 'Y-m-d', $ts ) : '';
         }
 
-        // 2. Try canonical Y-m-d FIRST — this is the format used by FluentCRM
-        //    and by our own acf_date_to_ymd() converter.  Checking this before
-        //    the WP format prevents a value like "2019-08-01" from accidentally
-        //    matching a WP pattern and being misinterpreted.
+        // 2. Try canonical Y-m-d FIRST
         $date = \DateTime::createFromFormat( 'Y-m-d', $value );
         if ( $date && $date->format( 'Y-m-d' ) === $value ) {
             return $value;
         }
 
-        // 3. Parse using the known WP format (avoids strtotime() locale ambiguity)
+        // 3. Parse using the known WP format
         $wp_fmt = $mapping['date_format_wp'] ?? 'Y-m-d';
         if ( $wp_fmt !== 'Y-m-d' ) {
             $date = \DateTime::createFromFormat( $wp_fmt, $value );
@@ -662,17 +603,13 @@ class FCRM_WP_Sync_Engine {
             }
         }
 
-        // 4. Fallback — handles other unambiguous formats via strtotime().
-        //    Note: strtotime() treats "/" as US m/d/Y which can swap month/day
-        //    for d/m/Y values.  Steps 2-3 above should catch those cases.
+        // 4. Fallback via strtotime()
         $ts = strtotime( $value );
         return $ts !== false ? date( 'Y-m-d', $ts ) : '';
     }
 
     /**
      * Convenience: normalize only if the mapping is a date field.
-     * Used by the mismatch-resolver verification step to compare values
-     * that may be in different surface formats (Ymd vs Y-m-d vs m/d/Y).
      */
     public function normalize_date_if_date( string $value, array $mapping ): string {
         if ( ( $mapping['field_type'] ?? 'text' ) === 'date' && $value !== '' ) {
@@ -684,24 +621,8 @@ class FCRM_WP_Sync_Engine {
 
     /**
      * Convert an ACF-formatted date string to canonical Y-m-d.
-     *
-     * ACF's get_field() returns dates formatted per the field's "Return
-     * Format" (e.g. "m/d/Y", "d/m/Y", "Y-m-d").  We use get_field_object()
-     * to discover the exact format in use, then parse with
-     * DateTime::createFromFormat() — which is unambiguous — rather than
-     * handing the locale-sensitive string to strtotime().
-     *
-     * Falls back through compact Ymd detection and strtotime() for fields
-     * that are not registered in ACF (i.e. plain user_meta keys that happen
-     * to be mapped as date fields).
-     *
-     * @param string $key     ACF field name or key.
-     * @param string $context ACF context string, e.g. 'user_42'.
-     * @param string $val     The already-formatted date string from get_field().
-     * @return string         Canonical Y-m-d, or $val if unparseable.
      */
     private function acf_date_to_ymd( string $key, string $context, string $val ): string {
-        // 1. Ask ACF for the field definition to get its Return Format.
         if ( function_exists( 'get_field_object' ) ) {
             $field_obj = get_field_object( $key, $context );
             $fmt       = $field_obj['return_format'] ?? null;
@@ -713,25 +634,18 @@ class FCRM_WP_Sync_Engine {
             }
         }
 
-        // 2. Compact Ymd integer stored directly (e.g. "20250107").
         if ( is_numeric( $val ) && strlen( $val ) === 8 ) {
             return substr( $val, 0, 4 ) . '-' . substr( $val, 4, 2 ) . '-' . substr( $val, 6, 2 );
         }
 
-        // 3. Last resort — handles ISO Y-m-d and other strtotime-parseable strings.
         $ts = strtotime( $val );
         return $ts !== false ? date( 'Y-m-d', $ts ) : $val;
     }
 
     /**
      * Checkbox / multi-select conversion.
-     *
-     * FluentCRM's createOrUpdate() API expects a plain PHP array for checkbox/
-     * multiselect custom fields — it handles serialisation internally.
-     * ACF also returns and expects PHP arrays, so both directions use arrays.
      */
     private function format_checkbox( $value, string $direction ) {
-        // Normalise any incoming value to a PHP array first.
         if ( is_array( $value ) ) {
             return array_values( $value );
         }
@@ -751,14 +665,6 @@ class FCRM_WP_Sync_Engine {
 
     /**
      * Select / radio field conversion.
-     *
-     * Applies an optional admin-configured value_map to translate option values
-     * between the WP and FluentCRM option sets (e.g. 'yes' → '1', 'Gold' → 'gold').
-     * If no map is configured the raw string value passes through unchanged.
-     *
-     * Direction semantics:
-     *   to_fcrm  → apply map as-is (wp_value => fcrm_value)
-     *   to_wp    → apply reverse map (fcrm_value => wp_value)
      */
     private function format_select( $value, string $direction, array $mapping ): string {
         $str_value = is_array( $value ) ? (string) reset( $value ) : (string) $value;
@@ -800,7 +706,7 @@ class FCRM_WP_Sync_Engine {
     /**
      * Direct access to the mapper (used by the REST API and admin pages).
      */
-    public function get_mapper(): FCRM_WP_Sync_Field_Mapper {
+    public function get_mapper(): My_IAPSNJ_Field_Mapper {
         return $this->mapper;
     }
 

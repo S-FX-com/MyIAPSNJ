@@ -1,10 +1,10 @@
 <?php
 /**
- * FCRM_WP_Sync_REST_API
+ * My_IAPSNJ_REST_API
  *
  * Registers REST API endpoints for programmatic / external access.
  *
- * Base namespace: fcrm-wp-sync/v1
+ * Base namespace: my-iapsnj/v1
  *
  * Endpoints
  * ---------
@@ -19,18 +19,18 @@
 
 defined( 'ABSPATH' ) || exit;
 
-class FCRM_WP_Sync_REST_API {
+class My_IAPSNJ_REST_API {
 
-    private const NS = 'fcrm-wp-sync/v1';
+    private const NS = 'my-iapsnj/v1';
 
     /** @var self|null */
     private static ?self $instance = null;
 
-    /** @var FCRM_WP_Sync_Field_Mapper */
-    private FCRM_WP_Sync_Field_Mapper $mapper;
+    /** @var My_IAPSNJ_Field_Mapper */
+    private My_IAPSNJ_Field_Mapper $mapper;
 
-    /** @var FCRM_WP_Sync_Mismatch_Detector */
-    private FCRM_WP_Sync_Mismatch_Detector $detector;
+    /** @var My_IAPSNJ_Mismatch_Detector */
+    private My_IAPSNJ_Mismatch_Detector $detector;
 
     public static function get_instance(): self {
         if ( null === self::$instance ) {
@@ -40,8 +40,8 @@ class FCRM_WP_Sync_REST_API {
     }
 
     private function __construct() {
-        $this->mapper   = new FCRM_WP_Sync_Field_Mapper();
-        $this->detector = new FCRM_WP_Sync_Mismatch_Detector();
+        $this->mapper   = new My_IAPSNJ_Field_Mapper();
+        $this->detector = new My_IAPSNJ_Mismatch_Detector();
         add_action( 'rest_api_init', [ $this, 'register_routes' ] );
     }
 
@@ -154,15 +154,15 @@ class FCRM_WP_Sync_REST_API {
             ? \FluentCrm\App\Models\Subscriber::count()
             : 0;
         $mappings    = $this->mapper->get_active_mappings();
-        $last_sync   = get_option( 'fcrm_wp_sync_last_bulk_sync', '' );
+        $last_sync   = get_option( 'my_iapsnj_last_bulk_sync', '' );
 
         return rest_ensure_response( [
-            'total_wp_users'          => $total_users,
-            'total_fluentcrm_contacts'=> $total_fcrm,
-            'active_mappings'         => count( $mappings ),
-            'last_bulk_sync'          => $last_sync,
-            'plugin_version'          => FCRM_WP_SYNC_VERSION,
-            'settings'                => get_option( 'fcrm_wp_sync_settings', [] ),
+            'total_wp_users'           => $total_users,
+            'total_fluentcrm_contacts' => $total_fcrm,
+            'active_mappings'          => count( $mappings ),
+            'last_bulk_sync'           => $last_sync,
+            'plugin_version'           => MY_IAPSNJ_VERSION,
+            'settings'                 => get_option( 'my_iapsnj_settings', [] ),
         ] );
     }
 
@@ -195,7 +195,7 @@ class FCRM_WP_Sync_REST_API {
                 continue;
             }
 
-            $wp_f   = $wp_fields[ $wp_uid ]   ?? null;
+            $wp_f   = $wp_fields[ $wp_uid ]     ?? null;
             $fcrm_f = $fcrm_fields[ $fcrm_uid ] ?? null;
 
             if ( ! $wp_f || ! $fcrm_f ) {
@@ -206,27 +206,27 @@ class FCRM_WP_Sync_REST_API {
             $allowed_directions = [ 'both', 'wp_to_fcrm', 'fcrm_to_wp' ];
 
             $clean[] = [
-                'id'               => sanitize_text_field( $row['id'] ?? FCRM_WP_Sync_Field_Mapper::generate_id() ),
-                'wp_field_key'     => $wp_f['key'],
-                'wp_field_source'  => $wp_f['source'],
-                'wp_field_label'   => $wp_f['label'],
-                'fcrm_field_key'   => $fcrm_f['key'],
-                'fcrm_field_source'=> $fcrm_f['source'],
-                'fcrm_field_label' => $fcrm_f['label'],
-                'field_type'       => in_array( $row['field_type'] ?? '', $allowed_types, true )
+                'id'                => sanitize_text_field( $row['id'] ?? My_IAPSNJ_Field_Mapper::generate_id() ),
+                'wp_field_key'      => $wp_f['key'],
+                'wp_field_source'   => $wp_f['source'],
+                'wp_field_label'    => $wp_f['label'],
+                'fcrm_field_key'    => $fcrm_f['key'],
+                'fcrm_field_source' => $fcrm_f['source'],
+                'fcrm_field_label'  => $fcrm_f['label'],
+                'field_type'        => in_array( $row['field_type'] ?? '', $allowed_types, true )
                     ? $row['field_type'] : 'text',
-                'sync_direction'   => in_array( $row['sync_direction'] ?? '', $allowed_directions, true )
+                'sync_direction'    => in_array( $row['sync_direction'] ?? '', $allowed_directions, true )
                     ? $row['sync_direction'] : 'both',
-                'enabled'          => (bool) ( $row['enabled'] ?? true ),
-                'date_format_wp'   => sanitize_text_field( $row['date_format_wp'] ?? 'm/d/Y' ),
-                'date_format_fcrm' => 'Y-m-d',
+                'enabled'           => (bool) ( $row['enabled'] ?? true ),
+                'date_format_wp'    => sanitize_text_field( $row['date_format_wp'] ?? 'm/d/Y' ),
+                'date_format_fcrm'  => 'Y-m-d',
             ];
         }
 
         $this->mapper->save_mappings( $clean );
 
         return rest_ensure_response( [
-            'saved' => count( $clean ),
+            'saved'    => count( $clean ),
             'mappings' => $clean,
         ] );
     }
@@ -237,7 +237,7 @@ class FCRM_WP_Sync_REST_API {
         $offset    = (int) $request->get_param( 'offset' );
         $user_ids  = $request->get_param( 'user_ids' );
 
-        $engine  = FCRM_WP_Sync_Engine::get_instance();
+        $engine  = My_IAPSNJ_Engine::get_instance();
         $success = [];
         $errors  = [];
 
@@ -285,7 +285,7 @@ class FCRM_WP_Sync_REST_API {
         $has_more = ! empty( $user_ids ) ? false : ( ( $offset + $per_page ) < $total );
 
         if ( ! $has_more ) {
-            update_option( 'fcrm_wp_sync_last_bulk_sync', current_time( 'mysql' ) );
+            update_option( 'my_iapsnj_last_bulk_sync', current_time( 'mysql' ) );
         }
 
         return rest_ensure_response( [

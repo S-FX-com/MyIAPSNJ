@@ -27,9 +27,9 @@ jobs:
       - name: Read plugin version
         id: version
         run: |
-          VERSION=$(grep -oP '(?<=\* Version:\s{11})\S+' fluentcrm-wp-sync.php)
+          VERSION=$(grep -oP '(?<=\* Version:\s{11})\S+' my-iapsnj.php)
           if [ -z "$VERSION" ]; then
-            echo "ERROR: could not parse Version: from fluentcrm-wp-sync.php"
+            echo "ERROR: could not parse Version: from my-iapsnj.php"
             exit 1
           fi
           echo "version=$VERSION"       >> "$GITHUB_OUTPUT"
