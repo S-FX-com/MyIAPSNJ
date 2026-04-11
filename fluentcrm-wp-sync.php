@@ -2,8 +2,8 @@
 /**
  * Plugin Name:       FluentCRM WordPress Sync
  * Plugin URI:        https://github.com/S-FX-com/WP-FluentCRM-Sync
- * Description:       Bidirectional sync between FluentCRM contacts and WordPress users with configurable field mapping, ACF support, and mismatch resolution.
- * Version:           1.8.0
+ * Description:       Legacy compatibility loader for My IAPSNJ. This plugin slug is kept to avoid activation fatals after renaming.
+ * Version:           1.8.1
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Requires Plugins:  fluent-crm
@@ -16,119 +16,52 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'FCRM_WP_SYNC_VERSION', '1.8.0' );
-define( 'FCRM_WP_SYNC_DIR',     plugin_dir_path( __FILE__ ) );
-define( 'FCRM_WP_SYNC_URL',     plugin_dir_url( __FILE__ ) );
-define( 'FCRM_WP_SYNC_FILE',    __FILE__ );
+/**
+ * Loads the renamed plugin bootstrap from this same plugin directory.
+ */
+function fcrm_wp_sync_load_renamed_plugin(): void {
+	if ( class_exists( 'My_IAPSNJ_Plugin' ) ) {
+		return;
+	}
 
-// ---------------------------------------------------------------------------
-// Autoloader
-// ---------------------------------------------------------------------------
-spl_autoload_register( function ( $class ) {
-    $prefix = 'FCRM_WP_Sync_';
-    if ( strpos( $class, $prefix ) !== 0 ) {
-        return;
-    }
-    $short = substr( $class, strlen( $prefix ) ); // e.g. "Field_Mapper"
-    $file  = FCRM_WP_SYNC_DIR . 'includes/class-' . strtolower( str_replace( '_', '-', $short ) ) . '.php';
-    if ( file_exists( $file ) ) {
-        require_once $file;
-    }
-} );
-
-// ---------------------------------------------------------------------------
-// GitHub Releases auto-updater (admin only)
-// ---------------------------------------------------------------------------
-if ( is_admin() ) {
-    new FCRM_WP_Sync_Github_Updater();
+	$bootstrap = __DIR__ . '/my-iapsnj.php';
+	if ( file_exists( $bootstrap ) ) {
+		require_once $bootstrap;
+	}
 }
-
-// ---------------------------------------------------------------------------
-// Activation / Deactivation
-// ---------------------------------------------------------------------------
-register_activation_hook( __FILE__, [ 'FCRM_WP_Sync_Plugin', 'activate' ] );
-register_deactivation_hook( __FILE__, [ 'FCRM_WP_Sync_Plugin', 'deactivate' ] );
-
-// ---------------------------------------------------------------------------
-// Bootstrap
-// ---------------------------------------------------------------------------
-add_action( 'plugins_loaded', [ 'FCRM_WP_Sync_Plugin', 'get_instance' ] );
 
 /**
- * Main plugin bootstrap class.
+ * Shows a one-time notice explaining this plugin has been renamed.
  */
-final class FCRM_WP_Sync_Plugin {
+function fcrm_wp_sync_show_rename_notice(): void {
+	if ( ! current_user_can( 'activate_plugins' ) ) {
+		return;
+	}
 
-    /** @var self|null */
-    private static $instance = null;
-
-    public static function get_instance(): self {
-        if ( null === self::$instance ) {
-            self::$instance = new self();
-        }
-        return self::$instance;
-    }
-
-    private function __construct() {
-        // Guard: FluentCRM must be active.
-        if ( ! class_exists( '\FluentCrm\App\Models\Subscriber' ) ) {
-            add_action( 'admin_notices', [ $this, 'notice_fluentcrm_missing' ] );
-            return;
-        }
-
-        FCRM_WP_Sync_Engine::get_instance();
-        FCRM_WP_Sync_Admin::get_instance();
-        FCRM_WP_Sync_REST_API::get_instance();
-
-        // Boot PMPro integration only when Paid Memberships Pro is active.
-        if ( function_exists( 'pmpro_getMembershipLevelForUser' ) ) {
-            FCRM_WP_Sync_PMP_Integration::get_instance();
-            add_action( 'fcrm_wp_sync_pmp_expiry_cron', [ 'FCRM_WP_Sync_PMP_Integration', 'run_expiry_cron' ] );
-        }
-    }
-
-    public function notice_fluentcrm_missing(): void {
-        echo '<div class="notice notice-error"><p>'
-            . esc_html__( 'FluentCRM WP Sync requires FluentCRM to be installed and activated.', 'fcrm-wp-sync' )
-            . '</p></div>';
-    }
-
-    // -----------------------------------------------------------------------
-    // Activation: create default option rows
-    // -----------------------------------------------------------------------
-    public static function activate(): void {
-        if ( get_option( 'fcrm_wp_sync_field_mappings' ) === false ) {
-            add_option( 'fcrm_wp_sync_field_mappings', [] );
-        }
-        if ( get_option( 'fcrm_wp_sync_settings' ) === false ) {
-            add_option( 'fcrm_wp_sync_settings', [
-                'default_sync_direction' => 'both',
-                'sync_on_user_register'  => true,
-                'sync_on_profile_update' => true,
-                'sync_on_user_delete'    => true,
-                'sync_on_fcrm_update'    => true,
-                'sync_on_pmp_change'     => false,
-            ] );
-        }
-        if ( get_option( 'fcrm_wp_sync_pmp_tag_mappings' ) === false ) {
-            add_option( 'fcrm_wp_sync_pmp_tag_mappings', [] );
-        }
-        if ( get_option( 'fcrm_wp_sync_pmp_expiry_cron_enabled' ) === false ) {
-            add_option( 'fcrm_wp_sync_pmp_expiry_cron_enabled', false );
-        }
-        if ( get_option( 'fcrm_wp_sync_pmp_expiry_last_sync' ) === false ) {
-            add_option( 'fcrm_wp_sync_pmp_expiry_last_sync', '' );
-        }
-        // Re-schedule the cron if it was already enabled (e.g. re-activation).
-        if ( get_option( 'fcrm_wp_sync_pmp_expiry_cron_enabled' ) ) {
-            if ( ! wp_next_scheduled( 'fcrm_wp_sync_pmp_expiry_cron' ) ) {
-                wp_schedule_event( time(), 'daily', 'fcrm_wp_sync_pmp_expiry_cron' );
-            }
-        }
-    }
-
-    public static function deactivate(): void {
-        // Clear the expiry cron on deactivation; data is preserved.
-        wp_clear_scheduled_hook( 'fcrm_wp_sync_pmp_expiry_cron' );
-    }
+	echo '<div class="notice notice-warning"><p>'
+		. esc_html__( 'FluentCRM WordPress Sync has been renamed to My IAPSNJ. The legacy plugin entry is now a compatibility loader.', 'fcrm-wp-sync' )
+		. '</p></div>';
 }
+
+register_activation_hook( __FILE__, function (): void {
+	fcrm_wp_sync_load_renamed_plugin();
+	if ( class_exists( 'My_IAPSNJ_Plugin' ) ) {
+		My_IAPSNJ_Plugin::activate();
+	}
+} );
+
+register_deactivation_hook( __FILE__, function (): void {
+	if ( class_exists( 'My_IAPSNJ_Plugin' ) ) {
+		My_IAPSNJ_Plugin::deactivate();
+	}
+} );
+
+add_action( 'plugins_loaded', function (): void {
+	fcrm_wp_sync_load_renamed_plugin();
+
+	if ( class_exists( 'My_IAPSNJ_Plugin' ) ) {
+		My_IAPSNJ_Plugin::get_instance();
+	}
+} );
+
+add_action( 'admin_notices', 'fcrm_wp_sync_show_rename_notice' );
