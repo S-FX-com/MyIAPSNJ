@@ -62,7 +62,7 @@ class My_IAPSNJ_Admin {
             'manage_options',
             'my-iapsnj',
             [ $this, 'render_field_mapping_page' ],
-            'dashicons-randomize',
+            'dashicons-shield',
             56
         );
 
