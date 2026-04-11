@@ -148,6 +148,13 @@ class FCRM_WP_Sync_Field_Mapper {
                     'type'     => 'date',
                     'readonly' => true,
                 ],
+                'pmp__expiration_date' => [
+                    'key'      => 'expiration_date',
+                    'source'   => 'pmp',
+                    'label'    => 'PMPro Smart Expiration Date',
+                    'type'     => 'date',
+                    'readonly' => true,
+                ],
                 'pmp__level_name' => [
                     'key'      => 'level_name',
                     'source'   => 'pmp',

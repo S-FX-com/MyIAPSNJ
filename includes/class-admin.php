@@ -46,6 +46,9 @@ class FCRM_WP_Sync_Admin {
         add_action( 'wp_ajax_fcrm_wp_sync_save_pmp_settings', [ $this, 'ajax_save_pmp_settings' ] );
         add_action( 'wp_ajax_fcrm_wp_sync_search_users',     [ $this, 'ajax_search_users' ] );
         add_action( 'wp_ajax_fcrm_wp_sync_sample_data',      [ $this, 'ajax_sample_data' ] );
+        add_action( 'wp_ajax_fcrm_wp_sync_pmp_setup_expiry_mapping', [ $this, 'ajax_pmp_setup_expiry_mapping' ] );
+        add_action( 'wp_ajax_fcrm_wp_sync_pmp_bulk_expiry_sync',     [ $this, 'ajax_pmp_bulk_expiry_sync' ] );
+        add_action( 'wp_ajax_fcrm_wp_sync_pmp_save_expiry_cron',     [ $this, 'ajax_pmp_save_expiry_cron' ] );
     }
 
     // -----------------------------------------------------------------------
@@ -156,6 +159,12 @@ class FCRM_WP_Sync_Admin {
                 'previewFcrmField' => __( 'FluentCRM Field', 'fcrm-wp-sync' ),
                 'previewFcrmVal'   => __( 'FCRM Value', 'fcrm-wp-sync' ),
                 'previewMatch'     => __( 'Match?', 'fcrm-wp-sync' ),
+                'setupMapping'     => __( 'Setting up\u2026', 'fcrm-wp-sync' ),
+                'mappingCreated'   => __( 'Mapping created successfully.', 'fcrm-wp-sync' ),
+                'mappingExists'    => __( 'Mapping already exists and is configured.', 'fcrm-wp-sync' ),
+                'fieldNotFound'    => __( 'FluentCRM expiration_date field not found. Create it in FluentCRM \u2192 Settings \u2192 Custom Fields first.', 'fcrm-wp-sync' ),
+                'syncingExpiry'    => __( 'Syncing expiration dates\u2026', 'fcrm-wp-sync' ),
+                'syncExpiryDone'   => __( 'Expiration date sync complete.', 'fcrm-wp-sync' ),
             ],
         ] );
     }
@@ -1003,6 +1012,31 @@ class FCRM_WP_Sync_Admin {
         $tag_mappings = get_option( 'fcrm_wp_sync_pmp_tag_mappings', [] );
         $pmp_levels   = FCRM_WP_Sync_PMP_Integration::get_all_levels();
 
+        // Expiration date sync status.
+        $expiry_cron_enabled = (bool) get_option( 'fcrm_wp_sync_pmp_expiry_cron_enabled', false );
+        $expiry_last_sync    = get_option( 'fcrm_wp_sync_pmp_expiry_last_sync', '' );
+
+        $expiry_field_exists = false;
+        $custom_field_defs   = function_exists( 'fluentcrm_get_option' )
+            ? (array) fluentcrm_get_option( 'contact_custom_fields', [] )
+            : [];
+        foreach ( $custom_field_defs as $cf ) {
+            if ( ( $cf['slug'] ?? '' ) === 'expiration_date' ) {
+                $expiry_field_exists = true;
+                break;
+            }
+        }
+
+        $expiry_mapping_exists = false;
+        foreach ( $this->mapper->get_saved_mappings() as $m ) {
+            if ( ( $m['wp_field_key'] ?? '' ) === 'expiration_date'
+                && ( $m['wp_field_source'] ?? '' ) === 'pmp'
+            ) {
+                $expiry_mapping_exists = true;
+                break;
+            }
+        }
+
         // Collect FluentCRM tags.
         $fcrm_tags = [];
         if ( function_exists( 'FluentCrmApi' ) ) {
@@ -1140,6 +1174,92 @@ class FCRM_WP_Sync_Admin {
                 <?php endif; ?>
             </div>
 
+            <!-- ── Expiration Date Sync ───────────────────────────────────── -->
+            <div class="fcrm-section">
+                <h2><?php esc_html_e( 'Expiration Date Sync', 'fcrm-wp-sync' ); ?></h2>
+                <p>
+                    <?php esc_html_e( 'Automatically sync PMPro membership expiration dates to the FluentCRM custom field "expiration_date". Works for both non-recurring members (uses their fixed end date) and recurring members with no fixed end date (falls back to the next scheduled renewal/billing date).', 'fcrm-wp-sync' ); ?>
+                </p>
+
+                <!-- Status cards -->
+                <div class="fcrm-status-cards" style="margin-bottom:16px">
+                    <div class="fcrm-card">
+                        <span class="fcrm-card-number" style="font-size:14px">
+                            <?php if ( $expiry_field_exists ) : ?>
+                                <span style="color:#46b450">&#10003; <?php esc_html_e( 'Found', 'fcrm-wp-sync' ); ?></span>
+                            <?php else : ?>
+                                <span style="color:#dc3232">&#10007; <?php esc_html_e( 'Not Found', 'fcrm-wp-sync' ); ?></span>
+                            <?php endif; ?>
+                        </span>
+                        <span class="fcrm-card-label"><?php esc_html_e( 'FluentCRM expiration_date field', 'fcrm-wp-sync' ); ?></span>
+                    </div>
+                    <div class="fcrm-card">
+                        <span class="fcrm-card-number" style="font-size:14px">
+                            <?php if ( $expiry_mapping_exists ) : ?>
+                                <span style="color:#46b450">&#10003; <?php esc_html_e( 'Configured', 'fcrm-wp-sync' ); ?></span>
+                            <?php else : ?>
+                                <span style="color:#dc3232">&#10007; <?php esc_html_e( 'Not Set', 'fcrm-wp-sync' ); ?></span>
+                            <?php endif; ?>
+                        </span>
+                        <span class="fcrm-card-label"><?php esc_html_e( 'Field Mapping', 'fcrm-wp-sync' ); ?></span>
+                    </div>
+                    <?php if ( $expiry_last_sync ) : ?>
+                    <div class="fcrm-card">
+                        <span class="fcrm-card-number" style="font-size:12px"><?php echo esc_html( $expiry_last_sync ); ?></span>
+                        <span class="fcrm-card-label"><?php esc_html_e( 'Last Expiry Sync', 'fcrm-wp-sync' ); ?></span>
+                    </div>
+                    <?php endif; ?>
+                </div>
+
+                <div id="fcrm-expiry-notice" class="fcrm-notice" style="display:none"></div>
+
+                <?php if ( ! $expiry_field_exists ) : ?>
+                <p class="description" style="color:#b71c1c; margin-bottom:12px">
+                    <?php esc_html_e( 'You must first create a custom field with slug "expiration_date" and type "Date" in FluentCRM (FluentCRM \u2192 Settings \u2192 Custom Fields) before using this tool.', 'fcrm-wp-sync' ); ?>
+                </p>
+                <?php endif; ?>
+
+                <button id="fcrm-pmp-setup-expiry-mapping" class="button button-secondary"
+                    <?php echo $expiry_field_exists ? '' : 'disabled'; ?>>
+                    <?php esc_html_e( 'Auto-Setup Mapping', 'fcrm-wp-sync' ); ?>
+                </button>
+                <span style="margin-left:8px; color:#555; font-size:12px">
+                    <?php esc_html_e( 'Creates the PMPro Smart Expiration Date \u2192 expiration_date field mapping automatically.', 'fcrm-wp-sync' ); ?>
+                </span>
+
+                <hr style="margin:20px 0">
+
+                <h3 style="margin-top:0"><?php esc_html_e( 'Sync Expiration Dates Now', 'fcrm-wp-sync' ); ?></h3>
+                <p><?php esc_html_e( 'Push expiration dates to FluentCRM for all active PMPro members. Processes in batches of 50 to avoid timeouts.', 'fcrm-wp-sync' ); ?></p>
+
+                <button id="fcrm-pmp-bulk-expiry-sync" class="button button-primary"
+                    <?php echo $expiry_mapping_exists ? '' : 'disabled'; ?>>
+                    <?php esc_html_e( 'Sync Expiration Dates Now', 'fcrm-wp-sync' ); ?>
+                </button>
+
+                <div id="fcrm-expiry-progress" style="display:none; margin-top:12px">
+                    <div style="background:#e0e0e0; border-radius:4px; height:16px; max-width:400px">
+                        <div id="fcrm-expiry-progress-bar"
+                            style="background:#2271b1; height:16px; border-radius:4px; width:0%; transition:width .3s"></div>
+                    </div>
+                    <p id="fcrm-expiry-sync-status" style="margin-top:6px; font-size:13px"></p>
+                </div>
+
+                <hr style="margin:20px 0">
+
+                <h3 style="margin-top:0"><?php esc_html_e( 'Automatic Daily Sync', 'fcrm-wp-sync' ); ?></h3>
+                <p><?php esc_html_e( 'Enable a daily WP-Cron task to automatically sync expiration dates for all active members. The cron runs once per day using the WordPress cron scheduler.', 'fcrm-wp-sync' ); ?></p>
+                <label>
+                    <input type="checkbox" id="fcrm-pmp-expiry-cron-enabled" value="1"
+                        <?php checked( $expiry_cron_enabled ); ?>>
+                    <?php esc_html_e( 'Enable daily automatic expiration date sync', 'fcrm-wp-sync' ); ?>
+                </label>
+                <br><br>
+                <button id="fcrm-pmp-save-expiry-cron" class="button button-secondary">
+                    <?php esc_html_e( 'Save Cron Setting', 'fcrm-wp-sync' ); ?>
+                </button>
+            </div>
+
             <button id="fcrm-save-pmp-settings" class="button button-primary">
                 <?php esc_html_e( 'Save PMP Settings', 'fcrm-wp-sync' ); ?>
             </button>
@@ -1185,6 +1305,200 @@ class FCRM_WP_Sync_Admin {
         update_option( 'fcrm_wp_sync_pmp_tag_mappings', $clean_mappings );
 
         wp_send_json_success( [ 'levels' => count( $clean_mappings ) ] );
+    }
+
+    // -----------------------------------------------------------------------
+    // AJAX: PMPro expiration date — auto-setup mapping
+    // -----------------------------------------------------------------------
+
+    /**
+     * Find the FluentCRM expiration_date custom field and create (or confirm) the
+     * pmp__expiration_date → expiration_date mapping record.
+     */
+    public function ajax_pmp_setup_expiry_mapping(): void {
+        check_ajax_referer( 'fcrm_wp_sync_nonce', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Insufficient permissions', 403 );
+        }
+
+        // 1. Verify the FluentCRM custom field with slug 'expiration_date' exists.
+        $custom_fields = function_exists( 'fluentcrm_get_option' )
+            ? (array) fluentcrm_get_option( 'contact_custom_fields', [] )
+            : [];
+
+        $fcrm_field = null;
+        foreach ( $custom_fields as $cf ) {
+            if ( ( $cf['slug'] ?? '' ) === 'expiration_date' ) {
+                $fcrm_field = $cf;
+                break;
+            }
+        }
+
+        if ( ! $fcrm_field ) {
+            wp_send_json_error( [
+                'message' => esc_html__( 'FluentCRM custom field "expiration_date" not found. Create it in FluentCRM → Settings → Custom Fields first.', 'fcrm-wp-sync' ),
+            ] );
+        }
+
+        // 2. Check whether the mapping already exists.
+        $mappings = $this->mapper->get_saved_mappings();
+        foreach ( $mappings as $m ) {
+            if ( ( $m['wp_field_key'] ?? '' ) === 'expiration_date'
+                && ( $m['wp_field_source'] ?? '' ) === 'pmp'
+                && ( $m['fcrm_field_key'] ?? '' ) === 'expiration_date'
+            ) {
+                wp_send_json_success( [
+                    'already_existed' => true,
+                    'message'         => esc_html__( 'Mapping already exists and is configured.', 'fcrm-wp-sync' ),
+                ] );
+            }
+        }
+
+        // 3. Create the new mapping record.
+        $new_mapping = [
+            'id'                => FCRM_WP_Sync_Field_Mapper::generate_id(),
+            'wp_field_key'      => 'expiration_date',
+            'wp_field_source'   => 'pmp',
+            'wp_field_label'    => esc_html__( 'PMPro Smart Expiration Date', 'fcrm-wp-sync' ),
+            'fcrm_field_key'    => 'expiration_date',
+            'fcrm_field_source' => 'custom',
+            'fcrm_field_label'  => ( $fcrm_field['label'] ?? 'expiration_date' ) . ' (custom)',
+            'field_type'        => 'date',
+            'sync_direction'    => 'wp_to_fcrm',
+            'enabled'           => true,
+            'date_format_wp'    => 'Y-m-d',
+            'date_format_fcrm'  => 'Y-m-d',
+            'value_map'         => [],
+        ];
+
+        $mappings[] = $new_mapping;
+        $this->mapper->save_mappings( $mappings );
+
+        wp_send_json_success( [
+            'already_existed' => false,
+            'message'         => esc_html__( 'Mapping created successfully. You can now sync expiration dates.', 'fcrm-wp-sync' ),
+            'mapping_id'      => $new_mapping['id'],
+        ] );
+    }
+
+    // -----------------------------------------------------------------------
+    // AJAX: PMPro expiration date — paginated bulk sync
+    // -----------------------------------------------------------------------
+
+    /**
+     * Paginated bulk sync of PMPro expiration dates for all active members.
+     *
+     * POST params: per_page (default 50), offset (default 0)
+     */
+    public function ajax_pmp_bulk_expiry_sync(): void {
+        check_ajax_referer( 'fcrm_wp_sync_nonce', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Insufficient permissions', 403 );
+        }
+
+        $per_page = max( 1, (int) ( $_POST['per_page'] ?? 50 ) ); // phpcs:ignore
+        $offset   = max( 0, (int) ( $_POST['offset']   ?? 0  ) ); // phpcs:ignore
+
+        // Locate the active expiry mapping ID(s).
+        $expiry_mapping_ids = [];
+        foreach ( $this->mapper->get_active_mappings() as $m ) {
+            if ( ( $m['wp_field_key'] ?? '' ) === 'expiration_date'
+                && ( $m['wp_field_source'] ?? '' ) === 'pmp'
+            ) {
+                $expiry_mapping_ids[] = $m['id'];
+            }
+        }
+
+        if ( empty( $expiry_mapping_ids ) ) {
+            wp_send_json_error( [
+                'message' => esc_html__( 'No expiration date mapping found. Run Auto-Setup Mapping first.', 'fcrm-wp-sync' ),
+            ] );
+        }
+
+        global $wpdb;
+
+        // Total active PMPro members (for progress calculation).
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $total = (int) $wpdb->get_var(
+            "SELECT COUNT(DISTINCT user_id) FROM {$wpdb->prefix}pmpro_memberships_users WHERE status = 'active'"
+        );
+
+        // Paginated active member user IDs.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $user_ids = $wpdb->get_col( $wpdb->prepare(
+            "SELECT DISTINCT user_id FROM {$wpdb->prefix}pmpro_memberships_users
+             WHERE status = 'active'
+             ORDER BY user_id ASC
+             LIMIT %d OFFSET %d",
+            $per_page,
+            $offset
+        ) );
+
+        $engine  = FCRM_WP_Sync_Engine::get_instance();
+        $success = [];
+        $errors  = [];
+
+        foreach ( $user_ids as $user_id ) {
+            try {
+                $engine->sync_wp_to_fcrm( (int) $user_id, $expiry_mapping_ids );
+                $success[] = (int) $user_id;
+            } catch ( \Throwable $e ) {
+                $errors[] = [ 'id' => (int) $user_id, 'error' => $e->getMessage() ];
+            }
+        }
+
+        $has_more = ( $offset + $per_page ) < $total;
+
+        if ( ! $has_more ) {
+            update_option( 'fcrm_wp_sync_pmp_expiry_last_sync', current_time( 'mysql' ) );
+        }
+
+        wp_send_json_success( [
+            'success'     => count( $success ),
+            'errors'      => $errors,
+            'offset'      => $offset,
+            'per_page'    => $per_page,
+            'total'       => $total,
+            'has_more'    => $has_more,
+            'next_offset' => $offset + $per_page,
+        ] );
+    }
+
+    // -----------------------------------------------------------------------
+    // AJAX: PMPro expiration date — toggle daily cron
+    // -----------------------------------------------------------------------
+
+    /**
+     * Enable or disable the daily WP-Cron expiration date sync.
+     *
+     * POST params: enabled (1 or 0)
+     */
+    public function ajax_pmp_save_expiry_cron(): void {
+        check_ajax_referer( 'fcrm_wp_sync_nonce', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Insufficient permissions', 403 );
+        }
+
+        $enabled = ! empty( $_POST['enabled'] ); // phpcs:ignore
+        update_option( 'fcrm_wp_sync_pmp_expiry_cron_enabled', $enabled );
+
+        if ( $enabled ) {
+            if ( ! wp_next_scheduled( 'fcrm_wp_sync_pmp_expiry_cron' ) ) {
+                wp_schedule_event( time(), 'daily', 'fcrm_wp_sync_pmp_expiry_cron' );
+            }
+        } else {
+            wp_clear_scheduled_hook( 'fcrm_wp_sync_pmp_expiry_cron' );
+        }
+
+        $next_run = wp_next_scheduled( 'fcrm_wp_sync_pmp_expiry_cron' );
+
+        wp_send_json_success( [
+            'enabled'  => $enabled,
+            'next_run' => $next_run ? date( 'Y-m-d H:i:s', $next_run ) : '',
+            'message'  => $enabled
+                ? esc_html__( 'Daily cron enabled.', 'fcrm-wp-sync' )
+                : esc_html__( 'Daily cron disabled.', 'fcrm-wp-sync' ),
+        ] );
     }
 
     // -----------------------------------------------------------------------
