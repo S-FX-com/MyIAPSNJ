@@ -630,3 +630,89 @@ tr.fcrm-row-suggested:hover td {
     margin-bottom: 4px;
     vertical-align: middle;
 }
+
+/* =========================================================================
+   Notes Search page
+   ========================================================================= */
+
+.notes-search-bar {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.notes-search-bar input.regular-text {
+    width: 340px;
+}
+
+.notes-result-row {
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    padding: 14px 18px;
+    margin-bottom: 12px;
+}
+
+.notes-result-header {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+
+.notes-contact-name {
+    font-weight: 600;
+    color: #1a2b4a;
+}
+
+.notes-contact-email {
+    color: #666;
+    font-size: 12px;
+}
+
+.notes-date {
+    margin-left: auto;
+    color: #999;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.notes-title {
+    font-weight: 500;
+    margin-bottom: 4px;
+}
+
+.notes-content {
+    color: #444;
+    font-size: 13px;
+    white-space: pre-wrap;
+    max-height: 120px;
+    overflow-y: auto;
+    background: #fafafa;
+    border: 1px solid #f0f0f0;
+    border-radius: 3px;
+    padding: 6px 10px;
+    margin-bottom: 10px;
+}
+
+.notes-tag-area {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #f0f0f0;
+    flex-wrap: wrap;
+}
+
+.notes-tag-select {
+    min-width: 200px;
+}
+
+.notes-tag-feedback {
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.notes-tag-success { color: #2e7d32; }
+.notes-tag-error   { color: #b71c1c; }
+.notes-no-results  { color: #666; font-style: italic; padding: 12px 0; }
