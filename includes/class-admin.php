@@ -49,6 +49,9 @@ class My_IAPSNJ_Admin {
         add_action( 'wp_ajax_my_iapsnj_pmp_setup_expiry_mapping', [ $this, 'ajax_pmp_setup_expiry_mapping' ] );
         add_action( 'wp_ajax_my_iapsnj_pmp_bulk_expiry_sync',     [ $this, 'ajax_pmp_bulk_expiry_sync' ] );
         add_action( 'wp_ajax_my_iapsnj_pmp_save_expiry_cron',     [ $this, 'ajax_pmp_save_expiry_cron' ] );
+        add_action( 'wp_ajax_my_iapsnj_search_notes',             [ $this, 'ajax_search_notes' ] );
+        add_action( 'wp_ajax_my_iapsnj_get_tags',                 [ $this, 'ajax_get_tags' ] );
+        add_action( 'wp_ajax_my_iapsnj_assign_tag',               [ $this, 'ajax_assign_tag' ] );
     }
 
     // -----------------------------------------------------------------------
@@ -107,6 +110,15 @@ class My_IAPSNJ_Admin {
 
         add_submenu_page(
             'my-iapsnj',
+            __( 'Notes Search', 'my-iapsnj' ),
+            __( 'Notes Search', 'my-iapsnj' ),
+            'manage_options',
+            'my-iapsnj-notes-search',
+            [ $this, 'render_notes_search_page' ]
+        );
+
+        add_submenu_page(
+            'my-iapsnj',
             __( 'CRM Assistant', 'my-iapsnj' ),
             __( 'CRM Assistant', 'my-iapsnj' ),
             'manage_options',
@@ -125,6 +137,7 @@ class My_IAPSNJ_Admin {
             'my-iapsnj_page_my-iapsnj-sync',
             'my-iapsnj_page_my-iapsnj-mismatches',
             'my-iapsnj_page_my-iapsnj-pmp',
+            'my-iapsnj_page_my-iapsnj-notes-search',
             'my-iapsnj_page_my-iapsnj-crm-assistant',
         ];
         if ( ! in_array( $hook, $pages, true ) ) {
@@ -1713,5 +1726,189 @@ class My_IAPSNJ_Admin {
             </div>
         </div>
         <?php
+    }
+
+    // -----------------------------------------------------------------------
+    // Page: Notes Search
+    // -----------------------------------------------------------------------
+
+    public function render_notes_search_page(): void {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( esc_html__( 'Insufficient permissions.', 'my-iapsnj' ) );
+        }
+        ?>
+        <div class="wrap fcrm-sync-wrap">
+            <h1><?php esc_html_e( 'My IAPSNJ – Notes Search', 'my-iapsnj' ); ?></h1>
+            <p class="description">
+                <?php esc_html_e( 'Search all FluentCRM contact notes. Assign tags to contacts directly from the results.', 'my-iapsnj' ); ?>
+            </p>
+
+            <div id="my-iapsnj-notes-notice" class="fcrm-notice" style="display:none"></div>
+
+            <div class="fcrm-section">
+                <form id="my-iapsnj-notes-search-form" class="notes-search-bar">
+                    <input type="text"
+                           id="my-iapsnj-notes-query"
+                           class="regular-text"
+                           placeholder="<?php esc_attr_e( 'Search notes…', 'my-iapsnj' ); ?>" />
+                    <button type="submit" id="my-iapsnj-notes-search-btn" class="button button-primary">
+                        <?php esc_html_e( 'Search', 'my-iapsnj' ); ?>
+                    </button>
+                </form>
+            </div>
+
+            <div id="my-iapsnj-notes-results"></div>
+
+            <button id="my-iapsnj-notes-load-more" class="button button-secondary" style="display:none">
+                <?php esc_html_e( 'Load More', 'my-iapsnj' ); ?>
+            </button>
+        </div>
+        <?php
+    }
+
+    // -----------------------------------------------------------------------
+    // AJAX: search FluentCRM notes
+    // -----------------------------------------------------------------------
+
+    public function ajax_search_notes(): void {
+        check_ajax_referer( 'my_iapsnj_nonce', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Insufficient permissions', 403 );
+        }
+
+        global $wpdb;
+
+        $query    = sanitize_text_field( $_POST['query'] ?? '' ); // phpcs:ignore WordPress.Security.NonceVerification
+        $page     = max( 1, (int) ( $_POST['page'] ?? 1 ) );     // phpcs:ignore WordPress.Security.NonceVerification
+        $per_page = 20;
+        $offset   = ( $page - 1 ) * $per_page;
+
+        if ( '' === $query ) {
+            wp_send_json_error( 'query is required.' );
+            return;
+        }
+
+        $notes_table = $wpdb->prefix . 'fc_contact_notes';
+        $subs_table  = $wpdb->prefix . 'fc_subscribers';
+
+        // Verify the notes table exists (FluentCRM may not be active).
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$notes_table}'" ) !== $notes_table ) { // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+            wp_send_json_error( 'FluentCRM notes table not found. Is FluentCRM active?' );
+            return;
+        }
+
+        $like = '%' . $wpdb->esc_like( $query ) . '%';
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $total = (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM `{$notes_table}` n
+             INNER JOIN `{$subs_table}` s ON n.subscriber_id = s.id
+             WHERE n.title LIKE %s OR n.description LIKE %s",
+            $like,
+            $like
+        ) );
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT n.id, n.subscriber_id, n.title, n.description, n.created_at,
+                    s.first_name, s.last_name, s.email
+             FROM `{$notes_table}` n
+             INNER JOIN `{$subs_table}` s ON n.subscriber_id = s.id
+             WHERE n.title LIKE %s OR n.description LIKE %s
+             ORDER BY n.created_at DESC
+             LIMIT %d OFFSET %d",
+            $like,
+            $like,
+            $per_page,
+            $offset
+        ) );
+
+        $results = array_map( function ( $row ) {
+            return [
+                'note_id'       => (int) $row->id,
+                'subscriber_id' => (int) $row->subscriber_id,
+                'contact_name'  => trim( $row->first_name . ' ' . $row->last_name ),
+                'email'         => $row->email,
+                'note_title'    => $row->title,
+                'note_content'  => $row->description,
+                'note_date'     => $row->created_at,
+            ];
+        }, $rows ?: [] );
+
+        wp_send_json_success( [
+            'results'  => $results,
+            'total'    => $total,
+            'page'     => $page,
+            'per_page' => $per_page,
+            'has_more' => ( $offset + $per_page ) < $total,
+        ] );
+    }
+
+    // -----------------------------------------------------------------------
+    // AJAX: get all FluentCRM tags
+    // -----------------------------------------------------------------------
+
+    public function ajax_get_tags(): void {
+        check_ajax_referer( 'my_iapsnj_nonce', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Insufficient permissions', 403 );
+        }
+
+        if ( ! class_exists( '\FluentCrm\App\Models\Tag' ) ) {
+            wp_send_json_error( 'FluentCRM is not active.' );
+            return;
+        }
+
+        $tags   = \FluentCrm\App\Models\Tag::orderBy( 'title' )->get();
+        $result = array_map(
+            fn( $t ) => [ 'id' => (int) $t->id, 'title' => $t->title ],
+            $tags->toArray()
+        );
+
+        wp_send_json_success( $result );
+    }
+
+    // -----------------------------------------------------------------------
+    // AJAX: assign a tag to a FluentCRM contact
+    // -----------------------------------------------------------------------
+
+    public function ajax_assign_tag(): void {
+        check_ajax_referer( 'my_iapsnj_nonce', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Insufficient permissions', 403 );
+        }
+
+        $subscriber_id = (int) ( $_POST['subscriber_id'] ?? 0 ); // phpcs:ignore WordPress.Security.NonceVerification
+        $tag_id        = (int) ( $_POST['tag_id']        ?? 0 ); // phpcs:ignore WordPress.Security.NonceVerification
+
+        if ( ! $subscriber_id || ! $tag_id ) {
+            wp_send_json_error( 'subscriber_id and tag_id are required.' );
+            return;
+        }
+
+        if ( ! class_exists( '\FluentCrm\App\Models\Subscriber' ) ) {
+            wp_send_json_error( 'FluentCRM is not active.' );
+            return;
+        }
+
+        $subscriber = \FluentCrm\App\Models\Subscriber::find( $subscriber_id );
+        if ( ! $subscriber ) {
+            wp_send_json_error( 'Contact not found.' );
+            return;
+        }
+
+        $subscriber->attachTags( [ $tag_id ] );
+
+        $tags     = $subscriber->tags()->get();
+        $tag_list = array_map(
+            fn( $t ) => [ 'id' => (int) $t->id, 'title' => $t->title ],
+            $tags->toArray()
+        );
+
+        wp_send_json_success( [
+            'message' => __( 'Tag assigned.', 'my-iapsnj' ),
+            'tags'    => $tag_list,
+        ] );
     }
 }

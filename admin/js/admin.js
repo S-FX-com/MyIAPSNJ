@@ -1247,4 +1247,160 @@
             });
     });
 
+    // =========================================================================
+    // Notes Search page
+    // =========================================================================
+
+    var $notesForm      = $('#my-iapsnj-notes-search-form');
+    var $notesQuery     = $('#my-iapsnj-notes-query');
+    var $notesSearchBtn = $('#my-iapsnj-notes-search-btn');
+    var $notesResults   = $('#my-iapsnj-notes-results');
+    var $notesNotice    = $('#my-iapsnj-notes-notice');
+    var $notesLoadMore  = $('#my-iapsnj-notes-load-more');
+
+    var notesPage      = 1;
+    var notesLastQuery = '';
+    var notesTags      = [];
+
+    if ($notesForm.length) {
+
+        // Load all tags once on page load so dropdowns are ready.
+        $.post(ajaxUrl, { action: 'my_iapsnj_get_tags', nonce: nonce })
+            .done(function (res) {
+                if (res.success) { notesTags = res.data; }
+            });
+
+        $notesForm.on('submit', function (e) {
+            e.preventDefault();
+            notesPage      = 1;
+            notesLastQuery = $.trim($notesQuery.val());
+            $notesResults.empty();
+            $notesLoadMore.hide();
+            runNotesSearch(false);
+        });
+
+        $notesLoadMore.on('click', function () {
+            notesPage++;
+            runNotesSearch(true);
+        });
+    }
+
+    function runNotesSearch(append) {
+        if (!notesLastQuery) {
+            showNotice($notesNotice, 'Please enter a search term.', 'error');
+            return;
+        }
+
+        setBtn($notesSearchBtn, i18n.loading, true);
+
+        $.post(ajaxUrl, {
+            action: 'my_iapsnj_search_notes',
+            nonce:  nonce,
+            query:  notesLastQuery,
+            page:   notesPage
+        })
+        .done(function (res) {
+            if (res.success) {
+                var data = res.data;
+                if (!append && data.results.length === 0) {
+                    $notesResults.html(
+                        '<p class="notes-no-results">No notes found matching \u201c' +
+                        escHtml(notesLastQuery) + '\u201d.</p>'
+                    );
+                    $notesLoadMore.hide();
+                    return;
+                }
+                $.each(data.results, function (_, note) {
+                    $notesResults.append(buildNoteRow(note));
+                });
+                $notesLoadMore.toggle(data.has_more);
+                if (!append) {
+                    showNotice(
+                        $notesNotice,
+                        data.total + ' result' + (data.total !== 1 ? 's' : '') + ' found.',
+                        'info'
+                    );
+                }
+            } else {
+                showNotice($notesNotice, (res.data || i18n.error), 'error');
+            }
+        })
+        .fail(function () {
+            showNotice($notesNotice, i18n.error, 'error');
+        })
+        .always(function () {
+            setBtn($notesSearchBtn, 'Search', false);
+        });
+    }
+
+    function buildNoteRow(note) {
+        var $row = $('<div class="notes-result-row">');
+
+        // Header: contact name + email + date
+        var $hdr = $('<div class="notes-result-header">');
+        $hdr.append($('<span class="notes-contact-name">').text(note.contact_name || note.email));
+        $hdr.append($('<span class="notes-contact-email">').text('\u00a0\u2039' + note.email + '\u203a'));
+        if (note.note_date) {
+            $hdr.append($('<span class="notes-date">').text(note.note_date));
+        }
+        $row.append($hdr);
+
+        // Note title (if present)
+        if (note.note_title) {
+            $row.append($('<div class="notes-title">').text(note.note_title));
+        }
+
+        // Note body
+        $row.append($('<div class="notes-content">').text(note.note_content || ''));
+
+        // Tag assignment area
+        var $tagArea    = $('<div class="notes-tag-area">');
+        var $tagSelect  = $('<select class="notes-tag-select">');
+        $tagSelect.append($('<option value="">').text('\u2014 Assign Tag \u2014'));
+        $.each(notesTags, function (_, tag) {
+            $tagSelect.append($('<option>').val(tag.id).text(tag.title));
+        });
+
+        var $assignBtn   = $('<button type="button" class="button button-secondary">').text('Assign Tag');
+        var $tagFeedback = $('<span class="notes-tag-feedback">');
+
+        $assignBtn.on('click', function () {
+            var tagId = $tagSelect.val();
+            if (!tagId) {
+                $tagFeedback.attr('class', 'notes-tag-feedback notes-tag-error').text('Select a tag first.');
+                return;
+            }
+            $assignBtn.prop('disabled', true).text('Assigning\u2026');
+            $.post(ajaxUrl, {
+                action:        'my_iapsnj_assign_tag',
+                nonce:         nonce,
+                subscriber_id: note.subscriber_id,
+                tag_id:        tagId
+            })
+            .done(function (res) {
+                if (res.success) {
+                    $tagFeedback
+                        .attr('class', 'notes-tag-feedback notes-tag-success')
+                        .text('Tag assigned!');
+                    setTimeout(function () { $tagFeedback.text(''); }, 3000);
+                } else {
+                    $tagFeedback
+                        .attr('class', 'notes-tag-feedback notes-tag-error')
+                        .text(res.data || 'Error assigning tag.');
+                }
+            })
+            .fail(function () {
+                $tagFeedback.attr('class', 'notes-tag-feedback notes-tag-error').text(i18n.error);
+            })
+            .always(function () {
+                $assignBtn.prop('disabled', false).text('Assign Tag');
+            });
+        });
+
+        $tagArea.append($tagSelect).append($assignBtn).append($tagFeedback);
+        $row.append($tagArea);
+
+        return $row;
+    }
+
 }(jQuery));

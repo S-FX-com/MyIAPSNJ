@@ -3,7 +3,7 @@
  * Plugin Name:       My IAPSNJ
  * Plugin URI:        https://github.com/s-fx-com/my-iapsnj
  * Description:       Member data sync and CRM tools for the IAPSNJ website. Bidirectional sync between FluentCRM contacts and WordPress users with pre-configured IAPSNJ field mappings, ACF support, mismatch resolution, and an AI-powered CRM Assistant.
- * Version:           2.1.0
+ * Version:           2.2.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Requires Plugins:  fluent-crm
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'MY_IAPSNJ_VERSION', '2.1.0' );
+define( 'MY_IAPSNJ_VERSION', '2.2.0' );
 define( 'MY_IAPSNJ_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'MY_IAPSNJ_URL',     plugin_dir_url( __FILE__ ) );
 define( 'MY_IAPSNJ_FILE',    __FILE__ );
