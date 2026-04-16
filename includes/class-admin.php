@@ -1788,13 +1788,13 @@ class My_IAPSNJ_Admin {
             return;
         }
 
-        $notes_table = $wpdb->prefix . 'fc_contact_notes';
+        $notes_table = $wpdb->prefix . 'fc_subscriber_notes';
         $subs_table  = $wpdb->prefix . 'fc_subscribers';
 
         // Verify the notes table exists (FluentCRM may not be active).
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$notes_table}'" ) !== $notes_table ) { // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-            wp_send_json_error( 'FluentCRM notes table not found. Is FluentCRM active?' );
+        if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $notes_table ) ) !== $notes_table ) {
+            wp_send_json_error( 'FluentCRM subscriber notes table not found. Is FluentCRM active?' );
             return;
         }
 
@@ -1804,7 +1804,8 @@ class My_IAPSNJ_Admin {
         $total = (int) $wpdb->get_var( $wpdb->prepare(
             "SELECT COUNT(*) FROM `{$notes_table}` n
              INNER JOIN `{$subs_table}` s ON n.subscriber_id = s.id
-             WHERE n.title LIKE %s OR n.description LIKE %s",
+             WHERE (n.status IS NULL OR n.status NOT IN ('_company_note_','_system_log_'))
+               AND (n.title LIKE %s OR n.description LIKE %s)",
             $like,
             $like
         ) );
@@ -1815,7 +1816,8 @@ class My_IAPSNJ_Admin {
                     s.first_name, s.last_name, s.email
              FROM `{$notes_table}` n
              INNER JOIN `{$subs_table}` s ON n.subscriber_id = s.id
-             WHERE n.title LIKE %s OR n.description LIKE %s
+             WHERE (n.status IS NULL OR n.status NOT IN ('_company_note_','_system_log_'))
+               AND (n.title LIKE %s OR n.description LIKE %s)
              ORDER BY n.created_at DESC
              LIMIT %d OFFSET %d",
             $like,
