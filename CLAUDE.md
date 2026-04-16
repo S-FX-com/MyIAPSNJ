@@ -15,7 +15,7 @@
 | New feature, backward-compatible | Minor — `1.1.x` → `1.2.0` |
 | Breaking change | Major — `1.x.x` → `2.0.0` |
 
-Current version: **2.2.1**
+Current version: **2.2.2**
 
 ### Example workflow
 
