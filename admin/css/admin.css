@@ -706,6 +706,13 @@ tr.fcrm-row-suggested:hover td {
 
 .notes-tag-select {
     min-width: 200px;
+    color: #333;
+    background: #fff;
+}
+
+.notes-tag-select option {
+    color: #333;
+    background: #fff;
 }
 
 .notes-tag-feedback {

@@ -1350,8 +1350,8 @@
             $row.append($('<div class="notes-title">').text(note.note_title));
         }
 
-        // Note body
-        $row.append($('<div class="notes-content">').text(note.note_content || ''));
+        // Note body — render HTML from FluentCRM (admin-only page).
+        $row.append($('<div class="notes-content">').html(note.note_content || ''));
 
         // Tag assignment area
         var $tagArea    = $('<div class="notes-tag-area">');
