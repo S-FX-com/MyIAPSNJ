@@ -1863,10 +1863,9 @@ class My_IAPSNJ_Admin {
         }
 
         $tags   = \FluentCrm\App\Models\Tag::orderBy( 'title' )->get();
-        $result = array_map(
-            fn( $t ) => [ 'id' => (int) $t->id, 'title' => $t->title ],
-            $tags->toArray()
-        );
+        $result = $tags->map(
+            fn( $t ) => [ 'id' => (int) $t->id, 'title' => $t->title ]
+        )->values()->toArray();
 
         wp_send_json_success( $result );
     }
@@ -1903,10 +1902,9 @@ class My_IAPSNJ_Admin {
         $subscriber->attachTags( [ $tag_id ] );
 
         $tags     = $subscriber->tags()->get();
-        $tag_list = array_map(
-            fn( $t ) => [ 'id' => (int) $t->id, 'title' => $t->title ],
-            $tags->toArray()
-        );
+        $tag_list = $tags->map(
+            fn( $t ) => [ 'id' => (int) $t->id, 'title' => $t->title ]
+        )->values()->toArray();
 
         wp_send_json_success( [
             'message' => __( 'Tag assigned.', 'my-iapsnj' ),
