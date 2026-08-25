@@ -15,8 +15,6 @@ find and repair records that have drifted apart.
   systems disagree, with per-field resolution.
 - **Notes Search** — full-text search across FluentCRM contact notes, with
   inline tag assignment.
-- **CRM Assistant** — an AI chat interface (Anthropic, OpenAI, or Google
-  Gemini) that can search, read, and update contacts and tags.
 - **Built-in updater** — checks GitHub Releases and installs updates through
   the normal WordPress plugins screen.
 
@@ -100,8 +98,6 @@ Sync triggers:
 | On FluentCRM Update | `fluent_crm/contact_created`, `fluent_crm/contact_updated` |
 | On PMP Membership Change | `pmpro_after_change_membership_level` |
 
-This screen also holds the AI provider and API keys for the CRM Assistant.
-
 ### Mismatch Resolver
 
 Scans users that have a linked FluentCRM contact and lists every field where the
@@ -132,14 +128,6 @@ Searches `title` and `description` across FluentCRM subscriber notes, excluding
 company notes and system logs. Results link to the contact and let you attach a
 tag inline.
 
-### CRM Assistant
-
-A chat interface backed by Anthropic, OpenAI, or Gemini, with seven FluentCRM
-tools: `search_contacts`, `get_contact`, `update_contact`, `add_tag`,
-`remove_tag`, `list_tags`, `get_stats`. Set the provider and API key under
-**Sync & Settings**. The tool call log under the chat shows exactly what the
-assistant did.
-
 ---
 
 ## REST API
@@ -163,7 +151,7 @@ Namespace `my-iapsnj/v1`. Every route requires `manage_options`.
 | Option | Contents |
 |---|---|
 | `my_iapsnj_field_mappings` | The field map |
-| `my_iapsnj_settings` | Sync triggers and AI provider settings |
+| `my_iapsnj_settings` | Sync triggers |
 | `my_iapsnj_pmp_tag_mappings` | PMPro level ID → FluentCRM tag IDs |
 | `my_iapsnj_pmp_expiry_cron_enabled` | Daily expiry cron toggle |
 | `my_iapsnj_pmp_expiry_last_sync` | Timestamp of the last expiry sync |
@@ -198,7 +186,6 @@ includes/class-admin.php         Admin screens and AJAX handlers
 includes/class-mismatch-detector.php  Mismatch scanning and resolution
 includes/class-pmp-integration.php    PMPro tags, dates, expiry cron
 includes/class-rest-api.php      REST routes
-includes/class-crm-assistant.php AI chat + FluentCRM tools
 includes/class-github-updater.php GitHub Releases updater
 ```
 

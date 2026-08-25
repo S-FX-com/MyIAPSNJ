@@ -125,14 +125,6 @@ class My_IAPSNJ_Admin {
             [ $this, 'render_notes_search_page' ]
         );
 
-        add_submenu_page(
-            'my-iapsnj',
-            __( 'CRM Assistant', 'my-iapsnj' ),
-            __( 'CRM Assistant', 'my-iapsnj' ),
-            'manage_options',
-            'my-iapsnj-crm-assistant',
-            [ $this, 'render_crm_assistant_page' ]
-        );
     }
 
     /**
@@ -148,7 +140,6 @@ class My_IAPSNJ_Admin {
         'fcrm-wp-sync-mismatches'    => 'my-iapsnj-mismatches',
         'fcrm-wp-sync-pmp'           => 'my-iapsnj-pmp',
         'fcrm-wp-sync-notes-search'  => 'my-iapsnj-notes-search',
-        'fcrm-wp-sync-crm-assistant' => 'my-iapsnj-crm-assistant',
     ];
 
     /**
@@ -236,7 +227,6 @@ class My_IAPSNJ_Admin {
             'my-iapsnj_page_my-iapsnj-mismatches',
             'my-iapsnj_page_my-iapsnj-pmp',
             'my-iapsnj_page_my-iapsnj-notes-search',
-            'my-iapsnj_page_my-iapsnj-crm-assistant',
         ];
         if ( ! in_array( $hook, $pages, true ) ) {
             return;
@@ -288,9 +278,6 @@ class My_IAPSNJ_Admin {
                 'backfilling'      => __( 'Backfilling addresses…', 'my-iapsnj' ),
                 'backfillDone'     => __( 'Address backfill complete.', 'my-iapsnj' ),
                 'syncExpiryDone'   => __( 'Expiration date sync complete.', 'my-iapsnj' ),
-                'chatSending'      => __( 'Thinking…', 'my-iapsnj' ),
-                'chatError'        => __( 'Error communicating with AI provider.', 'my-iapsnj' ),
-                'chatPlaceholder'  => __( 'Ask about your contacts, tags, or member data…', 'my-iapsnj' ),
             ],
         ] );
     }
@@ -828,60 +815,6 @@ class My_IAPSNJ_Admin {
                     </button>
                 </form>
             </div>
-
-            <!-- AI Provider Settings -->
-            <div class="fcrm-section">
-                <h2><?php esc_html_e( 'AI CRM Assistant Settings', 'my-iapsnj' ); ?></h2>
-                <form id="my-iapsnj-ai-settings-form">
-                    <table class="form-table">
-                        <tr>
-                            <th><?php esc_html_e( 'AI Provider', 'my-iapsnj' ); ?></th>
-                            <td>
-                                <select name="ai_provider" id="my-iapsnj-ai-provider">
-                                    <option value="anthropic" <?php selected( $settings['ai_provider'] ?? 'anthropic', 'anthropic' ); ?>>
-                                        <?php esc_html_e( 'Anthropic (Claude)', 'my-iapsnj' ); ?>
-                                    </option>
-                                    <option value="openai" <?php selected( $settings['ai_provider'] ?? '', 'openai' ); ?>>
-                                        <?php esc_html_e( 'OpenAI (GPT-4o)', 'my-iapsnj' ); ?>
-                                    </option>
-                                    <option value="gemini" <?php selected( $settings['ai_provider'] ?? '', 'gemini' ); ?>>
-                                        <?php esc_html_e( 'Google Gemini', 'my-iapsnj' ); ?>
-                                    </option>
-                                </select>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th><?php esc_html_e( 'Anthropic API Key', 'my-iapsnj' ); ?></th>
-                            <td>
-                                <input type="password" name="anthropic_api_key" class="regular-text"
-                                       value="<?php echo esc_attr( $settings['anthropic_api_key'] ?? '' ); ?>"
-                                       placeholder="sk-ant-...">
-                            </td>
-                        </tr>
-                        <tr>
-                            <th><?php esc_html_e( 'OpenAI API Key', 'my-iapsnj' ); ?></th>
-                            <td>
-                                <input type="password" name="openai_api_key" class="regular-text"
-                                       value="<?php echo esc_attr( $settings['openai_api_key'] ?? '' ); ?>"
-                                       placeholder="sk-...">
-                            </td>
-                        </tr>
-                        <tr>
-                            <th><?php esc_html_e( 'Gemini API Key', 'my-iapsnj' ); ?></th>
-                            <td>
-                                <input type="password" name="gemini_api_key" class="regular-text"
-                                       value="<?php echo esc_attr( $settings['gemini_api_key'] ?? '' ); ?>"
-                                       placeholder="AIza...">
-                            </td>
-                        </tr>
-                    </table>
-
-                    <div id="my-iapsnj-ai-settings-notice" class="fcrm-notice" style="display:none"></div>
-                    <button type="submit" class="button button-primary">
-                        <?php esc_html_e( 'Save AI Settings', 'my-iapsnj' ); ?>
-                    </button>
-                </form>
-            </div>
         </div>
         <?php
     }
@@ -1006,12 +939,11 @@ class My_IAPSNJ_Admin {
             wp_send_json_error( 'Insufficient permissions', 403 );
         }
 
-        // Two separate forms post here — "Sync Settings" and "AI CRM Assistant
-        // Settings" — and each submits only its own inputs. Rebuilding the
-        // option from scratch meant saving the AI form set every sync toggle to
-        // false, silently switching off user-register, profile-update, delete,
-        // FluentCRM and PMPro syncing. Merge into the stored settings and only
-        // touch keys the request actually carried.
+        // Merge into the stored settings and only touch keys the request
+        // actually carried. Rebuilding the option from scratch meant any form
+        // that posted a subset of the fields silently reset the rest — which
+        // is how saving the (since-removed) AI settings form switched off
+        // every sync trigger.
         $settings = get_option( 'my_iapsnj_settings', [] );
         if ( ! is_array( $settings ) ) {
             $settings = [];
@@ -1027,14 +959,6 @@ class My_IAPSNJ_Admin {
         foreach ( $bool_fields as $key ) {
             if ( isset( $_POST[ $key ] ) ) { // phpcs:ignore
                 $settings[ $key ] = ! empty( $_POST[ $key ] ); // phpcs:ignore
-            }
-        }
-
-        // AI settings (string values, not booleans).
-        $ai_keys = [ 'ai_provider', 'anthropic_api_key', 'openai_api_key', 'gemini_api_key' ];
-        foreach ( $ai_keys as $key ) {
-            if ( isset( $_POST[ $key ] ) ) { // phpcs:ignore
-                $settings[ $key ] = sanitize_text_field( wp_unslash( $_POST[ $key ] ) ); // phpcs:ignore
             }
         }
 
@@ -1937,59 +1861,6 @@ class My_IAPSNJ_Admin {
             ],
             'rows' => $rows,
         ] );
-    }
-
-    // -----------------------------------------------------------------------
-    // Page: CRM Assistant
-    // -----------------------------------------------------------------------
-
-    public function render_crm_assistant_page(): void {
-        if ( ! current_user_can( 'manage_options' ) ) {
-            wp_die( esc_html__( 'Insufficient permissions.', 'my-iapsnj' ) );
-        }
-
-        $settings = get_option( 'my_iapsnj_settings', [] );
-        $provider = $settings['ai_provider'] ?? 'anthropic';
-        $provider_labels = [
-            'anthropic' => 'Anthropic (Claude)',
-            'openai'    => 'OpenAI (GPT-4o)',
-            'gemini'    => 'Google Gemini',
-        ];
-        $provider_label = $provider_labels[ $provider ] ?? $provider;
-
-        ?>
-        <div class="wrap fcrm-sync-wrap">
-            <h1><?php esc_html_e( 'My IAPSNJ – CRM Assistant', 'my-iapsnj' ); ?></h1>
-            <p class="description">
-                <?php esc_html_e( 'Chat with your AI-powered CRM assistant. It can search contacts, view details, update records, and manage tags in FluentCRM.', 'my-iapsnj' ); ?>
-            </p>
-
-            <div class="fcrm-section">
-                <span class="my-iapsnj-provider-badge">
-                    <?php echo esc_html( $provider_label ); ?>
-                </span>
-
-                <div id="my-iapsnj-chat-wrap" class="my-iapsnj-chat-wrap">
-                    <div id="my-iapsnj-chat-history" class="my-iapsnj-chat-history"></div>
-
-                    <div class="my-iapsnj-chat-input-wrap">
-                        <textarea id="my-iapsnj-chat-input"
-                                  class="my-iapsnj-chat-input"
-                                  rows="2"
-                                  placeholder="<?php esc_attr_e( 'Ask about your contacts, tags, or member data…', 'my-iapsnj' ); ?>"></textarea>
-                        <button id="my-iapsnj-chat-send" class="button button-primary">
-                            <?php esc_html_e( 'Send', 'my-iapsnj' ); ?>
-                        </button>
-                    </div>
-                </div>
-
-                <details id="my-iapsnj-tool-log" class="my-iapsnj-tool-log" style="margin-top:12px">
-                    <summary><?php esc_html_e( 'Tool Call Log', 'my-iapsnj' ); ?></summary>
-                    <div id="my-iapsnj-tool-log-content"></div>
-                </details>
-            </div>
-        </div>
-        <?php
     }
 
     // -----------------------------------------------------------------------

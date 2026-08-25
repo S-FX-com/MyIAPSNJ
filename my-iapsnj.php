@@ -2,8 +2,8 @@
 /**
  * Plugin Name:       My IAPSNJ
  * Plugin URI:        https://github.com/S-FX-com/MyIAPSNJ
- * Description:       Member data sync and CRM tools for the IAPSNJ website. Bidirectional sync between FluentCRM contacts and WordPress users with pre-configured IAPSNJ field mappings, ACF support, mismatch resolution, and an AI-powered CRM Assistant.
- * Version:           2.3.0
+ * Description:       Member data sync and CRM tools for the IAPSNJ website. Bidirectional sync between FluentCRM contacts and WordPress users with pre-configured IAPSNJ field mappings, ACF support, Paid Memberships Pro integration, mismatch resolution, and note search.
+ * Version:           3.0.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Requires Plugins:  fluent-crm
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'MY_IAPSNJ_VERSION', '2.3.0' );
+define( 'MY_IAPSNJ_VERSION', '3.0.0' );
 define( 'MY_IAPSNJ_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'MY_IAPSNJ_URL',     plugin_dir_url( __FILE__ ) );
 define( 'MY_IAPSNJ_FILE',    __FILE__ );
@@ -85,7 +85,6 @@ final class My_IAPSNJ_Plugin {
         My_IAPSNJ_Engine::get_instance();
         My_IAPSNJ_Admin::get_instance();
         My_IAPSNJ_REST_API::get_instance();
-        My_IAPSNJ_CRM_Assistant::get_instance();
 
         // Boot PMPro integration only when Paid Memberships Pro is active.
         if ( function_exists( 'pmpro_getMembershipLevelForUser' ) ) {
@@ -134,10 +133,6 @@ final class My_IAPSNJ_Plugin {
                 'sync_on_user_delete'    => true,
                 'sync_on_fcrm_update'    => true,
                 'sync_on_pmp_change'     => true,
-                'ai_provider'            => 'anthropic',
-                'anthropic_api_key'      => '',
-                'openai_api_key'         => '',
-                'gemini_api_key'         => '',
             ] );
         }
         if ( get_option( 'my_iapsnj_pmp_tag_mappings' ) === false ) {
@@ -181,7 +176,7 @@ final class My_IAPSNJ_Plugin {
      * below; it is independent of MY_IAPSNJ_VERSION so that ordinary releases
      * do not re-run migrations.
      */
-    const DATA_VERSION = 3;
+    const DATA_VERSION = 4;
 
     /**
      * Runs any migration steps this install has not seen yet.
@@ -226,6 +221,30 @@ final class My_IAPSNJ_Plugin {
             // in pmpro_b* user meta; without these rows nothing reaches the CRM.
             if ( $installed < 3 ) {
                 My_IAPSNJ_Field_Mapper::ensure_pmp_billing_mappings();
+            }
+
+            // ---- v4: purge the removed CRM Assistant's credentials ---------
+            // The assistant stored third-party API keys as plaintext in
+            // wp_options. Deleting the feature does not delete the keys, so
+            // clear them out rather than leaving live credentials sitting in
+            // the database (and in every backup taken since).
+            if ( $installed < 4 ) {
+                $settings = get_option( 'my_iapsnj_settings', [] );
+                if ( is_array( $settings ) ) {
+                    $removed = array_intersect_key(
+                        $settings,
+                        array_flip( [ 'ai_provider', 'anthropic_api_key', 'openai_api_key', 'gemini_api_key' ] )
+                    );
+                    if ( ! empty( $removed ) ) {
+                        unset(
+                            $settings['ai_provider'],
+                            $settings['anthropic_api_key'],
+                            $settings['openai_api_key'],
+                            $settings['gemini_api_key']
+                        );
+                        update_option( 'my_iapsnj_settings', $settings );
+                    }
+                }
             }
 
             update_option( 'my_iapsnj_data_version', self::DATA_VERSION );
