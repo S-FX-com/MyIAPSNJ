@@ -34,6 +34,13 @@ class My_IAPSNJ_Admin {
 
         add_action( 'admin_menu',            [ $this, 'register_menu' ] );
         add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_assets' ] );
+        add_action( 'admin_init',            [ $this, 'redirect_legacy_slugs' ] );
+
+        // Pin CRM / Users / Memberships to the top of the sidebar. Doing this
+        // in the plugin rather than a theme snippet means it survives theme
+        // and plugin changes.
+        add_filter( 'custom_menu_order', '__return_true' );
+        add_filter( 'menu_order',        [ $this, 'reorder_admin_menu' ] );
 
         // AJAX handlers
         add_action( 'wp_ajax_my_iapsnj_save_mappings',    [ $this, 'ajax_save_mappings' ] );
@@ -49,6 +56,7 @@ class My_IAPSNJ_Admin {
         add_action( 'wp_ajax_my_iapsnj_pmp_setup_expiry_mapping', [ $this, 'ajax_pmp_setup_expiry_mapping' ] );
         add_action( 'wp_ajax_my_iapsnj_pmp_bulk_expiry_sync',     [ $this, 'ajax_pmp_bulk_expiry_sync' ] );
         add_action( 'wp_ajax_my_iapsnj_pmp_save_expiry_cron',     [ $this, 'ajax_pmp_save_expiry_cron' ] );
+        add_action( 'wp_ajax_my_iapsnj_pmp_backfill_addresses',   [ $this, 'ajax_pmp_backfill_addresses' ] );
         add_action( 'wp_ajax_my_iapsnj_search_notes',             [ $this, 'ajax_search_notes' ] );
         add_action( 'wp_ajax_my_iapsnj_get_tags',                 [ $this, 'ajax_get_tags' ] );
         add_action( 'wp_ajax_my_iapsnj_assign_tag',               [ $this, 'ajax_assign_tag' ] );
@@ -127,6 +135,96 @@ class My_IAPSNJ_Admin {
         );
     }
 
+    /**
+     * Admin page slugs renamed during the fcrm-wp-sync -> my-iapsnj rename.
+     *
+     * activate() migrated the option keys but nothing handled the page slugs,
+     * so every saved bookmark and every link in the internal documentation
+     * 404s. Redirect them instead of letting them die.
+     */
+    private static array $legacy_slugs = [
+        'fcrm-wp-sync'               => 'my-iapsnj',
+        'fcrm-wp-sync-sync'          => 'my-iapsnj-sync',
+        'fcrm-wp-sync-mismatches'    => 'my-iapsnj-mismatches',
+        'fcrm-wp-sync-pmp'           => 'my-iapsnj-pmp',
+        'fcrm-wp-sync-notes-search'  => 'my-iapsnj-notes-search',
+        'fcrm-wp-sync-crm-assistant' => 'my-iapsnj-crm-assistant',
+    ];
+
+    /**
+     * Send a pre-rename admin URL to its current equivalent.
+     */
+    public function redirect_legacy_slugs(): void {
+        if ( wp_doing_ajax() ) {
+            return;
+        }
+
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+        $page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : '';
+        if ( '' === $page || ! isset( self::$legacy_slugs[ $page ] ) ) {
+            return;
+        }
+
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+        $raw  = wp_unslash( $_GET );
+        $args = [];
+        foreach ( (array) $raw as $key => $value ) {
+            // add_query_arg() cannot represent nested arrays; drop them.
+            if ( is_scalar( $value ) ) {
+                $args[ sanitize_key( $key ) ] = sanitize_text_field( (string) $value );
+            }
+        }
+        $args['page'] = self::$legacy_slugs[ $page ];
+
+        wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ), 301 );
+        exit;
+    }
+
+    /**
+     * Move CRM (FluentCRM), Users and Memberships (PMPro) to the top of the
+     * admin sidebar, keeping the rest of the menu in its existing order.
+     *
+     * No declared return type: another plugin filtering `menu_order` ahead of
+     * us can hand over a non-array, and an `array` declaration would turn that
+     * into a fatal instead of a pass-through.
+     *
+     * @param mixed $menu_order
+     * @return mixed
+     */
+    public function reorder_admin_menu( $menu_order ) {
+        if ( ! is_array( $menu_order ) ) {
+            return $menu_order;
+        }
+
+        /**
+         * Filter the admin menu slugs pinned to the top of the sidebar.
+         *
+         * @param string[] $preferred Ordered list of top-level menu slugs.
+         */
+        $preferred = apply_filters( 'my_iapsnj_top_menu_slugs', [
+            'fluentcrm-admin',          // CRM
+            'users.php',                // Users
+            'pmpro-dashboard',          // Memberships (PMPro 3.x)
+            'pmpro-membershiplevels',   // Memberships (PMPro 2.x)
+        ] );
+
+        // Only pin the ones this install actually has, in the given order.
+        $top = [];
+        foreach ( $preferred as $slug ) {
+            if ( in_array( $slug, $menu_order, true ) ) {
+                $top[] = $slug;
+            }
+        }
+
+        if ( empty( $top ) ) {
+            return $menu_order;
+        }
+
+        $rest = array_values( array_diff( $menu_order, $top ) );
+
+        return array_merge( $top, $rest );
+    }
+
     // -----------------------------------------------------------------------
     // Asset enqueuing
     // -----------------------------------------------------------------------
@@ -187,6 +285,8 @@ class My_IAPSNJ_Admin {
                 'mappingExists'    => __( 'Mapping already exists and is configured.', 'my-iapsnj' ),
                 'fieldNotFound'    => __( 'FluentCRM expiration_date field not found. Create it in FluentCRM \u2192 Settings \u2192 Custom Fields first.', 'my-iapsnj' ),
                 'syncingExpiry'    => __( 'Syncing expiration dates\u2026', 'my-iapsnj' ),
+                'backfilling'      => __( 'Backfilling addresses…', 'my-iapsnj' ),
+                'backfillDone'     => __( 'Address backfill complete.', 'my-iapsnj' ),
                 'syncExpiryDone'   => __( 'Expiration date sync complete.', 'my-iapsnj' ),
                 'chatSending'      => __( 'Thinking…', 'my-iapsnj' ),
                 'chatError'        => __( 'Error communicating with AI provider.', 'my-iapsnj' ),
@@ -906,27 +1006,35 @@ class My_IAPSNJ_Admin {
             wp_send_json_error( 'Insufficient permissions', 403 );
         }
 
-        $fields = [
+        // Two separate forms post here — "Sync Settings" and "AI CRM Assistant
+        // Settings" — and each submits only its own inputs. Rebuilding the
+        // option from scratch meant saving the AI form set every sync toggle to
+        // false, silently switching off user-register, profile-update, delete,
+        // FluentCRM and PMPro syncing. Merge into the stored settings and only
+        // touch keys the request actually carried.
+        $settings = get_option( 'my_iapsnj_settings', [] );
+        if ( ! is_array( $settings ) ) {
+            $settings = [];
+        }
+
+        $bool_fields = [
             'sync_on_user_register',
             'sync_on_profile_update',
             'sync_on_user_delete',
             'sync_on_fcrm_update',
             'sync_on_pmp_change',
         ];
-
-        $settings = [];
-        foreach ( $fields as $key ) {
-            $settings[ $key ] = ! empty( $_POST[ $key ] ); // phpcs:ignore
+        foreach ( $bool_fields as $key ) {
+            if ( isset( $_POST[ $key ] ) ) { // phpcs:ignore
+                $settings[ $key ] = ! empty( $_POST[ $key ] ); // phpcs:ignore
+            }
         }
 
         // AI settings (string values, not booleans).
-        $ai_keys  = [ 'ai_provider', 'anthropic_api_key', 'openai_api_key', 'gemini_api_key' ];
-        $existing = get_option( 'my_iapsnj_settings', [] );
+        $ai_keys = [ 'ai_provider', 'anthropic_api_key', 'openai_api_key', 'gemini_api_key' ];
         foreach ( $ai_keys as $key ) {
             if ( isset( $_POST[ $key ] ) ) { // phpcs:ignore
                 $settings[ $key ] = sanitize_text_field( wp_unslash( $_POST[ $key ] ) ); // phpcs:ignore
-            } elseif ( isset( $existing[ $key ] ) ) {
-                $settings[ $key ] = $existing[ $key ];
             }
         }
 
@@ -997,7 +1105,13 @@ class My_IAPSNJ_Admin {
             }
         }
 
-        $total_users = count_users()['total_users'];
+        // Count the side being paged: a WP-user total says nothing about how
+        // many FluentCRM contacts remain in the fcrm_to_wp pass, so that
+        // direction stopped early or spun past the end.
+        $total_users = ( $direction === 'wp_to_fcrm' )
+            ? (int) count_users()['total_users']
+            : (int) \FluentCrm\App\Models\Subscriber::whereNotNull( 'user_id' )->count();
+
         $has_more    = ( $offset + $per_page ) < $total_users;
 
         if ( ! $has_more ) {
@@ -1214,6 +1328,25 @@ class My_IAPSNJ_Admin {
                         <?php esc_html_e( 'Go to Field Mapping', 'my-iapsnj' ); ?>
                     </a>
                 </p>
+
+                <hr style="margin:20px 0">
+
+                <h3 style="margin-top:0"><?php esc_html_e( 'Backfill Billing Addresses', 'my-iapsnj' ); ?></h3>
+                <p>
+                    <?php esc_html_e( 'Copy PMPro checkout billing addresses into FluentCRM for members whose CRM address is empty. Existing CRM addresses are never overwritten. Processes in batches to avoid timeouts.', 'my-iapsnj' ); ?>
+                </p>
+
+                <button id="fcrm-pmp-backfill-addresses" class="button button-secondary">
+                    <?php esc_html_e( 'Backfill Billing Addresses', 'my-iapsnj' ); ?>
+                </button>
+
+                <div id="fcrm-addr-progress" style="display:none; margin-top:12px">
+                    <div style="background:#e0e0e0; border-radius:4px; height:16px; max-width:400px">
+                        <div id="fcrm-addr-progress-bar"
+                            style="background:#2271b1; height:16px; border-radius:4px; width:0%; transition:width .3s"></div>
+                    </div>
+                    <p id="fcrm-addr-status" style="margin-top:6px; font-size:13px"></p>
+                </div>
             </div>
 
             <!-- ── Sync trigger ───────────────────────────────────────────── -->
@@ -1517,6 +1650,20 @@ class My_IAPSNJ_Admin {
         }
 
         if ( empty( $expiry_mapping_ids ) ) {
+            // Create the PMPro-sourced mapping rather than failing: without it
+            // both this sync and the daily cron are no-ops.
+            if ( My_IAPSNJ_Field_Mapper::ensure_pmp_expiry_mapping() ) {
+                foreach ( $this->mapper->get_active_mappings() as $m ) {
+                    if ( ( $m['wp_field_key'] ?? '' ) === 'expiration_date'
+                        && ( $m['wp_field_source'] ?? '' ) === 'pmp'
+                    ) {
+                        $expiry_mapping_ids[] = $m['id'];
+                    }
+                }
+            }
+        }
+
+        if ( empty( $expiry_mapping_ids ) ) {
             wp_send_json_error( [
                 'message' => esc_html__( 'No expiration date mapping found. Run Auto-Setup Mapping first.', 'my-iapsnj' ),
             ] );
@@ -1601,10 +1748,127 @@ class My_IAPSNJ_Admin {
 
         wp_send_json_success( [
             'enabled'  => $enabled,
-            'next_run' => $next_run ? date( 'Y-m-d H:i:s', $next_run ) : '',
+            'next_run' => $next_run ? wp_date( 'Y-m-d H:i:s', $next_run ) : '',
             'message'  => $enabled
                 ? esc_html__( 'Daily cron enabled.', 'my-iapsnj' )
                 : esc_html__( 'Daily cron disabled.', 'my-iapsnj' ),
+        ] );
+    }
+
+    // -----------------------------------------------------------------------
+    // AJAX: PMPro billing address — one-time backfill
+    // -----------------------------------------------------------------------
+
+    /**
+     * Copy PMPro checkout billing address into FluentCRM, but only where the
+     * CRM field is currently empty.
+     *
+     * Members who joined through PMPro checkout have their address in
+     * pmpro_b* user meta and nowhere else, so the previously mapping-less
+     * sync engine faithfully propagated an empty ACF field. This fills those
+     * gaps without overwriting an address someone has already curated.
+     *
+     * POST params: per_page (default 50), offset (default 0)
+     */
+    public function ajax_pmp_backfill_addresses(): void {
+        check_ajax_referer( 'my_iapsnj_nonce', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Insufficient permissions', 403 );
+        }
+
+        global $wpdb;
+
+        $per_page = min( 200, max( 1, (int) ( $_POST['per_page'] ?? 50 ) ) ); // phpcs:ignore
+        $offset   = max( 0, (int) ( $_POST['offset']   ?? 0  ) );            // phpcs:ignore
+
+        // meta key -> FluentCRM subscriber column
+        $field_map = [
+            'pmpro_baddress1' => 'address_line_1',
+            'pmpro_baddress2' => 'address_line_2',
+            'pmpro_bcity'     => 'city',
+            'pmpro_bstate'    => 'state',
+            'pmpro_bzipcode'  => 'postal_code',
+            'pmpro_bcountry'  => 'country',
+        ];
+
+        $meta_keys    = array_keys( $field_map );
+        $placeholders = implode( ',', array_fill( 0, count( $meta_keys ), '%s' ) );
+
+        // Only users who actually carry PMPro billing data.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $total = (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(DISTINCT user_id) FROM {$wpdb->usermeta}
+             WHERE meta_key IN ({$placeholders}) AND meta_value <> ''",
+            ...$meta_keys
+        ) );
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $user_ids = $wpdb->get_col( $wpdb->prepare(
+            "SELECT DISTINCT user_id FROM {$wpdb->usermeta}
+             WHERE meta_key IN ({$placeholders}) AND meta_value <> ''
+             ORDER BY user_id ASC
+             LIMIT %d OFFSET %d",
+            ...array_merge( $meta_keys, [ $per_page, $offset ] )
+        ) );
+
+        $engine  = My_IAPSNJ_Engine::get_instance();
+        $updated = 0;
+        $skipped = 0;
+        $errors  = [];
+
+        // Suppress the FluentCRM -> WP hook while we write.
+        $engine->set_syncing_to_fcrm( true );
+
+        try {
+            foreach ( $user_ids as $raw_id ) {
+                $user_id = (int) $raw_id;
+
+                try {
+                    $subscriber = My_IAPSNJ_Engine::find_linked_subscriber( $user_id );
+                    if ( ! $subscriber ) {
+                        $skipped++;
+                        continue;
+                    }
+
+                    $dirty = false;
+                    foreach ( $field_map as $meta_key => $fcrm_key ) {
+                        $meta_value = trim( (string) get_user_meta( $user_id, $meta_key, true ) );
+                        if ( '' === $meta_value ) {
+                            continue;
+                        }
+                        // Never overwrite an address that is already populated.
+                        if ( trim( (string) ( $subscriber->{ $fcrm_key } ?? '' ) ) !== '' ) {
+                            continue;
+                        }
+                        $subscriber->{ $fcrm_key } = $meta_value;
+                        $dirty = true;
+                    }
+
+                    if ( $dirty ) {
+                        $subscriber->save();
+                        $updated++;
+                    } else {
+                        $skipped++;
+                    }
+                } catch ( \Throwable $e ) {
+                    $errors[] = [ 'id' => $user_id, 'error' => $e->getMessage() ];
+                }
+            }
+        } finally {
+            $engine->set_syncing_to_fcrm( false );
+        }
+
+        $has_more = ( $offset + $per_page ) < $total;
+
+        wp_send_json_success( [
+            'updated'     => $updated,
+            'skipped'     => $skipped,
+            'errors'      => $errors,
+            'offset'      => $offset,
+            'per_page'    => $per_page,
+            'total'       => $total,
+            'has_more'    => $has_more,
+            'next_offset' => $offset + $per_page,
         ] );
     }
 

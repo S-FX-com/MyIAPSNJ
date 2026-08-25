@@ -1,11 +1,18 @@
 name: Auto-release on version bump
 
 # Fires on every push to main and can also be triggered manually from the
-# GitHub Actions UI (Actions → Auto-release → Run workflow).
+# GitHub Actions UI (Actions → Auto-release on version bump → Run workflow).
 on:
   push:
     branches: [main]
   workflow_dispatch:
+
+# Two merges landing close together would otherwise race to create the same
+# tag. Queue them instead of cancelling: every merge must get its chance to
+# publish, and a cancelled run would skip a version bump entirely.
+concurrency:
+  group: release-main
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -22,26 +29,51 @@ jobs:
 
       # -----------------------------------------------------------------------
       # Read the Version: header from the main plugin file.
-      # Expected format: " * Version:           1.5.1"
+      # Accepts any run of whitespace after "Version:" — the previous pattern
+      # required exactly 11 spaces and silently failed the build on a reformat.
       # -----------------------------------------------------------------------
       - name: Read plugin version
         id: version
         run: |
-          VERSION=$(grep -oP '(?<=\* Version:\s{11})\S+' my-iapsnj.php)
+          set -euo pipefail
+          VERSION="$(sed -nE 's/^[[:space:]]*\*[[:space:]]*Version:[[:space:]]+([0-9]+(\.[0-9]+)*([-+][0-9A-Za-z.\-]+)?)[[:space:]]*$/\1/p' my-iapsnj.php | head -n1)"
+
           if [ -z "$VERSION" ]; then
-            echo "ERROR: could not parse Version: from my-iapsnj.php"
+            echo "::error file=my-iapsnj.php::Could not parse a 'Version:' header from my-iapsnj.php"
             exit 1
           fi
-          echo "version=$VERSION"       >> "$GITHUB_OUTPUT"
-          echo "tag=v$VERSION"          >> "$GITHUB_OUTPUT"
+
+          # The MY_IAPSNJ_VERSION constant must agree with the header, or the
+          # installed plugin reports a version the updater never matches.
+          CONST_VERSION="$(sed -nE "s/^[[:space:]]*define\([[:space:]]*'MY_IAPSNJ_VERSION'[[:space:]]*,[[:space:]]*'([^']+)'.*/\1/p" my-iapsnj.php | head -n1)"
+
+          if [ "$VERSION" != "$CONST_VERSION" ]; then
+            echo "::error file=my-iapsnj.php::Version header ($VERSION) does not match MY_IAPSNJ_VERSION ($CONST_VERSION). Bump both."
+            exit 1
+          fi
+
+          echo "Detected version $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION"    >> "$GITHUB_OUTPUT"
+
+      # -----------------------------------------------------------------------
+      # Syntax-check every PHP file so a fatal never reaches a release.
+      # -----------------------------------------------------------------------
+      - name: Lint PHP
+        run: |
+          set -euo pipefail
+          find . -path ./.git -prune -o -name '*.php' -print0 \
+            | xargs -0 -n1 -P4 php -l
 
       # -----------------------------------------------------------------------
       # Only proceed if this version hasn't been released yet.
       # -----------------------------------------------------------------------
       - name: Check whether tag already exists
         id: tag_check
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
-          TAG="v${{ steps.version.outputs.version }}"
+          set -euo pipefail
           if git rev-parse "$TAG" >/dev/null 2>&1; then
             echo "Tag $TAG already exists — skipping release."
             echo "exists=true" >> "$GITHUB_OUTPUT"
@@ -51,15 +83,75 @@ jobs:
           fi
 
       # -----------------------------------------------------------------------
-      # Create the release (tag + release object with auto-generated notes).
-      # GitHub automatically marks the newest full release as "Latest".
+      # Build the installable plugin zip.
+      #
+      # WordPress installs an update by unpacking the package and replacing the
+      # plugin directory, so the archive must contain exactly one top-level
+      # folder named `my-iapsnj`. GitHub's generated source zipball instead
+      # unpacks to `S-FX-com-MyIAPSNJ-<sha>/`, which the plugin's updater has to
+      # rename by hand. Shipping a real asset removes that guesswork — and the
+      # updater prefers this file by name.
+      # -----------------------------------------------------------------------
+      - name: Build plugin zip
+        if: steps.tag_check.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
+          # git archive gives a deterministic archive of tracked files only,
+          # honours the export-ignore rules in .gitattributes, and needs no
+          # tooling beyond git itself.
+          git archive --format=zip --prefix=my-iapsnj/ \
+            -o "$RUNNER_TEMP/my-iapsnj.zip" HEAD
+
+          # Guard against shipping an archive missing the plugin bootstrap.
+          unzip -l "$RUNNER_TEMP/my-iapsnj.zip" | grep -q 'my-iapsnj/my-iapsnj.php'
+
+          echo "Archive contents:"
+          unzip -l "$RUNNER_TEMP/my-iapsnj.zip"
+
+      # -----------------------------------------------------------------------
+      # Create the release (tag + release object with auto-generated notes)
+      # and attach the zip. GitHub marks the newest full release as "Latest",
+      # which is what the plugin's /releases/latest check reads.
       # -----------------------------------------------------------------------
       - name: Create GitHub Release
         if: steps.tag_check.outputs.exists == 'false'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
-          gh release create "${{ steps.version.outputs.tag }}" \
-            --title "${{ steps.version.outputs.tag }}" \
+          set -euo pipefail
+          gh release create "$TAG" \
+            --title "$TAG" \
             --generate-notes \
-            --latest
+            --latest \
+            "$RUNNER_TEMP/my-iapsnj.zip#My IAPSNJ $TAG (WordPress plugin zip)"
+
+      # -----------------------------------------------------------------------
+      # Backfill: an existing release cut before the zip asset was introduced
+      # has no package for the updater to download. Attach one.
+      # -----------------------------------------------------------------------
+      - name: Attach zip to existing release
+        if: steps.tag_check.outputs.exists == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG exists but has no release — nothing to attach."
+            exit 0
+          fi
+
+          if gh release view "$TAG" --json assets \
+              --jq '.assets[].name' | grep -qx 'my-iapsnj.zip'; then
+            echo "Release $TAG already has my-iapsnj.zip — nothing to do."
+            exit 0
+          fi
+
+          git archive --format=zip --prefix=my-iapsnj/ \
+            -o "$RUNNER_TEMP/my-iapsnj.zip" HEAD
+          unzip -l "$RUNNER_TEMP/my-iapsnj.zip" | grep -q 'my-iapsnj/my-iapsnj.php'
+
+          gh release upload "$TAG" \
+            "$RUNNER_TEMP/my-iapsnj.zip#My IAPSNJ $TAG (WordPress plugin zip)"

@@ -177,7 +177,10 @@ class My_IAPSNJ_REST_API {
         return rest_ensure_response( $this->mapper->get_saved_mappings() );
     }
 
-    public function save_mappings( \WP_REST_Request $request ): \WP_REST_Response {
+    /**
+     * @return \WP_REST_Response|\WP_Error
+     */
+    public function save_mappings( \WP_REST_Request $request ) {
         $body = $request->get_json_params();
         if ( ! is_array( $body ) ) {
             return new \WP_Error( 'invalid_body', 'Body must be a JSON array of mapping objects.', [ 'status' => 400 ] );
@@ -202,8 +205,36 @@ class My_IAPSNJ_REST_API {
                 continue;
             }
 
-            $allowed_types      = [ 'text', 'date', 'checkbox', 'number', 'email', 'textarea' ];
+            // 'select' MUST be here: it is a first-class field type used by the
+            // seeded member_status / state / department / rank mappings. Leaving
+            // it out silently downgraded every one of them to 'text' on save,
+            // discarding their value translation.
+            $allowed_types      = [ 'text', 'select', 'date', 'checkbox', 'number', 'email', 'textarea' ];
             $allowed_directions = [ 'both', 'wp_to_fcrm', 'fcrm_to_wp' ];
+
+            $field_type = in_array( $row['field_type'] ?? '', $allowed_types, true )
+                ? $row['field_type']
+                : 'text';
+
+            $direction = in_array( $row['sync_direction'] ?? '', $allowed_directions, true )
+                ? $row['sync_direction']
+                : 'both';
+
+            // Read-only WP fields (User ID, username, PMPro data) can only push.
+            if ( ! empty( $wp_f['readonly'] ) ) {
+                $direction = 'wp_to_fcrm';
+            }
+
+            $value_map = [];
+            if ( $field_type === 'select' && ! empty( $row['value_map'] ) && is_array( $row['value_map'] ) ) {
+                foreach ( $row['value_map'] as $wp_val => $fcrm_val ) {
+                    $wp_val   = sanitize_text_field( (string) $wp_val );
+                    $fcrm_val = sanitize_text_field( (string) $fcrm_val );
+                    if ( $wp_val !== '' && $fcrm_val !== '' ) {
+                        $value_map[ $wp_val ] = $fcrm_val;
+                    }
+                }
+            }
 
             $clean[] = [
                 'id'                => sanitize_text_field( $row['id'] ?? My_IAPSNJ_Field_Mapper::generate_id() ),
@@ -213,13 +244,13 @@ class My_IAPSNJ_REST_API {
                 'fcrm_field_key'    => $fcrm_f['key'],
                 'fcrm_field_source' => $fcrm_f['source'],
                 'fcrm_field_label'  => $fcrm_f['label'],
-                'field_type'        => in_array( $row['field_type'] ?? '', $allowed_types, true )
-                    ? $row['field_type'] : 'text',
-                'sync_direction'    => in_array( $row['sync_direction'] ?? '', $allowed_directions, true )
-                    ? $row['sync_direction'] : 'both',
+                'field_type'        => $field_type,
+                'sync_direction'    => $direction,
                 'enabled'           => (bool) ( $row['enabled'] ?? true ),
                 'date_format_wp'    => sanitize_text_field( $row['date_format_wp'] ?? 'm/d/Y' ),
                 'date_format_fcrm'  => 'Y-m-d',
+                'acf_field_type'    => $wp_f['acf_field_type'] ?? '',
+                'value_map'         => $value_map,
             ];
         }
 
@@ -281,7 +312,12 @@ class My_IAPSNJ_REST_API {
             }
         }
 
-        $total    = count_users()['total_users'];
+        // Count the side actually being paged: a WP-user total says nothing
+        // about how many FluentCRM contacts remain in the fcrm_to_wp pass.
+        $total = ( $direction === 'wp_to_fcrm' )
+            ? (int) count_users()['total_users']
+            : (int) \FluentCrm\App\Models\Subscriber::whereNotNull( 'user_id' )->count();
+
         $has_more = ! empty( $user_ids ) ? false : ( ( $offset + $per_page ) < $total );
 
         if ( ! $has_more ) {
@@ -306,24 +342,52 @@ class My_IAPSNJ_REST_API {
         return rest_ensure_response( $result );
     }
 
-    public function resolve_mismatch( \WP_REST_Request $request ): \WP_REST_Response {
+    /**
+     * @return \WP_REST_Response|\WP_Error
+     */
+    public function resolve_mismatch( \WP_REST_Request $request ) {
         $user_id    = (int) $request->get_param( 'user_id' );
         $direction  = $request->get_param( 'direction' );
         $scope      = $request->get_param( 'scope' );
         $mapping_id = (string) ( $request->get_param( 'mapping_id' ) ?? '' );
 
-        if ( $scope === 'all' ) {
-            $ok = $this->detector->resolve_user( $user_id, $direction );
-        } elseif ( $scope === 'empty' ) {
-            $ok = $this->detector->resolve_user_empty_fields( $user_id );
-        } else {
-            $ok = $this->detector->resolve_field( $user_id, $mapping_id, $direction );
+        $steps = [];
+
+        try {
+            if ( $scope === 'all' ) {
+                $ok = $this->detector->resolve_user( $user_id, $direction );
+            } elseif ( $scope === 'empty' ) {
+                $ok = $this->detector->resolve_user_empty_fields( $user_id );
+            } else {
+                if ( $mapping_id === '' ) {
+                    return new \WP_Error(
+                        'missing_mapping_id',
+                        'mapping_id is required when scope is "field".',
+                        [ 'status' => 400 ]
+                    );
+                }
+                // resolve_field() returns [ ok, steps ]. Testing the array
+                // itself is always true, so a failed resolve reported success.
+                $result = $this->detector->resolve_field( $user_id, $mapping_id, $direction );
+                $ok     = ! empty( $result['ok'] );
+                $steps  = $result['steps'] ?? [];
+            }
+        } catch ( \Throwable $e ) {
+            return new \WP_Error( 'resolve_failed', $e->getMessage(), [ 'status' => 500 ] );
         }
 
         if ( $ok ) {
-            return rest_ensure_response( [ 'resolved' => true ] );
+            return rest_ensure_response( [ 'resolved' => true, 'steps' => $steps ] );
         }
 
-        return new \WP_Error( 'resolve_failed', 'Could not resolve mismatch.', [ 'status' => 500 ] );
+        $message = 'Could not resolve mismatch.';
+        foreach ( array_reverse( $steps ) as $step ) {
+            if ( ( $step['status'] ?? '' ) === 'error' ) {
+                $message = $step['text'];
+                break;
+            }
+        }
+
+        return new \WP_Error( 'resolve_failed', $message, [ 'status' => 500, 'steps' => $steps ] );
     }
 }

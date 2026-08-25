@@ -691,7 +691,10 @@
             mismatchTotal = d.total || 0;
             mismatchPages = d.pages || 1;
 
-            $status.text(mismatchTotal + ' user(s) with mismatches found.');
+            // Scanning now stops as soon as the page is full, so the total is a
+            // lower bound until the scan reaches the end of the user list.
+            var exact = (d.total_is_exact !== false);
+            $status.text(mismatchTotal + (exact ? '' : '+') + ' user(s) with mismatches found.');
 
             if (!d.items || !d.items.length) {
                 $container.html('<p class="fcrm-success">All records are in sync!</p>');
@@ -701,7 +704,7 @@
 
             $container.html(renderMismatches(d.items));
             $pagination.toggle(mismatchPages > 1);
-            $('#fcrm-page-info').text('Page ' + mismatchPage + ' of ' + mismatchPages);
+            $('#fcrm-page-info').text('Page ' + mismatchPage + ' of ' + mismatchPages + (exact ? '' : '+'));
             $('#fcrm-prev-page').prop('disabled', mismatchPage <= 1);
             $('#fcrm-next-page').prop('disabled', mismatchPage >= mismatchPages);
 
@@ -1075,6 +1078,79 @@
         }
 
         doExpiryPage();
+    });
+
+    // Backfill Billing Addresses
+    $('#fcrm-pmp-backfill-addresses').on('click', function () {
+        var $btn          = $(this);
+        var $notice       = $('#fcrm-pmp-notice');
+        var $progressWrap = $('#fcrm-addr-progress');
+        var $bar          = $('#fcrm-addr-progress-bar');
+        var $status       = $('#fcrm-addr-status');
+
+        $btn.prop('disabled', true);
+        $progressWrap.show();
+        $bar.css('width', '0%');
+        $status.text(i18n.backfilling || 'Backfilling\u2026');
+        $notice.hide();
+
+        var perPage   = 50;
+        var offset    = 0;
+        var total     = 0;
+        var updated   = 0;
+        var skipped   = 0;
+        var processed = 0;
+        var errList   = [];
+
+        function doAddrPage() {
+            $.post(ajaxUrl, {
+                action:   'my_iapsnj_pmp_backfill_addresses',
+                nonce:    nonce,
+                per_page: perPage,
+                offset:   offset,
+            })
+            .done(function (resp) {
+                if (!resp.success) {
+                    var errMsg = (resp.data && resp.data.message) ? resp.data.message : i18n.error;
+                    $status.text(errMsg);
+                    showNotice($notice, errMsg, 'error');
+                    $btn.prop('disabled', false);
+                    return;
+                }
+                var d = resp.data;
+                total     = d.total || total;
+                updated  += d.updated || 0;
+                skipped  += d.skipped || 0;
+                processed = Math.min(total, d.next_offset || 0);
+                errList   = errList.concat(d.errors || []);
+                offset    = d.next_offset;
+
+                var pct = total > 0 ? Math.min(100, Math.round(processed / total * 100)) : 100;
+                $bar.css('width', pct + '%');
+                $status.text((i18n.backfilling || 'Backfilling\u2026') + ' ' + processed + ' / ' + total);
+
+                if (d.has_more) {
+                    doAddrPage();
+                } else {
+                    var msg = (i18n.backfillDone || 'Backfill complete.') +
+                        ' ' + updated + ' contact(s) updated, ' + skipped + ' already had an address or no contact.';
+                    if (errList.length) {
+                        msg += ' ' + errList.length + ' error(s).';
+                    }
+                    $status.text(msg);
+                    $bar.css('width', '100%');
+                    showNotice($notice, msg, 'success');
+                    $btn.prop('disabled', false);
+                }
+            })
+            .fail(function () {
+                $status.text(i18n.error);
+                showNotice($notice, i18n.error, 'error');
+                $btn.prop('disabled', false);
+            });
+        }
+
+        doAddrPage();
     });
 
     // Save Cron Setting

@@ -28,85 +28,277 @@ class My_IAPSNJ_Mismatch_Detector {
     // -----------------------------------------------------------------------
 
     /**
+     * How many WordPress users to pull from the DB per scan batch.
+     */
+    const USER_BATCH = 200;
+
+    /**
+     * Transient holding page -> starting user offset, so paging forward does
+     * not rescan from user 1 every time.
+     */
+    const CURSOR_TRANSIENT = 'my_iapsnj_mismatch_cursors';
+
+    /**
+     * Per-request cache of resolved subscribers, keyed by WP user ID.
+     *
+     * @var array<int, Subscriber|null>
+     */
+    private array $subscriber_cache = [];
+
+    /**
      * Return an array of mismatch records for a paginated slice of WP users
      * that have a linked FluentCRM contact.
      *
+     * Users are pulled from the database in batches and scanning stops as soon
+     * as the requested page is full. The previous implementation loaded every
+     * user, compared every mapping for each, and only then sliced for
+     * pagination — roughly 4,000 members x 32 mappings of work to render ten
+     * rows, with a Subscriber lookup and custom_fields() call per user.
+     *
+     * Because the total is not known without a full scan, `total` reports what
+     * has been found up to the end of the current page and `total_is_exact`
+     * says whether scanning reached the end of the user list.
+     *
      * @param int $page      1-based page number
      * @param int $per_page
-     * @return array{items: array, total: int, pages: int}
+     * @return array{items: array, total: int, pages: int, total_is_exact: bool, has_more: bool}
      */
     public function get_mismatches( int $page = 1, int $per_page = 10 ): array {
+        $page     = max( 1, $page );
+        $per_page = max( 1, $per_page );
+
+        $empty = [
+            'items'          => [],
+            'total'          => 0,
+            'pages'          => 0,
+            'total_is_exact' => true,
+            'has_more'       => false,
+        ];
+
         $mappings = $this->mapper->get_active_mappings();
         if ( empty( $mappings ) ) {
-            return [ 'items' => [], 'total' => 0, 'pages' => 0 ];
+            return $empty;
         }
 
-        $users     = get_users( [ 'fields' => 'all', 'number' => -1, 'orderby' => 'ID', 'order' => 'ASC' ] );
-        $all_items = [];
+        // Only mappings that sync both ways can ever produce a mismatch.
+        $mappings = array_values( array_filter(
+            $mappings,
+            fn( $m ) => ( $m['sync_direction'] ?? 'both' ) === 'both'
+        ) );
+        if ( empty( $mappings ) ) {
+            return $empty;
+        }
 
-        foreach ( $users as $wp_user ) {
-            $subscriber = $this->find_subscriber_for_user( $wp_user );
-            if ( ! $subscriber ) {
-                continue;
+        $cursors     = $this->get_cursors();
+        $user_offset = (int) ( $cursors[ $page ] ?? 0 );
+        // Without a cached cursor we must replay from the start of the list and
+        // discard the earlier pages' worth of matches.
+        $to_skip     = isset( $cursors[ $page ] ) ? 0 : ( $page - 1 ) * $per_page;
+
+        $items      = [];
+        $has_more   = false;
+        $exhausted  = false;
+
+        while ( true ) {
+            $users = get_users( [
+                'fields'  => 'all',
+                'number'  => self::USER_BATCH,
+                'offset'  => $user_offset,
+                'orderby' => 'ID',
+                'order'   => 'ASC',
+            ] );
+
+            if ( empty( $users ) ) {
+                $exhausted = true;
+                break;
             }
 
-            $field_mismatches = $this->compare_fields( $wp_user->ID, $wp_user, $subscriber, $mappings );
+            // Release the previous batch first: paging deep into the list can
+            // walk thousands of users, and holding every hydrated Subscriber
+            // would reintroduce the memory problem this rewrite removes.
+            $this->subscriber_cache = [];
 
-            if ( ! empty( $field_mismatches ) ) {
-                $sub_email     = $subscriber->email ?? '';
-                $emails_differ = ( strtolower( $sub_email ) !== strtolower( $wp_user->user_email ) );
+            // A few queries per batch instead of one query per user.
+            $this->prime_subscriber_cache( $users );
 
-                $all_items[] = [
-                    'user_id'                   => $wp_user->ID,
-                    'user_email'                => $wp_user->user_email,
-                    'user_display'              => $wp_user->display_name,
-                    'subscriber_id'             => $subscriber->id,
-                    'subscriber_email'          => $sub_email,
-                    'subscriber_email_mismatch' => $emails_differ,
-                    'wp_edit_url'               => admin_url( 'user-edit.php?user_id=' . $wp_user->ID ),
-                    'fcrm_contact_url'          => admin_url( 'admin.php?page=fluentcrm-admin&route=contacts&id=' . $subscriber->id ),
-                    'fields'                    => $field_mismatches,
-                ];
+            foreach ( $users as $index => $wp_user ) {
+                $subscriber = $this->find_subscriber_for_user( $wp_user );
+                if ( ! $subscriber ) {
+                    continue;
+                }
+
+                $field_mismatches = $this->compare_fields( $wp_user->ID, $wp_user, $subscriber, $mappings );
+                if ( empty( $field_mismatches ) ) {
+                    continue;
+                }
+
+                if ( $to_skip > 0 ) {
+                    $to_skip--;
+                    continue;
+                }
+
+                if ( count( $items ) >= $per_page ) {
+                    // One more exists — enough to know the Next button is live.
+                    $has_more = true;
+                    // Resume the next page at this user.
+                    $cursors[ $page + 1 ] = $user_offset + $index;
+                    $this->save_cursors( $cursors );
+                    break 2;
+                }
+
+                $items[] = $this->build_item( $wp_user, $subscriber, $field_mismatches );
+            }
+
+            $user_offset += count( $users );
+
+            if ( count( $users ) < self::USER_BATCH ) {
+                $exhausted = true;
+                break;
             }
         }
 
-        $total  = count( $all_items );
-        $pages  = $total > 0 ? (int) ceil( $total / $per_page ) : 0;
-        $offset = ( max( 1, $page ) - 1 ) * $per_page;
+        if ( $exhausted ) {
+            $cursors[ $page + 1 ] = $user_offset;
+            $this->save_cursors( $cursors );
+        }
+
+        $offset_items = ( $page - 1 ) * $per_page;
+        $total        = $offset_items + count( $items );
+        $pages        = $has_more ? $page + 1 : max( 1, (int) ceil( max( $total, 1 ) / $per_page ) );
 
         return [
-            'items' => array_slice( $all_items, $offset, $per_page ),
-            'total' => $total,
-            'pages' => $pages,
+            'items'          => $items,
+            'total'          => $total,
+            'pages'          => empty( $items ) && $page === 1 ? 0 : $pages,
+            'total_is_exact' => ! $has_more,
+            'has_more'       => $has_more,
         ];
     }
 
     /**
-     * Quick count of users with at least one mismatch.
+     * Shape one mismatch row for the UI.
      */
-    public function count_mismatches_total( array $mappings = [] ): int {
-        if ( empty( $mappings ) ) {
-            $mappings = $this->mapper->get_active_mappings();
-        }
-        if ( empty( $mappings ) ) {
-            return 0;
-        }
+    private function build_item( \WP_User $wp_user, Subscriber $subscriber, array $field_mismatches ): array {
+        $sub_email     = $subscriber->email ?? '';
+        $emails_differ = ( strtolower( $sub_email ) !== strtolower( $wp_user->user_email ) );
 
-        $count = 0;
-        $users = get_users( [ 'fields' => 'all', 'number' => -1 ] );
+        return [
+            'user_id'                   => $wp_user->ID,
+            'user_email'                => $wp_user->user_email,
+            'user_display'              => $wp_user->display_name,
+            'subscriber_id'             => $subscriber->id,
+            'subscriber_email'          => $sub_email,
+            'subscriber_email_mismatch' => $emails_differ,
+            'wp_edit_url'               => admin_url( 'user-edit.php?user_id=' . $wp_user->ID ),
+            'fcrm_contact_url'          => admin_url( 'admin.php?page=fluentcrm-admin&route=contacts&id=' . $subscriber->id ),
+            'fields'                    => $field_mismatches,
+        ];
+    }
+
+    /**
+     * Resolve subscribers for a whole batch of users in two queries.
+     *
+     * @param \WP_User[] $users
+     */
+    private function prime_subscriber_cache( array $users ): void {
+        $pending_ids    = [];
+        $pending_emails = [];
 
         foreach ( $users as $wp_user ) {
-            $subscriber = $this->find_subscriber_for_user( $wp_user );
-            if ( ! $subscriber ) {
+            $uid = (int) $wp_user->ID;
+            if ( array_key_exists( $uid, $this->subscriber_cache ) ) {
                 continue;
             }
-            $mismatches = $this->compare_fields( $wp_user->ID, $wp_user, $subscriber, $mappings );
-            if ( ! empty( $mismatches ) ) {
-                $count++;
+            $pending_ids[ $uid ] = $wp_user;
+            if ( $wp_user->user_email ) {
+                $pending_emails[ strtolower( $wp_user->user_email ) ] = $uid;
             }
         }
 
-        return $count;
+        if ( empty( $pending_ids ) ) {
+            return;
+        }
+
+        $by_user_id = [];
+        foreach ( Subscriber::whereIn( 'user_id', array_keys( $pending_ids ) )->get() as $sub ) {
+            $by_user_id[ (int) $sub->user_id ] = $sub;
+        }
+
+        // Second tier: the cached pointer written by the sync engine. get_users()
+        // primed the user-meta cache for this batch, so these reads are free.
+        $cached_ids = [];
+        foreach ( $pending_ids as $uid => $wp_user ) {
+            if ( isset( $by_user_id[ $uid ] ) ) {
+                continue;
+            }
+            $sid = (int) get_user_meta( $uid, My_IAPSNJ_Engine::LINK_META_KEY, true );
+            if ( $sid > 0 ) {
+                $cached_ids[ $uid ] = $sid;
+            }
+        }
+
+        $by_cached_id = [];
+        if ( ! empty( $cached_ids ) ) {
+            foreach ( Subscriber::whereIn( 'id', array_values( array_unique( $cached_ids ) ) )->get() as $sub ) {
+                $by_cached_id[ (int) $sub->id ] = $sub;
+            }
+        }
+
+        // Last tier: email, for contacts that were never linked at all.
+        $emails = [];
+        foreach ( $pending_emails as $email => $uid ) {
+            if ( ! isset( $by_user_id[ $uid ] ) && ! isset( $cached_ids[ $uid ] ) ) {
+                $emails[] = $email;
+            }
+        }
+
+        $by_email = [];
+        if ( ! empty( $emails ) ) {
+            foreach ( Subscriber::whereIn( 'email', $emails )->get() as $sub ) {
+                $by_email[ strtolower( (string) $sub->email ) ] = $sub;
+            }
+        }
+
+        foreach ( $pending_ids as $uid => $wp_user ) {
+            if ( isset( $by_user_id[ $uid ] ) ) {
+                $this->subscriber_cache[ $uid ] = $by_user_id[ $uid ];
+                continue;
+            }
+
+            $sub = null;
+            if ( isset( $cached_ids[ $uid ] ) ) {
+                $sub = $by_cached_id[ $cached_ids[ $uid ] ] ?? null;
+            }
+            if ( ! $sub instanceof Subscriber ) {
+                $sub = $by_email[ strtolower( (string) $wp_user->user_email ) ] ?? null;
+            }
+
+            // Never claim a contact that already belongs to a different user.
+            if ( $sub instanceof Subscriber && ! empty( $sub->user_id ) && (int) $sub->user_id !== $uid ) {
+                $sub = null;
+            }
+
+            $this->subscriber_cache[ $uid ] = $sub;
+        }
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    private function get_cursors(): array {
+        $cursors = get_transient( self::CURSOR_TRANSIENT );
+        return is_array( $cursors ) ? $cursors : [];
+    }
+
+    private function save_cursors( array $cursors ): void {
+        set_transient( self::CURSOR_TRANSIENT, $cursors, HOUR_IN_SECONDS );
+    }
+
+    /**
+     * Drop cached scan cursors. Called whenever mappings or member data change.
+     */
+    public static function flush_cache(): void {
+        delete_transient( self::CURSOR_TRANSIENT );
     }
 
     /**
@@ -158,6 +350,7 @@ class My_IAPSNJ_Mismatch_Detector {
     public function resolve_user( int $user_id, string $direction ): bool {
         if ( $direction === 'use_wp' ) {
             $this->engine->sync_wp_to_fcrm( $user_id );
+            self::flush_cache();
             return true;
         }
 
@@ -166,6 +359,7 @@ class My_IAPSNJ_Mismatch_Detector {
             $subscriber = $wp_user ? $this->find_subscriber_for_user( $wp_user ) : null;
             if ( $subscriber ) {
                 $this->engine->sync_fcrm_to_wp( $subscriber );
+                self::flush_cache();
                 return true;
             }
         }
@@ -176,13 +370,15 @@ class My_IAPSNJ_Mismatch_Detector {
     /**
      * Resolve only the "empty-side" mismatches for a single user.
      */
-    public function resolve_user_empty_fields( int $user_id ): bool {
+    public function resolve_user_empty_fields( int $user_id, ?Subscriber $subscriber = null ): bool {
         $wp_user = get_userdata( $user_id );
         if ( ! $wp_user ) {
             return false;
         }
 
-        $subscriber = $this->find_subscriber_for_user( $wp_user );
+        if ( ! $subscriber instanceof Subscriber ) {
+            $subscriber = $this->find_subscriber_for_user( $wp_user );
+        }
         if ( ! $subscriber ) {
             return false;
         }
@@ -228,18 +424,42 @@ class My_IAPSNJ_Mismatch_Detector {
         // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
         @set_time_limit( 300 );
 
-        $users  = get_users( [ 'fields' => 'all', 'number' => -1 ] );
         $synced = 0;
+        $offset = 0;
 
-        foreach ( $users as $wp_user ) {
-            $subscriber = $this->find_subscriber_for_user( $wp_user );
-            if ( ! $subscriber ) {
-                continue;
+        // Batched: `number => -1` hydrated every WP_User at once, which on a
+        // 4,000-member site exhausts memory before any work is done.
+        do {
+            $users = get_users( [
+                'fields'  => 'all',
+                'number'  => self::USER_BATCH,
+                'offset'  => $offset,
+                'orderby' => 'ID',
+                'order'   => 'ASC',
+            ] );
+
+            if ( empty( $users ) ) {
+                break;
             }
-            if ( $this->resolve_user_empty_fields( $wp_user->ID ) ) {
-                $synced++;
+
+            $this->prime_subscriber_cache( $users );
+
+            foreach ( $users as $wp_user ) {
+                $subscriber = $this->find_subscriber_for_user( $wp_user );
+                if ( ! $subscriber ) {
+                    continue;
+                }
+                if ( $this->resolve_user_empty_fields( $wp_user->ID, $subscriber ) ) {
+                    $synced++;
+                }
             }
-        }
+
+            $offset += count( $users );
+            // Release the batch before hydrating the next one.
+            $this->subscriber_cache = [];
+        } while ( count( $users ) === self::USER_BATCH );
+
+        self::flush_cache();
 
         return $synced;
     }
@@ -275,6 +495,8 @@ class My_IAPSNJ_Mismatch_Detector {
         } finally {
             $this->engine->set_syncing_to_fcrm( false );
             $this->engine->set_syncing_to_wp( false );
+            // The scan cursors describe a result set this write just changed.
+            self::flush_cache();
         }
     }
 
@@ -442,12 +664,16 @@ class My_IAPSNJ_Mismatch_Detector {
     // -----------------------------------------------------------------------
 
     public function find_subscriber_for_user( \WP_User $wp_user ): ?Subscriber {
-        $sub = Subscriber::where( 'user_id', $wp_user->ID )->first();
-        if ( $sub instanceof Subscriber ) {
-            return $sub;
+        $uid = (int) $wp_user->ID;
+
+        if ( array_key_exists( $uid, $this->subscriber_cache ) ) {
+            return $this->subscriber_cache[ $uid ];
         }
-        $sub = Subscriber::where( 'email', $wp_user->user_email )->first();
-        return ( $sub instanceof Subscriber ) ? $sub : null;
+
+        $sub = My_IAPSNJ_Engine::find_linked_subscriber( $uid, $wp_user );
+        $this->subscriber_cache[ $uid ] = $sub;
+
+        return $sub;
     }
 
     private function normalise( $value, array $mapping ): string {
@@ -497,8 +723,11 @@ class My_IAPSNJ_Mismatch_Detector {
         if ( $type === 'date' ) {
             $canonical = $this->engine->normalize_date( (string) $value, $mapping );
             if ( $canonical !== '' ) {
+                // gmdate(), not wp_date(): $canonical is a bare Y-m-d parsed by
+                // strtotime() in UTC, so only a UTC format round-trips the same
+                // calendar day back out.
                 $ts = strtotime( $canonical );
-                return $ts !== false ? date( 'M j, Y', $ts ) : (string) $value;
+                return $ts !== false ? gmdate( 'M j, Y', $ts ) : (string) $value;
             }
             return (string) $value;
         }

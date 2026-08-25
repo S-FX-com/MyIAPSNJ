@@ -161,7 +161,10 @@ class My_IAPSNJ_CRM_Assistant {
     // Tool dispatcher
     // -------------------------------------------------------------------------
 
-    private function dispatch_tool( string $name, array $input ): mixed {
+    /**
+     * @return array|string  Tool result payload.
+     */
+    private function dispatch_tool( string $name, array $input ) {
         switch ( $name ) {
             case 'search_contacts':
                 return $this->tool_search_contacts( $input );
