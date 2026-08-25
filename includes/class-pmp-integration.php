@@ -129,7 +129,11 @@ class My_IAPSNJ_PMP_Integration {
      */
     public static function get_smart_expiration_date( int $user_id, object $level ): ?string {
         if ( ! empty( $level->enddate ) && (int) $level->enddate > 0 ) {
-            return date( 'Y-m-d', (int) $level->enddate );
+            // wp_date(), not date(): PMPro hands back a UTC epoch and renders
+            // it in the site timezone on its own screens. date() formats in
+            // UTC (the WordPress process timezone), which rolls a 12/31
+            // expiry back to 12/30 for any site west of Greenwich.
+            return wp_date( 'Y-m-d', (int) $level->enddate );
         }
 
         if ( ! class_exists( 'MemberOrder' ) ) {
@@ -146,14 +150,17 @@ class My_IAPSNJ_PMP_Integration {
         if ( function_exists( 'pmpro_next_payment' ) ) {
             $next_ts = pmpro_next_payment( $order, 'timestamp', false );
             if ( $next_ts && (int) $next_ts > 0 ) {
-                return date( 'Y-m-d', (int) $next_ts );
+                return wp_date( 'Y-m-d', (int) $next_ts );
             }
         }
 
         if ( ! empty( $order->next_payment_date ) ) {
+            // gmdate() here: this is a date *string* parsed by strtotime() in
+            // UTC, so formatting back in UTC preserves the literal calendar
+            // day rather than shifting it.
             $ts = strtotime( $order->next_payment_date );
             if ( false !== $ts && $ts > 0 ) {
-                return date( 'Y-m-d', $ts );
+                return gmdate( 'Y-m-d', $ts );
             }
         }
 
@@ -170,19 +177,24 @@ class My_IAPSNJ_PMP_Integration {
 
         global $wpdb;
 
-        $engine   = My_IAPSNJ_Engine::get_instance();
-        $mappings = $engine->get_mapper()->get_active_mappings();
+        $engine             = My_IAPSNJ_Engine::get_instance();
+        $expiry_mapping_ids = self::get_expiry_mapping_ids();
 
-        $expiry_mapping_ids = [];
-        foreach ( $mappings as $m ) {
-            if ( ( $m['wp_field_key'] ?? '' ) === 'expiration_date'
-                && ( $m['wp_field_source'] ?? '' ) === 'pmp'
-            ) {
-                $expiry_mapping_ids[] = $m['id'];
-            }
+        if ( empty( $expiry_mapping_ids ) ) {
+            // The seeded expiration_date mapping is ACF-sourced, so this filter
+            // used to match nothing and the cron returned before doing any work
+            // *and* before recording a timestamp — reading as "never ran"
+            // rather than "ran and did nothing". Self-heal, then say so.
+            My_IAPSNJ_Field_Mapper::ensure_pmp_expiry_mapping();
+            $expiry_mapping_ids = self::get_expiry_mapping_ids();
         }
 
         if ( empty( $expiry_mapping_ids ) ) {
+            error_log(
+                'My IAPSNJ expiry cron: no enabled PMPro-sourced expiration_date mapping found; '
+                . 'nothing to sync. Run Memberships → Auto-Setup Mapping.'
+            );
+            update_option( 'my_iapsnj_pmp_expiry_last_sync', current_time( 'mysql' ) );
             return;
         }
 
@@ -223,11 +235,22 @@ class My_IAPSNJ_PMP_Integration {
     // -----------------------------------------------------------------------
 
     private function find_subscriber( int $user_id ): ?Subscriber {
-        $subscriber = Subscriber::where( 'user_id', $user_id )->first();
-        if ( $subscriber ) {
-            return $subscriber;
+        return My_IAPSNJ_Engine::find_linked_subscriber( $user_id );
+    }
+
+    /**
+     * IDs of every enabled mapping that pushes the PMPro expiration date.
+     */
+    private static function get_expiry_mapping_ids(): array {
+        $ids = [];
+        foreach ( My_IAPSNJ_Engine::get_instance()->get_mapper()->get_active_mappings() as $m ) {
+            if ( ( $m['wp_field_key'] ?? '' ) === 'expiration_date'
+                && ( $m['wp_field_source'] ?? '' ) === 'pmp'
+                && ! empty( $m['id'] )
+            ) {
+                $ids[] = $m['id'];
+            }
         }
-        $user = get_userdata( $user_id );
-        return $user ? Subscriber::where( 'email', $user->user_email )->first() : null;
+        return $ids;
     }
 }

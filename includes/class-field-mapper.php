@@ -396,6 +396,10 @@ class My_IAPSNJ_Field_Mapper {
      */
     public function save_mappings( array $mappings ): void {
         update_option( 'my_iapsnj_field_mappings', $mappings );
+        // Cached mismatch scan cursors are keyed to the old mapping set.
+        if ( class_exists( 'My_IAPSNJ_Mismatch_Detector' ) ) {
+            My_IAPSNJ_Mismatch_Detector::flush_cache();
+        }
     }
 
     /**
@@ -433,6 +437,25 @@ class My_IAPSNJ_Field_Mapper {
      * @param array  $wp_fields  Result of get_wp_fields().
      * @return string WP field UID or empty string.
      */
+    /**
+     * PHP 7.4-safe replacement for str_starts_with() (PHP 8.0+).
+     */
+    private static function str_starts_with( string $haystack, string $needle ): bool {
+        return $needle === '' || strncmp( $haystack, $needle, strlen( $needle ) ) === 0;
+    }
+
+    /**
+     * PHP 7.4-safe replacement for str_ends_with() (PHP 8.0+).
+     */
+    private static function str_ends_with( string $haystack, string $needle ): bool {
+        if ( $needle === '' ) {
+            return true;
+        }
+        $len = strlen( $needle );
+        return $len <= strlen( $haystack )
+            && substr_compare( $haystack, $needle, -$len ) === 0;
+    }
+
     public function get_recommended_wp_field( string $fcrm_key, string $fcrm_type, array $wp_fields ): string {
 
         // ---- 1. IAPSNJ semantic aliases ----------------------------------------
@@ -504,11 +527,12 @@ class My_IAPSNJ_Field_Mapper {
         // ---- 4. Suffix / prefix match (partial) ------------------------------
         $candidates = [];
         foreach ( $by_norm as $norm => $entries ) {
+            $norm = (string) $norm;
             if (
-                str_ends_with( $norm, $fcrm_norm ) ||
-                str_ends_with( $fcrm_norm, $norm ) ||
-                str_starts_with( $norm, $fcrm_norm ) ||
-                str_starts_with( $fcrm_norm, $norm )
+                self::str_ends_with( $norm, $fcrm_norm ) ||
+                self::str_ends_with( $fcrm_norm, $norm ) ||
+                self::str_starts_with( $norm, $fcrm_norm ) ||
+                self::str_starts_with( $fcrm_norm, $norm )
             ) {
                 foreach ( $entries as $e ) {
                     $candidates[] = $e;
@@ -544,6 +568,17 @@ class My_IAPSNJ_Field_Mapper {
             [ 'last_payment_date',     'acf',     'Last Payment Date (ACF)',          'last_payment_date',    'custom',  'Last Payment Date (custom)','date',     'wp_to_fcrm' ],
             [ 'primary_phone',         'acf',     'Primary Phone (ACF)',              'phone',                'default', 'Phone',                    'text',     'both' ],
             [ 'alternate_phone',       'acf',     'Alternate Phone (ACF)',            'phone2',               'custom',  'Phone 2 (custom)',          'text',     'both' ],
+            // PMPro checkout billing address. Seeded before the ACF address rows
+            // on purpose: sync_wp_to_fcrm() skips empty WP values, so a filled
+            // ACF field still overwrites these, while a member who only ever
+            // completed PMPro checkout no longer reaches the CRM with a blank
+            // address. wp_to_fcrm only — PMPro owns this data at checkout.
+            [ 'pmpro_baddress1',       'meta',    'PMPro Billing Address Line 1',     'address_line_1',       'default', 'Address Line 1',            'text',     'wp_to_fcrm' ],
+            [ 'pmpro_baddress2',       'meta',    'PMPro Billing Address Line 2',     'address_line_2',       'default', 'Address Line 2',            'text',     'wp_to_fcrm' ],
+            [ 'pmpro_bcity',           'meta',    'PMPro Billing City',               'city',                 'default', 'City',                      'text',     'wp_to_fcrm' ],
+            [ 'pmpro_bstate',          'meta',    'PMPro Billing State',              'state',                'default', 'State',                     'text',     'wp_to_fcrm' ],
+            [ 'pmpro_bzipcode',        'meta',    'PMPro Billing Postal Code',        'postal_code',          'default', 'Postal Code',               'text',     'wp_to_fcrm' ],
+            [ 'pmpro_bcountry',        'meta',    'PMPro Billing Country',            'country',              'default', 'Country',                   'text',     'wp_to_fcrm' ],
             [ 'address',               'acf',     'Street Address (ACF)',             'address_line_1',       'default', 'Address Line 1',            'text',     'both' ],
             [ 'address2',              'acf',     'Address Line 2 (ACF)',             'address_line_2',       'default', 'Address Line 2',            'text',     'both' ],
             [ 'city',                  'acf',     'City (ACF)',                       'city',                 'default', 'City',                     'text',     'both' ],
@@ -566,30 +601,158 @@ class My_IAPSNJ_Field_Mapper {
             [ 'admin_notes',           'acf',     'Admin Notes (ACF)',                'admin_notes',          'custom',  'Admin Notes (custom)',      'textarea', 'both' ],
             [ 'referred_by',           'acf',     'Referred By (ACF)',                'referred_by',          'custom',  'Referred By (custom)',      'text',     'both' ],
             [ 'elo_title',             'acf',     'ELO Title (ACF)',                  'elo_title',            'custom',  'ELO Title (custom)',        'select',   'both' ],
+            // Seeded last on purpose: later rows win in sync_wp_to_fcrm(), so
+            // PMPro acts as the system of record for the expiration date while
+            // the ACF row above stays the member-editable value and still
+            // applies when PMPro has no end date (lifetime / honorary levels).
+            // The expiry cron filters on wp_field_source === 'pmp' and does no
+            // work at all without this row.
+            [ 'expiration_date',       'pmp',     'PMPro Smart Expiration Date',      'expiration_date',      'custom',  'Expiration Date (custom)',  'date',     'wp_to_fcrm' ],
         ];
 
         $mappings = [];
         foreach ( $defaults as $row ) {
-            [ $wp_key, $wp_src, $wp_label, $fcrm_key, $fcrm_src, $fcrm_label, $type, $direction ] = $row;
-
-            $m = [
-                'id'               => self::generate_id(),
-                'wp_field_key'     => $wp_key,
-                'wp_field_source'  => $wp_src,
-                'wp_field_label'   => $wp_label,
-                'fcrm_field_key'   => $fcrm_key,
-                'fcrm_field_source'=> $fcrm_src,
-                'fcrm_field_label' => $fcrm_label,
-                'field_type'       => $type,
-                'sync_direction'   => $direction,
-                'enabled'          => true,
-                'date_format_wp'   => 'm/d/Y',
-                'date_format_fcrm' => 'Y-m-d',
-                'value_map'        => [],
-            ];
-            $mappings[] = $m;
+            $mappings[] = self::build_mapping( ...$row );
         }
 
         update_option( 'my_iapsnj_field_mappings', $mappings );
+    }
+
+    /**
+     * Build one mapping record from the compact seed-row form.
+     */
+    public static function build_mapping(
+        string $wp_key,
+        string $wp_src,
+        string $wp_label,
+        string $fcrm_key,
+        string $fcrm_src,
+        string $fcrm_label,
+        string $type,
+        string $direction
+    ): array {
+        return [
+            'id'               => self::generate_id(),
+            'wp_field_key'     => $wp_key,
+            'wp_field_source'  => $wp_src,
+            'wp_field_label'   => $wp_label,
+            'fcrm_field_key'   => $fcrm_key,
+            'fcrm_field_source'=> $fcrm_src,
+            'fcrm_field_label' => $fcrm_label,
+            'field_type'       => $type,
+            'sync_direction'   => $direction,
+            'enabled'          => true,
+            // PMPro dates are already canonical Y-m-d; ACF date pickers are m/d/Y.
+            'date_format_wp'   => ( $type === 'date' && $wp_src === 'pmp' ) ? 'Y-m-d' : 'm/d/Y',
+            'date_format_fcrm' => 'Y-m-d',
+            'value_map'        => [],
+        ];
+    }
+
+    /**
+     * True when a mapping for this WP field -> FluentCRM field pair already exists.
+     */
+    public static function mapping_exists( array $mappings, string $wp_key, string $wp_src, string $fcrm_key ): bool {
+        foreach ( $mappings as $m ) {
+            if ( ( $m['wp_field_key'] ?? '' ) === $wp_key
+                && ( $m['wp_field_source'] ?? '' ) === $wp_src
+                && ( $m['fcrm_field_key'] ?? '' ) === $fcrm_key
+            ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Ensures the PMPro-sourced expiration_date mapping exists.
+     *
+     * Without it run_expiry_cron() filters down to an empty work list and
+     * returns having synced nothing. Appended at the end so PMPro wins over
+     * any ACF-sourced expiration_date row.
+     *
+     * @return bool Whether a mapping was added.
+     */
+    public static function ensure_pmp_expiry_mapping(): bool {
+        $mapper   = new self();
+        $mappings = $mapper->get_saved_mappings();
+
+        // Nothing configured at all — seeding will cover it.
+        if ( empty( $mappings ) ) {
+            return false;
+        }
+
+        if ( self::mapping_exists( $mappings, 'expiration_date', 'pmp', 'expiration_date' ) ) {
+            return false;
+        }
+
+        $mappings[] = self::build_mapping(
+            'expiration_date',
+            'pmp',
+            'PMPro Smart Expiration Date',
+            'expiration_date',
+            'custom',
+            'Expiration Date (custom)',
+            'date',
+            'wp_to_fcrm'
+        );
+
+        $mapper->save_mappings( $mappings );
+        return true;
+    }
+
+    /**
+     * Ensures the PMPro billing-address mappings exist.
+     *
+     * Members who joined through PMPro checkout have their address only in
+     * pmpro_b* user meta; without these rows the sync engine faithfully
+     * propagates an empty ACF field and the CRM address stays blank.
+     *
+     * Inserted ahead of any ACF-sourced mapping for the same FluentCRM field
+     * so a filled ACF profile value still takes precedence.
+     *
+     * @return int Number of mappings added.
+     */
+    public static function ensure_pmp_billing_mappings(): int {
+        $mapper   = new self();
+        $mappings = $mapper->get_saved_mappings();
+
+        if ( empty( $mappings ) ) {
+            return 0;
+        }
+
+        $rows = [
+            [ 'pmpro_baddress1', 'PMPro Billing Address Line 1', 'address_line_1', 'Address Line 1' ],
+            [ 'pmpro_baddress2', 'PMPro Billing Address Line 2', 'address_line_2', 'Address Line 2' ],
+            [ 'pmpro_bcity',     'PMPro Billing City',           'city',           'City' ],
+            [ 'pmpro_bstate',    'PMPro Billing State',          'state',          'State' ],
+            [ 'pmpro_bzipcode',  'PMPro Billing Postal Code',    'postal_code',    'Postal Code' ],
+            [ 'pmpro_bcountry',  'PMPro Billing Country',        'country',        'Country' ],
+        ];
+
+        $new = [];
+        foreach ( $rows as [ $meta_key, $wp_label, $fcrm_key, $fcrm_label ] ) {
+            if ( self::mapping_exists( $mappings, $meta_key, 'meta', $fcrm_key ) ) {
+                continue;
+            }
+            $new[] = self::build_mapping(
+                $meta_key,
+                'meta',
+                $wp_label,
+                $fcrm_key,
+                'default',
+                $fcrm_label,
+                'text',
+                'wp_to_fcrm'
+            );
+        }
+
+        if ( empty( $new ) ) {
+            return 0;
+        }
+
+        // Prepend so ACF rows for the same FluentCRM field still win.
+        $mapper->save_mappings( array_merge( $new, $mappings ) );
+        return count( $new );
     }
 }

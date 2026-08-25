@@ -691,7 +691,10 @@
             mismatchTotal = d.total || 0;
             mismatchPages = d.pages || 1;
 
-            $status.text(mismatchTotal + ' user(s) with mismatches found.');
+            // Scanning now stops as soon as the page is full, so the total is a
+            // lower bound until the scan reaches the end of the user list.
+            var exact = (d.total_is_exact !== false);
+            $status.text(mismatchTotal + (exact ? '' : '+') + ' user(s) with mismatches found.');
 
             if (!d.items || !d.items.length) {
                 $container.html('<p class="fcrm-success">All records are in sync!</p>');
@@ -701,7 +704,7 @@
 
             $container.html(renderMismatches(d.items));
             $pagination.toggle(mismatchPages > 1);
-            $('#fcrm-page-info').text('Page ' + mismatchPage + ' of ' + mismatchPages);
+            $('#fcrm-page-info').text('Page ' + mismatchPage + ' of ' + mismatchPages + (exact ? '' : '+'));
             $('#fcrm-prev-page').prop('disabled', mismatchPage <= 1);
             $('#fcrm-next-page').prop('disabled', mismatchPage >= mismatchPages);
 
@@ -1077,6 +1080,79 @@
         doExpiryPage();
     });
 
+    // Backfill Billing Addresses
+    $('#fcrm-pmp-backfill-addresses').on('click', function () {
+        var $btn          = $(this);
+        var $notice       = $('#fcrm-pmp-notice');
+        var $progressWrap = $('#fcrm-addr-progress');
+        var $bar          = $('#fcrm-addr-progress-bar');
+        var $status       = $('#fcrm-addr-status');
+
+        $btn.prop('disabled', true);
+        $progressWrap.show();
+        $bar.css('width', '0%');
+        $status.text(i18n.backfilling || 'Backfilling\u2026');
+        $notice.hide();
+
+        var perPage   = 50;
+        var offset    = 0;
+        var total     = 0;
+        var updated   = 0;
+        var skipped   = 0;
+        var processed = 0;
+        var errList   = [];
+
+        function doAddrPage() {
+            $.post(ajaxUrl, {
+                action:   'my_iapsnj_pmp_backfill_addresses',
+                nonce:    nonce,
+                per_page: perPage,
+                offset:   offset,
+            })
+            .done(function (resp) {
+                if (!resp.success) {
+                    var errMsg = (resp.data && resp.data.message) ? resp.data.message : i18n.error;
+                    $status.text(errMsg);
+                    showNotice($notice, errMsg, 'error');
+                    $btn.prop('disabled', false);
+                    return;
+                }
+                var d = resp.data;
+                total     = d.total || total;
+                updated  += d.updated || 0;
+                skipped  += d.skipped || 0;
+                processed = Math.min(total, d.next_offset || 0);
+                errList   = errList.concat(d.errors || []);
+                offset    = d.next_offset;
+
+                var pct = total > 0 ? Math.min(100, Math.round(processed / total * 100)) : 100;
+                $bar.css('width', pct + '%');
+                $status.text((i18n.backfilling || 'Backfilling\u2026') + ' ' + processed + ' / ' + total);
+
+                if (d.has_more) {
+                    doAddrPage();
+                } else {
+                    var msg = (i18n.backfillDone || 'Backfill complete.') +
+                        ' ' + updated + ' contact(s) updated, ' + skipped + ' already had an address or no contact.';
+                    if (errList.length) {
+                        msg += ' ' + errList.length + ' error(s).';
+                    }
+                    $status.text(msg);
+                    $bar.css('width', '100%');
+                    showNotice($notice, msg, 'success');
+                    $btn.prop('disabled', false);
+                }
+            })
+            .fail(function () {
+                $status.text(i18n.error);
+                showNotice($notice, i18n.error, 'error');
+                $btn.prop('disabled', false);
+            });
+        }
+
+        doAddrPage();
+    });
+
     // Save Cron Setting
     $('#fcrm-pmp-save-expiry-cron').on('click', function () {
         var $btn     = $(this);
@@ -1121,131 +1197,6 @@
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
     }
-
-    // =========================================================================
-    // CRM Assistant chat
-    // =========================================================================
-
-    var chatHistory = [];
-    var $chatWrap     = $('#my-iapsnj-chat-wrap');
-    var $chatHistory  = $('#my-iapsnj-chat-history');
-    var $chatInput    = $('#my-iapsnj-chat-input');
-    var $chatSend     = $('#my-iapsnj-chat-send');
-    var $toolLog      = $('#my-iapsnj-tool-log-content');
-
-    if ($chatWrap.length) {
-        $chatSend.on('click', function () {
-            sendChatMessage();
-        });
-
-        $chatInput.on('keydown', function (e) {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendChatMessage();
-            }
-        });
-    }
-
-    function sendChatMessage() {
-        var message = $.trim($chatInput.val());
-        if (!message) { return; }
-
-        appendChatBubble('user', message);
-        $chatInput.val('').focus();
-
-        var $typing = $('<div class="chat-bubble ai chat-typing"><span></span><span></span><span></span></div>');
-        $chatHistory.append($typing);
-        scrollChat();
-
-        $chatSend.prop('disabled', true);
-
-        $.post(ajaxUrl, {
-            action:  'my_iapsnj_crm_assistant_chat',
-            nonce:   nonce,
-            message: message,
-            history: JSON.stringify(chatHistory)
-        })
-        .done(function (res) {
-            $typing.remove();
-            if (res.success) {
-                var reply = res.data.reply || '(No response)';
-                appendChatBubble('ai', reply);
-                chatHistory.push({ role: 'user',      content: message });
-                chatHistory.push({ role: 'assistant',  content: reply });
-
-                if (res.data.tool_log && res.data.tool_log.length) {
-                    $.each(res.data.tool_log, function (_, entry) {
-                        var html = '<div class="tool-log-entry">';
-                        html += '<strong>' + escapeHtml(entry.tool) + '</strong>';
-                        html += '<pre>' + escapeHtml(JSON.stringify(entry.input, null, 2)) + '</pre>';
-                        html += '<pre>' + escapeHtml(JSON.stringify(entry.result, null, 2).substring(0, 500)) + '</pre>';
-                        html += '</div>';
-                        $toolLog.append(html);
-                    });
-                }
-            } else {
-                var errMsg = (res.data && res.data.message) ? res.data.message : (i18n.chatError || 'Error');
-                appendChatBubble('ai', errMsg);
-            }
-        })
-        .fail(function () {
-            $typing.remove();
-            appendChatBubble('ai', i18n.chatError || 'Error communicating with AI provider.');
-        })
-        .always(function () {
-            $chatSend.prop('disabled', false);
-        });
-    }
-
-    function appendChatBubble(role, text) {
-        var cls = 'chat-bubble ' + (role === 'user' ? 'user' : 'ai');
-        var $bubble = $('<div class="' + cls + '"></div>').text(text);
-        $chatHistory.append($bubble);
-        scrollChat();
-    }
-
-    function scrollChat() {
-        if ($chatHistory.length) {
-            $chatHistory.scrollTop($chatHistory[0].scrollHeight);
-        }
-    }
-
-    // =========================================================================
-    // AI Settings form (on Sync & Settings page)
-    // =========================================================================
-
-    $('#my-iapsnj-ai-settings-form').on('submit', function (e) {
-        e.preventDefault();
-        var $form   = $(this);
-        var $btn    = $form.find('button[type="submit"]');
-        var $aiNotice = $('#my-iapsnj-ai-settings-notice');
-
-        var data = {
-            action:            'my_iapsnj_save_settings',
-            nonce:             nonce,
-            ai_provider:       $form.find('[name="ai_provider"]').val(),
-            anthropic_api_key: $form.find('[name="anthropic_api_key"]').val(),
-            openai_api_key:    $form.find('[name="openai_api_key"]').val(),
-            gemini_api_key:    $form.find('[name="gemini_api_key"]').val()
-        };
-
-        setBtn($btn, i18n.saving, true);
-
-        $.post(ajaxUrl, data)
-            .done(function (res) {
-                if (res.success) {
-                    showNotice($aiNotice, i18n.saved, 'success');
-                } else {
-                    showNotice($aiNotice, i18n.error, 'error');
-                }
-            })
-            .fail(function () {
-                showNotice($aiNotice, i18n.error, 'error');
-            })
-            .always(function () {
-                setBtn($btn, 'Save AI Settings', false);
-            });
-    });
 
     // =========================================================================
     // Notes Search page

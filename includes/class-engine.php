@@ -28,6 +28,14 @@ class My_IAPSNJ_Engine {
     private bool $syncing_to_wp   = false;
 
     /**
+     * user_meta key that caches the resolved FluentCRM subscriber ID for a
+     * WordPress user. Without it, every sync falls back to an email lookup,
+     * which stops matching as soon as the member changes their WP email —
+     * and the next write then creates a duplicate contact.
+     */
+    const LINK_META_KEY = '_my_iapsnj_subscriber_id';
+
+    /**
      * Allow the mismatch resolver (or other callers) to activate / deactivate
      * the re-entrancy guards from outside the normal sync methods.
      */
@@ -130,6 +138,7 @@ class My_IAPSNJ_Engine {
             $subscriber->user_id = null;
             $subscriber->save();
         }
+        delete_user_meta( $user_id, self::LINK_META_KEY );
     }
 
     // -----------------------------------------------------------------------
@@ -169,10 +178,7 @@ class My_IAPSNJ_Engine {
 
             // Find the subscriber that is actually linked to this WP user so we
             // can use their FluentCRM email as the createOrUpdate() lookup key.
-            $existing_sub = Subscriber::where( 'user_id', $user_id )->first();
-            if ( ! ( $existing_sub instanceof Subscriber ) ) {
-                $existing_sub = Subscriber::where( 'email', $user_info->user_email )->first();
-            }
+            $existing_sub = self::find_linked_subscriber( $user_id, $user_info );
 
             $data          = [];
             $custom_values = [];
@@ -237,9 +243,12 @@ class My_IAPSNJ_Engine {
             $contact = FluentCrmApi( 'contacts' )->createOrUpdate( $data );
 
             // Link the subscriber to this WP user if not already linked
-            if ( $contact && ! $contact->user_id ) {
-                $contact->user_id = $user_id;
-                $contact->save();
+            if ( $contact instanceof Subscriber ) {
+                if ( ! $contact->user_id ) {
+                    $contact->user_id = $user_id;
+                    $contact->save();
+                }
+                self::remember_subscriber_link( $user_id, (int) $contact->id );
             }
 
             return $contact;
@@ -417,10 +426,14 @@ class My_IAPSNJ_Engine {
                     ) {
                         return $this->acf_date_to_ymd( $key, 'user_' . $user_id, (string) $val );
                     }
-                    return $val ?: null;
+                    // Explicit emptiness check: `?:` would also discard a
+                    // legitimate 0 / '0' / 0.0 (member number 0, unchecked
+                    // checkbox, a select whose stored value is '0').
+                    return ( $val !== null && $val !== '' && $val !== false ) ? $val : null;
                 }
-                // Fallback to user_meta
-                return get_user_meta( $user_id, $key, true ) ?: null;
+                // Fallback to user_meta — same explicit check.
+                $val = get_user_meta( $user_id, $key, true );
+                return ( $val !== '' && $val !== false ) ? $val : null;
 
             case 'pmp':
                 if ( ! function_exists( 'pmpro_getMembershipLevelForUser' ) ) {
@@ -433,11 +446,11 @@ class My_IAPSNJ_Engine {
                 switch ( $key ) {
                     case 'startdate':
                         return ! empty( $level->startdate )
-                            ? date( 'Y-m-d', (int) $level->startdate )
+                            ? wp_date( 'Y-m-d', (int) $level->startdate )
                             : null;
                     case 'enddate':
                         return ! empty( $level->enddate )
-                            ? date( 'Y-m-d', (int) $level->enddate )
+                            ? wp_date( 'Y-m-d', (int) $level->enddate )
                             : null;
                     case 'expiration_date':
                         return My_IAPSNJ_PMP_Integration::get_smart_expiration_date( $user_id, $level );
@@ -585,7 +598,7 @@ class My_IAPSNJ_Engine {
         if ( is_numeric( $value ) && strlen( $value ) === 8 ) {
             $iso = substr( $value, 0, 4 ) . '-' . substr( $value, 4, 2 ) . '-' . substr( $value, 6, 2 );
             $ts  = strtotime( $iso );
-            return $ts !== false ? date( 'Y-m-d', $ts ) : '';
+            return $ts !== false ? gmdate( 'Y-m-d', $ts ) : '';
         }
 
         // 2. Try canonical Y-m-d FIRST
@@ -604,8 +617,10 @@ class My_IAPSNJ_Engine {
         }
 
         // 4. Fallback via strtotime()
+        // gmdate(), not wp_date(): strtotime() parsed this string in UTC, so
+        // formatting it back in UTC round-trips the calendar day exactly.
         $ts = strtotime( $value );
-        return $ts !== false ? date( 'Y-m-d', $ts ) : '';
+        return $ts !== false ? gmdate( 'Y-m-d', $ts ) : '';
     }
 
     /**
@@ -639,7 +654,7 @@ class My_IAPSNJ_Engine {
         }
 
         $ts = strtotime( $val );
-        return $ts !== false ? date( 'Y-m-d', $ts ) : $val;
+        return $ts !== false ? gmdate( 'Y-m-d', $ts ) : $val;
     }
 
     /**
@@ -689,6 +704,79 @@ class My_IAPSNJ_Engine {
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
+
+    // -----------------------------------------------------------------------
+    // Subscriber linking
+    // -----------------------------------------------------------------------
+
+    /**
+     * Resolve the FluentCRM contact for a WordPress user.
+     *
+     * Lookup order:
+     *   1. subscriber.user_id — the authoritative link.
+     *   2. The cached subscriber ID in user_meta — survives an email change.
+     *   3. Email — first-time linking only.
+     *
+     * A match found by (2) or (3) is only accepted when the contact is
+     * unlinked or already linked to this same user, so we never hijack another
+     * member's contact. Every successful match is written back to user_meta.
+     */
+    public static function find_linked_subscriber( int $user_id, ?\WP_User $user_info = null ): ?Subscriber {
+        if ( $user_id <= 0 ) {
+            return null;
+        }
+
+        $sub = Subscriber::where( 'user_id', $user_id )->first();
+        if ( $sub instanceof Subscriber ) {
+            self::remember_subscriber_link( $user_id, (int) $sub->id );
+            return $sub;
+        }
+
+        $cached_id = (int) get_user_meta( $user_id, self::LINK_META_KEY, true );
+        if ( $cached_id > 0 ) {
+            $sub = Subscriber::where( 'id', $cached_id )->first();
+            if ( $sub instanceof Subscriber && self::link_is_free( $sub, $user_id ) ) {
+                return $sub;
+            }
+            // Stale pointer (contact deleted or re-assigned) — drop it.
+            delete_user_meta( $user_id, self::LINK_META_KEY );
+        }
+
+        if ( ! $user_info instanceof \WP_User ) {
+            $user_info = get_userdata( $user_id ) ?: null;
+        }
+        if ( ! $user_info instanceof \WP_User || ! $user_info->user_email ) {
+            return null;
+        }
+
+        $sub = Subscriber::where( 'email', $user_info->user_email )->first();
+        if ( $sub instanceof Subscriber && self::link_is_free( $sub, $user_id ) ) {
+            self::remember_subscriber_link( $user_id, (int) $sub->id );
+            return $sub;
+        }
+
+        return null;
+    }
+
+    /**
+     * A contact may be claimed by this user only when nobody else holds it.
+     */
+    private static function link_is_free( Subscriber $sub, int $user_id ): bool {
+        return empty( $sub->user_id ) || (int) $sub->user_id === $user_id;
+    }
+
+    /**
+     * Cache the resolved subscriber ID on the WP user.
+     */
+    public static function remember_subscriber_link( int $user_id, int $subscriber_id ): void {
+        if ( $user_id <= 0 || $subscriber_id <= 0 ) {
+            return;
+        }
+        if ( (int) get_user_meta( $user_id, self::LINK_META_KEY, true ) === $subscriber_id ) {
+            return;
+        }
+        update_user_meta( $user_id, self::LINK_META_KEY, $subscriber_id );
+    }
 
     /**
      * Returns the list of WP user_meta keys that appear in any active mapping.

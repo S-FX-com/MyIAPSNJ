@@ -1,9 +1,9 @@
 <?php
 /**
  * Plugin Name:       My IAPSNJ
- * Plugin URI:        https://github.com/s-fx-com/my-iapsnj
- * Description:       Member data sync and CRM tools for the IAPSNJ website. Bidirectional sync between FluentCRM contacts and WordPress users with pre-configured IAPSNJ field mappings, ACF support, mismatch resolution, and an AI-powered CRM Assistant.
- * Version:           2.2.3
+ * Plugin URI:        https://github.com/S-FX-com/MyIAPSNJ
+ * Description:       Member data sync and CRM tools for the IAPSNJ website. Bidirectional sync between FluentCRM contacts and WordPress users with pre-configured IAPSNJ field mappings, ACF support, Paid Memberships Pro integration, mismatch resolution, and note search.
+ * Version:           3.0.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Requires Plugins:  fluent-crm
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'MY_IAPSNJ_VERSION', '2.2.3' );
+define( 'MY_IAPSNJ_VERSION', '3.0.0' );
 define( 'MY_IAPSNJ_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'MY_IAPSNJ_URL',     plugin_dir_url( __FILE__ ) );
 define( 'MY_IAPSNJ_FILE',    __FILE__ );
@@ -37,11 +37,14 @@ spl_autoload_register( function ( $class ) {
 } );
 
 // ---------------------------------------------------------------------------
-// GitHub Releases auto-updater (admin only)
+// GitHub Releases auto-updater
 // ---------------------------------------------------------------------------
-if ( is_admin() ) {
-    new My_IAPSNJ_Github_Updater();
-}
+// Registered unconditionally: WordPress refreshes the plugin-update transient
+// from the `wp_update_plugins` cron event, which runs in a front-end request
+// where is_admin() is false. Gating this on is_admin() means background and
+// automatic updates never see a new release. The class registers its
+// admin-only UI hooks internally.
+new My_IAPSNJ_Github_Updater();
 
 // ---------------------------------------------------------------------------
 // Activation / Deactivation
@@ -76,10 +79,12 @@ final class My_IAPSNJ_Plugin {
             return;
         }
 
+        // Apply any pending data migrations before the modules read options.
+        self::maybe_upgrade();
+
         My_IAPSNJ_Engine::get_instance();
         My_IAPSNJ_Admin::get_instance();
         My_IAPSNJ_REST_API::get_instance();
-        My_IAPSNJ_CRM_Assistant::get_instance();
 
         // Boot PMPro integration only when Paid Memberships Pro is active.
         if ( function_exists( 'pmpro_getMembershipLevelForUser' ) ) {
@@ -127,11 +132,7 @@ final class My_IAPSNJ_Plugin {
                 'sync_on_profile_update' => true,
                 'sync_on_user_delete'    => true,
                 'sync_on_fcrm_update'    => true,
-                'sync_on_pmp_change'     => false,
-                'ai_provider'            => 'anthropic',
-                'anthropic_api_key'      => '',
-                'openai_api_key'         => '',
-                'gemini_api_key'         => '',
+                'sync_on_pmp_change'     => true,
             ] );
         }
         if ( get_option( 'my_iapsnj_pmp_tag_mappings' ) === false ) {
@@ -156,10 +157,110 @@ final class My_IAPSNJ_Plugin {
                 wp_schedule_event( time(), 'daily', 'my_iapsnj_pmp_expiry_cron' );
             }
         }
+
+        // Bring existing installs up to the current data version.
+        self::maybe_upgrade();
     }
 
     public static function deactivate(): void {
         // Clear the expiry cron on deactivation; data is preserved.
         wp_clear_scheduled_hook( 'my_iapsnj_pmp_expiry_cron' );
+    }
+
+    // -----------------------------------------------------------------------
+    // Data migrations
+    // -----------------------------------------------------------------------
+
+    /**
+     * Data-schema version. Bump this whenever a new migration step is added
+     * below; it is independent of MY_IAPSNJ_VERSION so that ordinary releases
+     * do not re-run migrations.
+     */
+    const DATA_VERSION = 4;
+
+    /**
+     * Runs any migration steps this install has not seen yet.
+     *
+     * Safe to call on every request: it short-circuits on an option read once
+     * the install is current.
+     */
+    public static function maybe_upgrade(): void {
+        $installed = (int) get_option( 'my_iapsnj_data_version', 0 );
+
+        if ( $installed >= self::DATA_VERSION ) {
+            return;
+        }
+
+        // Guard against two concurrent requests running the same migration.
+        if ( ! self::acquire_upgrade_lock() ) {
+            return;
+        }
+
+        try {
+            // ---- v1: enable PMPro membership-change sync -------------------
+            // Shipped defaulting to false, which silently disabled every
+            // WP -> FluentCRM field sync on membership join/renew/expire.
+            if ( $installed < 1 ) {
+                $settings = get_option( 'my_iapsnj_settings', [] );
+                if ( is_array( $settings ) && empty( $settings['sync_on_pmp_change'] ) ) {
+                    $settings['sync_on_pmp_change'] = true;
+                    update_option( 'my_iapsnj_settings', $settings );
+                }
+            }
+
+            // ---- v2: seed the PMPro-sourced expiration_date mapping --------
+            // The expiry cron filters for wp_field_source === 'pmp', but the
+            // seeded expiration_date mapping is ACF-sourced, so the cron
+            // matched nothing and returned without doing any work.
+            if ( $installed < 2 ) {
+                My_IAPSNJ_Field_Mapper::ensure_pmp_expiry_mapping();
+            }
+
+            // ---- v3: seed the PMPro billing-address mappings ---------------
+            // Members who join through PMPro checkout have their address only
+            // in pmpro_b* user meta; without these rows nothing reaches the CRM.
+            if ( $installed < 3 ) {
+                My_IAPSNJ_Field_Mapper::ensure_pmp_billing_mappings();
+            }
+
+            // ---- v4: purge the removed CRM Assistant's credentials ---------
+            // The assistant stored third-party API keys as plaintext in
+            // wp_options. Deleting the feature does not delete the keys, so
+            // clear them out rather than leaving live credentials sitting in
+            // the database (and in every backup taken since).
+            if ( $installed < 4 ) {
+                $settings = get_option( 'my_iapsnj_settings', [] );
+                if ( is_array( $settings ) ) {
+                    $removed = array_intersect_key(
+                        $settings,
+                        array_flip( [ 'ai_provider', 'anthropic_api_key', 'openai_api_key', 'gemini_api_key' ] )
+                    );
+                    if ( ! empty( $removed ) ) {
+                        unset(
+                            $settings['ai_provider'],
+                            $settings['anthropic_api_key'],
+                            $settings['openai_api_key'],
+                            $settings['gemini_api_key']
+                        );
+                        update_option( 'my_iapsnj_settings', $settings );
+                    }
+                }
+            }
+
+            update_option( 'my_iapsnj_data_version', self::DATA_VERSION );
+        } finally {
+            delete_transient( 'my_iapsnj_upgrading' );
+        }
+    }
+
+    /**
+     * Best-effort mutex so concurrent requests do not run migrations twice.
+     */
+    private static function acquire_upgrade_lock(): bool {
+        if ( get_transient( 'my_iapsnj_upgrading' ) ) {
+            return false;
+        }
+        set_transient( 'my_iapsnj_upgrading', 1, 5 * MINUTE_IN_SECONDS );
+        return true;
     }
 }
