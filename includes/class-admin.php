@@ -1195,7 +1195,7 @@ class My_IAPSNJ_Admin {
         $dry  = ! empty( $p['dry_run'] );
         $args = [
             'level_map'               => My_IAPSNJ_Migration::parse_level_map( (string) ( $p['level_map'] ?? '' ) ),
-            'from_year'               => (int) ( $p['from_year'] ?? 2024 ),
+            'from_year'               => ( (int) ( $p['from_year'] ?? 0 ) ) ?: 2024,
             'order_statuses'          => array_filter( array_map( 'sanitize_key', explode( ',', (string) ( $p['order_statuses'] ?? 'success' ) ) ) ),
             'order_tz'                => ( $p['order_tz'] ?? 'utc' ) === 'site' ? 'site' : 'utc',
             'address_mode'            => in_array( $p['address_mode'] ?? '', [ 'prefer_recent', 'prefer_acf', 'prefer_pmpro', 'fill_empty' ], true ) ? $p['address_mode'] : 'prefer_recent',

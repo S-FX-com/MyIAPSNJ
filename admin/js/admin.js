@@ -471,7 +471,8 @@
         updateSelection();
     }).on('change', '.fcrm-check-select', updateSelection);
     $('#fcrm-deposit-expected').on('input', updateSelection);
-    $('#fcrm-checks-reload, #fcrm-checks-membership-only').on('click change', loadChecks);
+    $('#fcrm-checks-reload').on('click', loadChecks);
+    $('#fcrm-checks-membership-only').on('change', loadChecks);
 
     $('#fcrm-mark-paid').on('click', function () {
         var ids = [], numbers = {};

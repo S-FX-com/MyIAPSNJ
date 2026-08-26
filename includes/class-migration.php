@@ -721,8 +721,14 @@ class My_IAPSNJ_Migration {
         foreach ( (array) $orders as $o ) {
             $report['processed']++;
             self::inc( $report, 'orders' );
-            $ts   = $args['order_tz'] === 'site' ? strtotime( (string) $o->timestamp ) : My_IAPSNJ_Dates::mysql_utc_to_ts( (string) $o->timestamp );
-            $year = $ts ? My_IAPSNJ_Dates::year_of_ts( (int) $ts ) : (int) substr( (string) $o->timestamp, 0, 4 );
+            // 'site': the stored datetime is already local — take its year as
+            // written. 'utc': convert the instant to the site timezone first.
+            if ( $args['order_tz'] === 'site' ) {
+                $year = (int) substr( (string) $o->timestamp, 0, 4 );
+            } else {
+                $ts   = My_IAPSNJ_Dates::mysql_utc_to_ts( (string) $o->timestamp );
+                $year = $ts ? My_IAPSNJ_Dates::year_of_ts( $ts ) : (int) substr( (string) $o->timestamp, 0, 4 );
+            }
             if ( $year < $from_year ) {
                 self::inc( $report, 'skipped_before_from_year' );
                 continue;
@@ -869,9 +875,15 @@ class My_IAPSNJ_Migration {
                     ? substr( $end, 0, 10 )
                     : wp_date( 'Y-m-d', My_IAPSNJ_Dates::mysql_utc_to_ts( $end ) );
             } elseif ( isset( $last_paid[ (int) $r->user_id ] ) ) {
-                $ts = $args['order_tz'] === 'site' ? strtotime( $last_paid[ (int) $r->user_id ]->last_ts ) : My_IAPSNJ_Dates::mysql_utc_to_ts( $last_paid[ (int) $r->user_id ]->last_ts );
-                if ( $ts ) {
-                    $paid_through = My_IAPSNJ_Dates::year_of_ts( (int) $ts ) . '-12-31';
+                $last_ts_raw = (string) $last_paid[ (int) $r->user_id ]->last_ts;
+                if ( $args['order_tz'] === 'site' ) {
+                    $year = (int) substr( $last_ts_raw, 0, 4 );
+                } else {
+                    $ts   = My_IAPSNJ_Dates::mysql_utc_to_ts( $last_ts_raw );
+                    $year = $ts ? My_IAPSNJ_Dates::year_of_ts( $ts ) : 0;
+                }
+                if ( $year > 1900 ) {
+                    $paid_through = $year . '-12-31';
                     $derivation   = 'last_order_year';
                     self::inc( $report, 'paid_through_derived_from_orders' );
                 }

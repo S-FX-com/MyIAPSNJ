@@ -322,7 +322,9 @@ class My_IAPSNJ_Membership {
             'paid_through'  => $existing ? My_IAPSNJ_Schema::field( $existing, My_IAPSNJ_Schema::FIELD_PAID_THROUGH ) : '',
             'tags'          => $existing ? My_IAPSNJ_Schema::managed_tag_slugs( $existing ) : [],
         ];
-        $order->updateMeta( self::META_SNAPSHOT, wp_json_encode( $snapshot ) );
+        // OrderMeta json-encodes arrays on write and decodes on read; store the
+        // array itself and read it back through meta_array().
+        $order->updateMeta( self::META_SNAPSHOT, $snapshot );
 
         // ---- Upsert contact (email, names, address) ------------------------
         $subscriber = $this->upsert_contact_from_order( $order, $existing );
@@ -403,7 +405,7 @@ class My_IAPSNJ_Membership {
             'payment'       => (string) $order->payment_method === self::OFFLINE_METHOD ? 'check' : 'card',
             'applied_at'    => My_IAPSNJ_Dates::now_utc(),
         ];
-        $order->updateMeta( self::META_APPLIED, wp_json_encode( $applied ) );
+        $order->updateMeta( self::META_APPLIED, $applied );
         $order->deleteMeta( self::META_PENDING );
 
         $this->order_log(
@@ -489,21 +491,35 @@ class My_IAPSNJ_Membership {
             return;
         }
         try {
-            $applied  = json_decode( (string) $order->getMeta( self::META_APPLIED, '' ), true );
-            $snapshot = json_decode( (string) $order->getMeta( self::META_SNAPSHOT, '' ), true );
+            $applied  = self::meta_array( $order, self::META_APPLIED );
+            $snapshot = self::meta_array( $order, self::META_SNAPSHOT );
             if ( ! is_array( $applied ) || $order->getMeta( self::META_REFUNDED ) ) {
                 return;
             }
+            $superseded = [];
             $subscriber = Subscriber::where( 'id', (int) ( $applied['subscriber_id'] ?? 0 ) )->first();
             if ( $subscriber instanceof Subscriber ) {
                 $added = (array) ( $applied['tags_added'] ?? [] );
                 if ( $added ) {
                     $subscriber->detachTags( array_values( My_IAPSNJ_Schema::tag_ids( $added ) ) );
                 }
+                // Restore a field only if it still holds what this order set.
+                // A later, unrelated payment may have moved it since; that
+                // order's effect must survive the refund of this one.
                 $restore = [];
                 if ( is_array( $snapshot ) ) {
-                    $restore[ My_IAPSNJ_Schema::FIELD_MEMBER_TYPE ]  = (string) ( $snapshot['member_type'] ?? '' );
-                    $restore[ My_IAPSNJ_Schema::FIELD_PAID_THROUGH ] = (string) ( $snapshot['paid_through'] ?? '' );
+                    $current_type = My_IAPSNJ_Schema::field( $subscriber, My_IAPSNJ_Schema::FIELD_MEMBER_TYPE );
+                    $current_pt   = My_IAPSNJ_Dates::ymd( My_IAPSNJ_Schema::field( $subscriber, My_IAPSNJ_Schema::FIELD_PAID_THROUGH ) );
+                    if ( $current_type === (string) ( $applied['member_type'] ?? '' ) ) {
+                        $restore[ My_IAPSNJ_Schema::FIELD_MEMBER_TYPE ] = (string) ( $snapshot['member_type'] ?? '' );
+                    } else {
+                        $superseded[] = My_IAPSNJ_Schema::FIELD_MEMBER_TYPE;
+                    }
+                    if ( $current_pt === My_IAPSNJ_Dates::ymd( $applied['paid_through'] ?? '' ) ) {
+                        $restore[ My_IAPSNJ_Schema::FIELD_PAID_THROUGH ] = (string) ( $snapshot['paid_through'] ?? '' );
+                    } else {
+                        $superseded[] = My_IAPSNJ_Schema::FIELD_PAID_THROUGH;
+                    }
                 }
                 if ( $restore ) {
                     My_IAPSNJ_Schema::set_fields( $subscriber, $restore );
@@ -511,7 +527,12 @@ class My_IAPSNJ_Membership {
             }
             My_IAPSNJ_Applications::mark_refunded_for_order( (int) $order->id );
             $order->updateMeta( self::META_REFUNDED, My_IAPSNJ_Dates::now_utc() );
-            $this->order_log( $order, 'My IAPSNJ: membership reverted', 'Full refund: tags removed and member_type / paid_through restored from the pre-payment snapshot.' );
+            $this->order_log(
+                $order,
+                'My IAPSNJ: membership reverted',
+                'Full refund: tags removed and member_type / paid_through restored from the pre-payment snapshot.'
+                . ( $superseded ? ' Left unchanged because a later order superseded them: ' . implode( ', ', $superseded ) . '.' : '' )
+            );
 
             do_action( 'my_iapsnj/membership_refunded', $subscriber, $order, $applied, $snapshot );
         } catch ( \Throwable $e ) {
@@ -1037,6 +1058,26 @@ class My_IAPSNJ_Membership {
         }
         $symbol = ( $currency === '' || strtoupper( $currency ) === 'USD' ) ? '$' : strtoupper( $currency ) . ' ';
         return $symbol . number_format( $cents / 100, 2 );
+    }
+
+    /**
+     * Read an array stored in FluentCart order meta. OrderMeta decodes JSON on
+     * read, so the value is usually already an array; a raw JSON string (older
+     * rows, other writers) is decoded here.
+     */
+    public static function meta_array( $order, string $key ): ?array {
+        if ( ! is_object( $order ) || ! method_exists( $order, 'getMeta' ) ) {
+            return null;
+        }
+        $raw = $order->getMeta( $key, null );
+        if ( is_array( $raw ) ) {
+            return $raw;
+        }
+        if ( is_string( $raw ) && $raw !== '' ) {
+            $decoded = json_decode( $raw, true );
+            return is_array( $decoded ) ? $decoded : null;
+        }
+        return null;
     }
 
     public static function order_admin_url( $order ): string {
