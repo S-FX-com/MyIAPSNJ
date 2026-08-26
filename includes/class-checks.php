@@ -239,7 +239,7 @@ class My_IAPSNJ_Checks {
             }
             $res['ok']          = true;
             $res['total_cents'] = $due;
-            $applied            = json_decode( (string) $fresh->getMeta( My_IAPSNJ_Membership::META_APPLIED, '' ), true );
+            $applied            = My_IAPSNJ_Membership::meta_array( $fresh, My_IAPSNJ_Membership::META_APPLIED );
             $res['message']     = is_array( $applied )
                 ? sprintf( __( 'Paid. Member type %1$s, paid through %2$s.', 'my-iapsnj' ), $applied['member_type'], $applied['paid_through'] !== '' ? My_IAPSNJ_Dates::ymd_display( $applied['paid_through'] ) : '—' )
                 : __( 'Paid. (Order has no configured membership product; CRM not changed.)', 'my-iapsnj' );
@@ -287,15 +287,16 @@ class My_IAPSNJ_Checks {
             $user       = get_userdata( (int) $args['user_id'] ) ?: null;
             $subscriber = $user ? My_IAPSNJ_Engine::find_linked_subscriber( (int) $user->ID, $user ) : null;
         }
-        $email = $subscriber ? (string) $subscriber->email : sanitize_email( (string) ( $args['email'] ?? ( $user ? $user->user_email : '' ) ) );
+        // `?:` not `??`: the AJAX handler always posts the keys, possibly empty.
+        $email = $subscriber ? (string) $subscriber->email : sanitize_email( (string) ( ( $args['email'] ?? '' ) ?: ( $user ? $user->user_email : '' ) ) );
         if ( ! is_email( $email ) ) {
             return new WP_Error( 'no_member', __( 'Select a member (CRM contact or WordPress user) or provide a valid email.', 'my-iapsnj' ) );
         }
         if ( ! $subscriber ) {
             $subscriber = Subscriber::where( 'email', $email )->first();
         }
-        $first = $subscriber ? (string) $subscriber->first_name : sanitize_text_field( (string) ( $args['first_name'] ?? ( $user ? $user->first_name : '' ) ) );
-        $last  = $subscriber ? (string) $subscriber->last_name : sanitize_text_field( (string) ( $args['last_name'] ?? ( $user ? $user->last_name : '' ) ) );
+        $first = $subscriber ? (string) $subscriber->first_name : sanitize_text_field( (string) ( ( $args['first_name'] ?? '' ) ?: ( $user ? $user->first_name : '' ) ) );
+        $last  = $subscriber ? (string) $subscriber->last_name : sanitize_text_field( (string) ( ( $args['last_name'] ?? '' ) ?: ( $user ? $user->last_name : '' ) ) );
 
         // ---- Product -------------------------------------------------------
         $variation_id = (int) ( $args['variation_id'] ?? 0 );
@@ -349,11 +350,10 @@ class My_IAPSNJ_Checks {
             $by
         ) . ( $note !== '' ? ' ' . $note : '' ) );
 
+        // updatedPlaceOrder() forwards only customer_id + order_items to the
+        // processor; the note is written onto the order afterwards.
         $data = [
             'customer_id' => (int) $customer->id,
-            'type'        => 'payment',
-            'status'      => 'on-hold',
-            'note'        => $order_note,
             'order_items' => [
                 [
                     'post_id'          => (int) $variation->post_id,
@@ -378,6 +378,8 @@ class My_IAPSNJ_Checks {
             if ( ! is_object( $order ) || empty( $order->id ) ) {
                 return new WP_Error( 'order_failed', __( 'FluentCart did not return an order.', 'my-iapsnj' ) );
             }
+            $order->note = $order_note;
+            $order->save();
             $order->updateMeta( My_IAPSNJ_Membership::META_SOURCE, 'manual_check' );
             if ( $received_date !== '' ) {
                 $order->updateMeta( '_my_iapsnj_received_date', $received_date );
@@ -402,7 +404,7 @@ class My_IAPSNJ_Checks {
         }
 
         $fresh   = \FluentCart\App\Models\Order::query()->find( (int) $order->id );
-        $applied = $fresh ? json_decode( (string) $fresh->getMeta( My_IAPSNJ_Membership::META_APPLIED, '' ), true ) : null;
+        $applied = $fresh ? My_IAPSNJ_Membership::meta_array( $fresh, My_IAPSNJ_Membership::META_APPLIED ) : null;
 
         return [
             'order_id'  => (int) $order->id,

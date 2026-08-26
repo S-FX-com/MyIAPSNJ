@@ -172,7 +172,17 @@ class My_IAPSNJ_Engine {
 
             if ( ! empty( $wp_user_data ) ) {
                 $wp_user_data['ID'] = $user_id;
-                wp_update_user( $wp_user_data );
+                // Mirroring the CRM email must not make WordPress mail the member
+                // an "your email was changed" notice — a bulk mirror after the
+                // migration would otherwise email thousands of people.
+                add_filter( 'send_email_change_email', '__return_false' );
+                add_filter( 'send_password_change_email', '__return_false' );
+                try {
+                    wp_update_user( $wp_user_data );
+                } finally {
+                    remove_filter( 'send_email_change_email', '__return_false' );
+                    remove_filter( 'send_password_change_email', '__return_false' );
+                }
             }
         } finally {
             $this->syncing_to_wp = false;
