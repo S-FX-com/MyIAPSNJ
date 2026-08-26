@@ -2,24 +2,26 @@
 /**
  * My_IAPSNJ_Field_Mapper
  *
- * Discovers available fields on both sides (WordPress + FluentCRM) and
- * manages the saved field-mapping configuration.
+ * Discovers fields on both sides (FluentCRM contact fields → WordPress user
+ * fields) and manages the saved mirror map. Since 4.0 every mapping is
+ * CRM → WP; the sync_direction key is kept in the record for compatibility
+ * but is always 'fcrm_to_wp'.
  *
  * Mapping record shape stored in wp_options:
  * [
  *   'id'               => 'map_abc123',
  *   'wp_field_key'     => 'first_name',
- *   'wp_field_source'  => 'user' | 'meta' | 'acf' | 'pmp',
+ *   'wp_field_source'  => 'user' | 'meta' | 'acf',   // acf = user meta in ACF storage format
  *   'wp_field_label'   => 'First Name',
  *   'fcrm_field_key'   => 'first_name',
  *   'fcrm_field_source'=> 'default' | 'custom',
  *   'fcrm_field_label' => 'First Name',
  *   'field_type'       => 'text' | 'select' | 'date' | 'checkbox' | 'number' | 'email' | 'textarea',
- *   'sync_direction'   => 'both' | 'wp_to_fcrm' | 'fcrm_to_wp',
+ *   'sync_direction'   => 'fcrm_to_wp',
  *   'enabled'          => true,
- *   'date_format_wp'   => 'm/d/Y',   // ACF return format for date pickers
+ *   'date_format_wp'   => 'm/d/Y',   // how the WP side stores dates (ACF pickers: m/d/Y)
  *   'date_format_fcrm' => 'Y-m-d',   // FluentCRM always uses Y-m-d
- *   'value_map'        => [ 'wp_value' => 'fcrm_value', ... ],  // select/radio value translation
+ *   'value_map'        => [ 'wp_value' => 'fcrm_value', ... ],
  * ]
  */
 
@@ -32,28 +34,12 @@ class My_IAPSNJ_Field_Mapper {
     // -----------------------------------------------------------------------
 
     /**
-     * Well-known WP_User object properties (not in user_meta).
+     * WP_User object properties that may be written from the CRM.
      */
     private static array $wp_user_object_fields = [
-        'ID'                => 'User ID (WP ID)',
-        'user_login'        => 'Username (user_login)',
-        'user_email'        => 'Email (user_email)',
-        'user_url'          => 'Website (user_url)',
-        'display_name'      => 'Display Name',
-        'user_registered'   => 'Registration Date (user_registered)',
-    ];
-
-    /**
-     * PMPro billing address meta keys stored in wp_usermeta (pmpro_b* prefix).
-     */
-    private static array $pmp_billing_meta_fields = [
-        'pmpro_baddress1' => 'PMPro Billing Address Line 1',
-        'pmpro_baddress2' => 'PMPro Billing Address Line 2',
-        'pmpro_bcity'     => 'PMPro Billing City',
-        'pmpro_bstate'    => 'PMPro Billing State',
-        'pmpro_bzipcode'  => 'PMPro Billing Postal Code',
-        'pmpro_bcountry'  => 'PMPro Billing Country',
-        'pmpro_bphone'    => 'PMPro Billing Phone',
+        'user_email'   => 'Email (user_email)',
+        'user_url'     => 'Website (user_url)',
+        'display_name' => 'Display Name',
     ];
 
     /**
@@ -67,33 +53,23 @@ class My_IAPSNJ_Field_Mapper {
     ];
 
     /**
-     * Returns all WP fields: object props + core meta + ACF user fields +
-     * any additional user_meta keys discovered in the DB.
+     * Returns all WP fields: object props + core meta + ACF user fields (if
+     * ACF is active) + any additional user_meta keys discovered in the DB.
      *
      * @return array<string, array{key:string, source:string, label:string, type:string}>
      */
     public function get_wp_fields(): array {
         $fields = [];
 
-        // 1. WP_User object properties
-        $user_obj_readonly = [ 'ID', 'user_login' ];
         foreach ( self::$wp_user_object_fields as $key => $label ) {
-            $type = 'text';
-            if ( $key === 'user_registered' ) {
-                $type = 'date';
-            } elseif ( $key === 'ID' ) {
-                $type = 'number';
-            }
             $fields[ 'user__' . $key ] = [
-                'key'      => $key,
-                'source'   => 'user',
-                'label'    => $label,
-                'type'     => $type,
-                'readonly' => in_array( $key, $user_obj_readonly, true ),
+                'key'    => $key,
+                'source' => 'user',
+                'label'  => $label,
+                'type'   => $key === 'user_email' ? 'email' : 'text',
             ];
         }
 
-        // 2. Core user_meta
         foreach ( self::$wp_core_meta_fields as $key => $label ) {
             $fields[ 'meta__' . $key ] = [
                 'key'    => $key,
@@ -103,10 +79,8 @@ class My_IAPSNJ_Field_Mapper {
             ];
         }
 
-        // 3. ACF user fields (if ACF is active)
         if ( function_exists( 'acf_get_field_groups' ) ) {
-            $acf_fields = $this->get_acf_user_fields();
-            foreach ( $acf_fields as $f ) {
+            foreach ( $this->get_acf_user_fields() as $f ) {
                 $uid = 'acf__' . $f['key'];
                 if ( ! isset( $fields[ $uid ] ) ) {
                     $fields[ $uid ] = $f;
@@ -114,11 +88,9 @@ class My_IAPSNJ_Field_Mapper {
             }
         }
 
-        // 4. Extra user_meta keys found in DB (excluding ACF internal keys)
-        $db_meta_keys = $this->get_db_user_meta_keys();
-        foreach ( $db_meta_keys as $meta_key ) {
+        foreach ( $this->get_db_user_meta_keys() as $meta_key ) {
             $uid = 'meta__' . $meta_key;
-            if ( ! isset( $fields[ $uid ] ) ) {
+            if ( ! isset( $fields[ $uid ] ) && ! isset( $fields[ 'acf__' . $meta_key ] ) ) {
                 $fields[ $uid ] = [
                     'key'    => $meta_key,
                     'source' => 'meta',
@@ -128,65 +100,9 @@ class My_IAPSNJ_Field_Mapper {
             }
         }
 
-        // 5. Paid Memberships Pro fields (if PMPro is active)
-        if ( function_exists( 'pmpro_getMembershipLevelForUser' ) ) {
-            $pmp_fields = [
-                'pmp__startdate'  => [
-                    'key'      => 'startdate',
-                    'source'   => 'pmp',
-                    'label'    => 'PMPro Join Date',
-                    'type'     => 'date',
-                    'readonly' => true,
-                ],
-                'pmp__enddate'    => [
-                    'key'      => 'enddate',
-                    'source'   => 'pmp',
-                    'label'    => 'PMPro Expiration / Renewal Date',
-                    'type'     => 'date',
-                    'readonly' => true,
-                ],
-                'pmp__expiration_date' => [
-                    'key'      => 'expiration_date',
-                    'source'   => 'pmp',
-                    'label'    => 'PMPro Smart Expiration Date',
-                    'type'     => 'date',
-                    'readonly' => true,
-                ],
-                'pmp__level_name' => [
-                    'key'      => 'level_name',
-                    'source'   => 'pmp',
-                    'label'    => 'PMPro Level Name',
-                    'type'     => 'text',
-                    'readonly' => true,
-                ],
-                'pmp__level_id'   => [
-                    'key'      => 'level_id',
-                    'source'   => 'pmp',
-                    'label'    => 'PMPro Level ID',
-                    'type'     => 'number',
-                    'readonly' => true,
-                ],
-            ];
-            foreach ( $pmp_fields as $uid => $field ) {
-                $fields[ $uid ] = $field;
-            }
-
-            foreach ( self::$pmp_billing_meta_fields as $meta_key => $label ) {
-                $fields[ 'pmp_addr__' . $meta_key ] = [
-                    'key'    => $meta_key,
-                    'source' => 'meta',
-                    'label'  => $label,
-                    'type'   => 'text',
-                ];
-            }
-        }
-
         return $fields;
     }
 
-    /**
-     * Get ACF field definitions scoped to the user form.
-     */
     private function get_acf_user_fields(): array {
         $result = [];
         $groups = acf_get_field_groups( [ 'user_form' => 'all' ] );
@@ -196,20 +112,17 @@ class My_IAPSNJ_Field_Mapper {
                 continue;
             }
             foreach ( $acf_fields as $field ) {
-                $sync_type = $this->map_acf_type_to_sync_type( $field['type'] );
-
                 $options = [];
                 if ( in_array( $field['type'], [ 'select', 'radio' ], true ) && ! empty( $field['choices'] ) ) {
                     foreach ( $field['choices'] as $value => $label ) {
                         $options[] = [ 'value' => (string) $value, 'label' => (string) $label ];
                     }
                 }
-
                 $result[] = [
                     'key'            => $field['name'],
                     'source'         => 'acf',
                     'label'          => $field['label'] . ' (ACF)',
-                    'type'           => $sync_type,
+                    'type'           => $this->map_acf_type_to_sync_type( $field['type'] ),
                     'acf_key'        => $field['key'],
                     'acf_field_type' => $field['type'],
                     'date_format_wp' => $field['return_format'] ?? 'm/d/Y',
@@ -220,9 +133,6 @@ class My_IAPSNJ_Field_Mapper {
         return $result;
     }
 
-    /**
-     * Map ACF field type to our internal sync type.
-     */
     private function map_acf_type_to_sync_type( string $acf_type ): string {
         $map = [
             'date_picker'      => 'date',
@@ -241,7 +151,8 @@ class My_IAPSNJ_Field_Mapper {
     }
 
     /**
-     * Fetch distinct meta_key values from usermeta, excluding internal WP/ACF keys.
+     * Distinct user_meta keys, excluding WordPress internals, ACF reference
+     * keys and PMPro billing history (which is never a mirror target).
      */
     private function get_db_user_meta_keys(): array {
         global $wpdb;
@@ -256,13 +167,8 @@ class My_IAPSNJ_Field_Mapper {
              LIMIT 300"
         );
 
-        $pmp_billing_keys = array_keys( self::$pmp_billing_meta_fields );
-
-        return array_filter( $keys, function ( $k ) use ( $pmp_billing_keys ) {
-            if ( strpos( $k, 'field_' ) === 0 ) {
-                return false;
-            }
-            if ( in_array( $k, $pmp_billing_keys, true ) ) {
+        return array_values( array_filter( (array) $keys, function ( $k ) {
+            if ( strpos( $k, 'field_' ) === 0 || strpos( $k, 'pmpro_' ) === 0 ) {
                 return false;
             }
             $skip = [
@@ -271,6 +177,8 @@ class My_IAPSNJ_Field_Mapper {
                 'show_admin_bar_front', 'show_welcome_panel',
                 'managenav-menuscolumnshidden', 'metaboxhidden_',
                 'closedpostboxes_', 'wp_dashboard_quick_press_last_post_id',
+                'rich_editing', 'syntax_highlighting', 'comment_shortcuts',
+                'admin_color', 'use_ssl', 'locale', 'default_password_nag',
             ];
             foreach ( $skip as $prefix ) {
                 if ( strpos( $k, $prefix ) === 0 ) {
@@ -278,16 +186,13 @@ class My_IAPSNJ_Field_Mapper {
                 }
             }
             return true;
-        } );
+        } ) );
     }
 
     // -----------------------------------------------------------------------
     // FluentCRM side
     // -----------------------------------------------------------------------
 
-    /**
-     * FluentCRM default subscriber fields.
-     */
     private static array $fcrm_default_fields = [
         'prefix'         => [ 'label' => 'Prefix',          'type' => 'text' ],
         'first_name'     => [ 'label' => 'First Name',      'type' => 'text' ],
@@ -301,18 +206,14 @@ class My_IAPSNJ_Field_Mapper {
         'postal_code'    => [ 'label' => 'Postal Code',     'type' => 'text' ],
         'country'        => [ 'label' => 'Country',         'type' => 'text' ],
         'date_of_birth'  => [ 'label' => 'Date of Birth',   'type' => 'date' ],
-        'gender'         => [ 'label' => 'Gender',          'type' => 'text' ],
     ];
 
     /**
-     * Returns all FluentCRM fields: defaults + custom fields.
-     *
      * @return array<string, array{key:string, source:string, label:string, type:string}>
      */
     public function get_fcrm_fields(): array {
         $fields = [];
 
-        // 1. Default fields
         foreach ( self::$fcrm_default_fields as $key => $def ) {
             $fields[ 'default__' . $key ] = [
                 'key'    => $key,
@@ -322,16 +223,12 @@ class My_IAPSNJ_Field_Mapper {
             ];
         }
 
-        // 2. Custom fields from FluentCRM options
         $custom_field_defs = fluentcrm_get_option( 'contact_custom_fields', [] );
         if ( is_array( $custom_field_defs ) ) {
             foreach ( $custom_field_defs as $cf ) {
                 if ( empty( $cf['slug'] ) ) {
                     continue;
                 }
-                $fcrm_type = $cf['type'] ?? 'text';
-                $sync_type = $this->map_fcrm_type_to_sync_type( $fcrm_type );
-
                 $options = [];
                 if ( ! empty( $cf['options'] ) && is_array( $cf['options'] ) ) {
                     foreach ( $cf['options'] as $opt ) {
@@ -345,12 +242,11 @@ class My_IAPSNJ_Field_Mapper {
                         }
                     }
                 }
-
                 $fields[ 'custom__' . $cf['slug'] ] = [
                     'key'     => $cf['slug'],
                     'source'  => 'custom',
                     'label'   => ( $cf['label'] ?? $cf['slug'] ) . ' (custom)',
-                    'type'    => $sync_type,
+                    'type'    => $this->map_fcrm_type_to_sync_type( (string) ( $cf['type'] ?? 'text' ) ),
                     'options' => $options,
                 ];
             }
@@ -359,18 +255,17 @@ class My_IAPSNJ_Field_Mapper {
         return $fields;
     }
 
-    /**
-     * Map FluentCRM field type to our internal sync type.
-     */
     private function map_fcrm_type_to_sync_type( string $fcrm_type ): string {
         $map = [
-            'date'      => 'date',
-            'date_time' => 'date',
-            'number'    => 'number',
-            'checkbox'  => 'checkbox',
-            'select'    => 'select',
-            'radio'     => 'select',
-            'textarea'  => 'textarea',
+            'date'         => 'date',
+            'date_time'    => 'date',
+            'number'       => 'number',
+            'checkbox'     => 'checkbox',
+            'select-multi' => 'checkbox',
+            'select'       => 'select',
+            'select-one'   => 'select',
+            'radio'        => 'select',
+            'textarea'     => 'textarea',
         ];
         return $map[ $fcrm_type ] ?? 'text';
     }
@@ -380,8 +275,6 @@ class My_IAPSNJ_Field_Mapper {
     // -----------------------------------------------------------------------
 
     /**
-     * Returns the array of saved field mappings.
-     *
      * @return array<int, array>
      */
     public function get_saved_mappings(): array {
@@ -389,29 +282,18 @@ class My_IAPSNJ_Field_Mapper {
         return is_array( $raw ) ? $raw : [];
     }
 
-    /**
-     * Replaces the saved mappings with a new array.
-     *
-     * @param array $mappings
-     */
     public function save_mappings( array $mappings ): void {
-        update_option( 'my_iapsnj_field_mappings', $mappings );
-        // Cached mismatch scan cursors are keyed to the old mapping set.
-        if ( class_exists( 'My_IAPSNJ_Mismatch_Detector' ) ) {
-            My_IAPSNJ_Mismatch_Detector::flush_cache();
+        foreach ( $mappings as &$m ) {
+            $m['sync_direction'] = 'fcrm_to_wp';
         }
+        unset( $m );
+        update_option( 'my_iapsnj_field_mappings', array_values( $mappings ) );
     }
 
-    /**
-     * Returns only the enabled mappings.
-     */
     public function get_active_mappings(): array {
-        return array_filter( $this->get_saved_mappings(), fn( $m ) => ! empty( $m['enabled'] ) );
+        return array_values( array_filter( $this->get_saved_mappings(), fn( $m ) => ! empty( $m['enabled'] ) ) );
     }
 
-    /**
-     * Build a unique mapping ID string.
-     */
     public static function generate_id(): string {
         return 'map_' . wp_generate_password( 8, false );
     }
@@ -420,207 +302,119 @@ class My_IAPSNJ_Field_Mapper {
     // Auto-recommendation
     // -----------------------------------------------------------------------
 
-    /**
-     * Suggests the best-matching WordPress field UID for a given FluentCRM field.
-     *
-     * Strategy (applied in order, first hit wins):
-     *  1. Hard-coded IAPSNJ semantic aliases (e.g. FCRM "phone" → ACF "primary_phone").
-     *  2. Exact key match (same string, any source) — prefers ACF > meta > user.
-     *  3. Normalized key match (lowercase, underscores stripped).
-     *  4. Suffix match: WP key ends with FCRM key or vice-versa.
-     *
-     * Returns a WP field UID string (e.g. "acf__primary_phone") or '' when no
-     * good match is found.
-     *
-     * @param string $fcrm_key   FluentCRM field slug.
-     * @param string $fcrm_type  Internal sync type (text, date, select, …).
-     * @param array  $wp_fields  Result of get_wp_fields().
-     * @return string WP field UID or empty string.
-     */
-    /**
-     * PHP 7.4-safe replacement for str_starts_with() (PHP 8.0+).
-     */
     private static function str_starts_with( string $haystack, string $needle ): bool {
         return $needle === '' || strncmp( $haystack, $needle, strlen( $needle ) ) === 0;
     }
 
-    /**
-     * PHP 7.4-safe replacement for str_ends_with() (PHP 8.0+).
-     */
     private static function str_ends_with( string $haystack, string $needle ): bool {
         if ( $needle === '' ) {
             return true;
         }
         $len = strlen( $needle );
-        return $len <= strlen( $haystack )
-            && substr_compare( $haystack, $needle, -$len ) === 0;
+        return $len <= strlen( $haystack ) && substr_compare( $haystack, $needle, -$len ) === 0;
     }
 
+    /**
+     * Suggest the best WordPress target for a FluentCRM field.
+     */
     public function get_recommended_wp_field( string $fcrm_key, string $fcrm_type, array $wp_fields ): string {
-
-        // ---- 1. IAPSNJ semantic aliases ----------------------------------------
-        // Maps FCRM field slug → preferred WP field UID.
-        // Entries are tried only when the UID actually exists in $wp_fields.
         $aliases = [
-            'email'           => 'user__user_email',
-            'first_name'      => 'meta__first_name',
-            'last_name'       => 'meta__last_name',
-            'phone'           => 'acf__primary_phone',
-            'address_line_1'  => 'acf__address',
-            'address_line_2'  => 'acf__address2',
-            'city'            => 'acf__city',
-            'state'           => 'acf__state',
-            'postal_code'     => 'acf__zip_code',
-            'date_of_birth'   => 'acf__date_of_birth',
-            'gender'          => 'acf__gender',
-            'prefix'          => 'acf__prefix',
-            'country'         => 'acf__country',
+            'email'          => 'user__user_email',
+            'first_name'     => 'meta__first_name',
+            'last_name'      => 'meta__last_name',
+            'phone'          => 'acf__primary_phone',
+            'address_line_1' => 'acf__address',
+            'address_line_2' => 'acf__address2',
+            'city'           => 'acf__city',
+            'state'          => 'acf__state',
+            'postal_code'    => 'acf__zip_code',
+            'date_of_birth'  => 'acf__date_of_birth',
+            'prefix'         => 'acf__prefix',
+            'country'        => 'acf__country',
         ];
-
         if ( isset( $aliases[ $fcrm_key ] ) ) {
             $preferred = $aliases[ $fcrm_key ];
             if ( isset( $wp_fields[ $preferred ] ) ) {
                 return $preferred;
             }
-            // Alias exists but preferred source not found — fall through to key match.
+            // ACF not active: the same key as plain user meta.
+            $meta_alt = str_replace( 'acf__', 'meta__', $preferred );
+            if ( isset( $wp_fields[ $meta_alt ] ) ) {
+                return $meta_alt;
+            }
         }
 
-        // ---- Build source-priority index of WP fields -------------------------
-        // Priority: ACF (0) > meta (1) > user object (2) > pmp (3)
-        $source_priority = [ 'acf' => 0, 'meta' => 1, 'user' => 2, 'pmp' => 3 ];
-
-        // Index by exact key (multiple sources possible).
-        $by_key = [];
-        // Index by normalized key.
+        $source_priority = [ 'acf' => 0, 'meta' => 1, 'user' => 2 ];
+        $by_key  = [];
         $by_norm = [];
-
         foreach ( $wp_fields as $uid => $f ) {
-            $key  = $f['key'];
-            $norm = strtolower( str_replace( [ '_', '-', ' ' ], '', $key ) );
-            $prio = $source_priority[ $f['source'] ] ?? 9;
-
-            $entry = [ 'uid' => $uid, 'prio' => $prio, 'field' => $f ];
-
-            $by_key[ $key ][] = $entry;
-            if ( ! isset( $by_norm[ $norm ] ) ) {
-                $by_norm[ $norm ] = [];
-            }
+            $key   = $f['key'];
+            $norm  = strtolower( str_replace( [ '_', '-', ' ' ], '', $key ) );
+            $entry = [ 'uid' => $uid, 'prio' => $source_priority[ $f['source'] ] ?? 9 ];
+            $by_key[ $key ][]   = $entry;
             $by_norm[ $norm ][] = $entry;
         }
-
         $best = static function ( array $candidates ): string {
             usort( $candidates, fn( $a, $b ) => $a['prio'] - $b['prio'] );
             return $candidates[0]['uid'];
         };
 
-        // ---- 2. Exact key match -----------------------------------------------
         if ( isset( $by_key[ $fcrm_key ] ) ) {
             return $best( $by_key[ $fcrm_key ] );
         }
-
-        // ---- 3. Normalized key match ------------------------------------------
         $fcrm_norm = strtolower( str_replace( [ '_', '-', ' ' ], '', $fcrm_key ) );
         if ( isset( $by_norm[ $fcrm_norm ] ) ) {
             return $best( $by_norm[ $fcrm_norm ] );
         }
-
-        // ---- 4. Suffix / prefix match (partial) ------------------------------
         $candidates = [];
         foreach ( $by_norm as $norm => $entries ) {
             $norm = (string) $norm;
-            if (
-                self::str_ends_with( $norm, $fcrm_norm ) ||
-                self::str_ends_with( $fcrm_norm, $norm ) ||
-                self::str_starts_with( $norm, $fcrm_norm ) ||
-                self::str_starts_with( $fcrm_norm, $norm )
-            ) {
+            if ( self::str_ends_with( $norm, $fcrm_norm ) || self::str_ends_with( $fcrm_norm, $norm )
+                || self::str_starts_with( $norm, $fcrm_norm ) || self::str_starts_with( $fcrm_norm, $norm ) ) {
                 foreach ( $entries as $e ) {
                     $candidates[] = $e;
                 }
             }
         }
-        if ( ! empty( $candidates ) ) {
-            return $best( $candidates );
-        }
-
-        return '';
+        return $candidates ? $best( $candidates ) : '';
     }
 
     // -----------------------------------------------------------------------
-    // IAPSNJ default field mappings seed
+    // Default mirror seed
     // -----------------------------------------------------------------------
 
     /**
-     * Seeds the default IAPSNJ field mappings on first activation.
-     * Maps ACF Member Profile fields to FluentCRM custom/default fields
-     * as configured for the IAPSNJ website.
+     * Seed the CRM → WP mirror on first activation. These are the profile
+     * fields the member-area profile screen reads; they are copied from the
+     * CRM contact into user meta (ACF storage format for the ACF-era keys).
      */
     public static function seed_default_mappings(): void {
-        // Raw definition rows: [ wp_key, wp_source, wp_label, fcrm_key, fcrm_source, fcrm_label, type, direction ]
+        // [ wp_key, wp_source, wp_label, fcrm_key, fcrm_source, fcrm_label, type ]
         $defaults = [
-            [ 'first_name',            'meta',    'First Name',                      'first_name',           'default', 'First Name',               'text',     'both' ],
-            [ 'last_name',             'meta',    'Last Name',                       'last_name',            'default', 'Last Name',                'text',     'both' ],
-            [ 'user_email',            'user',    'Email (user_email)',               'email',                'default', 'Email',                    'email',    'both' ],
-            [ 'MemberNum',             'acf',     'Member Number (ACF)',              'member_number',        'custom',  'Member Number (custom)',    'number',   'both' ],
-            [ 'member_status',         'acf',     'Member Status (ACF)',              'member_status',        'custom',  'Member Status (custom)',    'select',   'both' ],
-            [ 'join_date',             'acf',     'Join Date (ACF)',                  'join_date',            'custom',  'Join Date (custom)',        'date',     'both' ],
-            [ 'expiration_date',       'acf',     'Membership Expiration Date (ACF)','expiration_date',      'custom',  'Expiration Date (custom)',  'date',     'both' ],
-            [ 'last_payment_date',     'acf',     'Last Payment Date (ACF)',          'last_payment_date',    'custom',  'Last Payment Date (custom)','date',     'wp_to_fcrm' ],
-            [ 'primary_phone',         'acf',     'Primary Phone (ACF)',              'phone',                'default', 'Phone',                    'text',     'both' ],
-            [ 'alternate_phone',       'acf',     'Alternate Phone (ACF)',            'phone2',               'custom',  'Phone 2 (custom)',          'text',     'both' ],
-            // PMPro checkout billing address. Seeded before the ACF address rows
-            // on purpose: sync_wp_to_fcrm() skips empty WP values, so a filled
-            // ACF field still overwrites these, while a member who only ever
-            // completed PMPro checkout no longer reaches the CRM with a blank
-            // address. wp_to_fcrm only — PMPro owns this data at checkout.
-            [ 'pmpro_baddress1',       'meta',    'PMPro Billing Address Line 1',     'address_line_1',       'default', 'Address Line 1',            'text',     'wp_to_fcrm' ],
-            [ 'pmpro_baddress2',       'meta',    'PMPro Billing Address Line 2',     'address_line_2',       'default', 'Address Line 2',            'text',     'wp_to_fcrm' ],
-            [ 'pmpro_bcity',           'meta',    'PMPro Billing City',               'city',                 'default', 'City',                      'text',     'wp_to_fcrm' ],
-            [ 'pmpro_bstate',          'meta',    'PMPro Billing State',              'state',                'default', 'State',                     'text',     'wp_to_fcrm' ],
-            [ 'pmpro_bzipcode',        'meta',    'PMPro Billing Postal Code',        'postal_code',          'default', 'Postal Code',               'text',     'wp_to_fcrm' ],
-            [ 'pmpro_bcountry',        'meta',    'PMPro Billing Country',            'country',              'default', 'Country',                   'text',     'wp_to_fcrm' ],
-            [ 'address',               'acf',     'Street Address (ACF)',             'address_line_1',       'default', 'Address Line 1',            'text',     'both' ],
-            [ 'address2',              'acf',     'Address Line 2 (ACF)',             'address_line_2',       'default', 'Address Line 2',            'text',     'both' ],
-            [ 'city',                  'acf',     'City (ACF)',                       'city',                 'default', 'City',                     'text',     'both' ],
-            [ 'state',                 'acf',     'State (ACF)',                      'state',                'default', 'State',                    'select',   'both' ],
-            [ 'zip_code',              'acf',     'Zip Code (ACF)',                   'postal_code',          'default', 'Postal Code',              'text',     'both' ],
-            [ 'department',            'acf',     'Department (ACF)',                 'department',           'custom',  'Department (custom)',       'select',   'both' ],
-            [ 'rank_level',            'acf',     'Rank (ACF)',                       'rank_level',           'custom',  'Rank (custom)',             'select',   'both' ],
-            [ 'work_phone',            'acf',     'Work Phone (ACF)',                 'phone_work',           'custom',  'Work Phone (custom)',       'text',     'both' ],
-            [ 'retirement_date',       'acf',     'Retirement Date (ACF)',            'retirement_date',      'custom',  'Retirement Date (custom)', 'date',     'both' ],
-            [ 'union_affiliation',     'acf',     'Union Affiliation (ACF)',          'union_affiliation',    'custom',  'Union Affiliation (custom)','text',     'both' ],
-            [ 'union_position',        'acf',     'Union Position (ACF)',             'union_position',       'custom',  'Union Position (custom)',   'text',     'both' ],
-            [ 'date_of_birth',         'acf',     'Date of Birth (ACF)',              'date_of_birth',        'default', 'Date of Birth',             'date',     'both' ],
-            [ 'marital_status',        'acf',     'Marital Status (ACF)',             'marital_status',       'custom',  'Marital Status (custom)',   'select',   'both' ],
-            [ 'spouse_name',           'acf',     'Spouse Name (ACF)',                'spouse_name',          'custom',  'Spouse Name (custom)',      'text',     'both' ],
-            [ 'armed_service',         'acf',     'Armed Service (ACF)',              'armed_service',        'custom',  'Armed Service (custom)',    'checkbox', 'both' ],
-            [ 'additional_information','acf',     'Additional Information (ACF)',     'additional_information','custom', 'Additional Info (custom)',  'textarea', 'both' ],
-            [ 'company_name',          'acf',     'Company Name (ACF)',               'company_name',         'custom',  'Company Name (custom)',     'text',     'both' ],
-            [ 'company_title',         'acf',     'Company Title (ACF)',              'company_title',        'custom',  'Company Title (custom)',    'text',     'both' ],
-            [ 'company_type',          'acf',     'Company Type (ACF)',               'company_type',         'custom',  'Company Type (custom)',     'text',     'both' ],
-            [ 'admin_notes',           'acf',     'Admin Notes (ACF)',                'admin_notes',          'custom',  'Admin Notes (custom)',      'textarea', 'both' ],
-            [ 'referred_by',           'acf',     'Referred By (ACF)',                'referred_by',          'custom',  'Referred By (custom)',      'text',     'both' ],
-            [ 'elo_title',             'acf',     'ELO Title (ACF)',                  'elo_title',            'custom',  'ELO Title (custom)',        'select',   'both' ],
-            // Seeded last on purpose: later rows win in sync_wp_to_fcrm(), so
-            // PMPro acts as the system of record for the expiration date while
-            // the ACF row above stays the member-editable value and still
-            // applies when PMPro has no end date (lifetime / honorary levels).
-            // The expiry cron filters on wp_field_source === 'pmp' and does no
-            // work at all without this row.
-            [ 'expiration_date',       'pmp',     'PMPro Smart Expiration Date',      'expiration_date',      'custom',  'Expiration Date (custom)',  'date',     'wp_to_fcrm' ],
+            [ 'first_name',      'meta', 'First Name',                'first_name',                          'default', 'First Name',            'text' ],
+            [ 'last_name',       'meta', 'Last Name',                 'last_name',                           'default', 'Last Name',             'text' ],
+            [ 'user_email',      'user', 'Email (user_email)',        'email',                               'default', 'Email',                 'email' ],
+            [ 'MemberNum',       'acf',  'Member Number',             My_IAPSNJ_Schema::FIELD_MEMBER_NUMBER, 'custom',  'Member Number (custom)', 'number' ],
+            [ 'member_status',   'acf',  'Member Type',               My_IAPSNJ_Schema::FIELD_MEMBER_TYPE,   'custom',  'Member Type (custom)',  'select' ],
+            [ 'expiration_date', 'acf',  'Membership Expiration Date', My_IAPSNJ_Schema::FIELD_PAID_THROUGH, 'custom',  'Paid Through (custom)', 'date' ],
+            [ 'join_date',       'acf',  'Join Date',                 My_IAPSNJ_Schema::FIELD_JOIN_DATE,     'custom',  'Join Date (custom)',    'date' ],
+            [ 'primary_phone',   'acf',  'Primary Phone',             'phone',                               'default', 'Phone',                 'text' ],
+            [ 'address',         'acf',  'Street Address',            'address_line_1',                      'default', 'Address Line 1',        'text' ],
+            [ 'address2',        'acf',  'Address Line 2',            'address_line_2',                      'default', 'Address Line 2',        'text' ],
+            [ 'city',            'acf',  'City',                      'city',                                'default', 'City',                  'text' ],
+            [ 'state',           'acf',  'State',                     'state',                               'default', 'State',                 'select' ],
+            [ 'zip_code',        'acf',  'Zip Code',                  'postal_code',                         'default', 'Postal Code',           'text' ],
+            [ 'department',      'acf',  'Department',                My_IAPSNJ_Schema::FIELD_DEPARTMENT,    'custom',  'Department (custom)',   'select' ],
+            [ 'rank_level',      'acf',  'Rank',                      My_IAPSNJ_Schema::FIELD_RANK,          'custom',  'Rank (custom)',         'select' ],
         ];
 
         $mappings = [];
         foreach ( $defaults as $row ) {
             $mappings[] = self::build_mapping( ...$row );
         }
-
         update_option( 'my_iapsnj_field_mappings', $mappings );
     }
 
-    /**
-     * Build one mapping record from the compact seed-row form.
-     */
     public static function build_mapping(
         string $wp_key,
         string $wp_src,
@@ -628,8 +422,7 @@ class My_IAPSNJ_Field_Mapper {
         string $fcrm_key,
         string $fcrm_src,
         string $fcrm_label,
-        string $type,
-        string $direction
+        string $type
     ): array {
         return [
             'id'               => self::generate_id(),
@@ -640,18 +433,14 @@ class My_IAPSNJ_Field_Mapper {
             'fcrm_field_source'=> $fcrm_src,
             'fcrm_field_label' => $fcrm_label,
             'field_type'       => $type,
-            'sync_direction'   => $direction,
+            'sync_direction'   => 'fcrm_to_wp',
             'enabled'          => true,
-            // PMPro dates are already canonical Y-m-d; ACF date pickers are m/d/Y.
-            'date_format_wp'   => ( $type === 'date' && $wp_src === 'pmp' ) ? 'Y-m-d' : 'm/d/Y',
+            'date_format_wp'   => 'm/d/Y',
             'date_format_fcrm' => 'Y-m-d',
             'value_map'        => [],
         ];
     }
 
-    /**
-     * True when a mapping for this WP field -> FluentCRM field pair already exists.
-     */
     public static function mapping_exists( array $mappings, string $wp_key, string $wp_src, string $fcrm_key ): bool {
         foreach ( $mappings as $m ) {
             if ( ( $m['wp_field_key'] ?? '' ) === $wp_key
@@ -662,97 +451,5 @@ class My_IAPSNJ_Field_Mapper {
             }
         }
         return false;
-    }
-
-    /**
-     * Ensures the PMPro-sourced expiration_date mapping exists.
-     *
-     * Without it run_expiry_cron() filters down to an empty work list and
-     * returns having synced nothing. Appended at the end so PMPro wins over
-     * any ACF-sourced expiration_date row.
-     *
-     * @return bool Whether a mapping was added.
-     */
-    public static function ensure_pmp_expiry_mapping(): bool {
-        $mapper   = new self();
-        $mappings = $mapper->get_saved_mappings();
-
-        // Nothing configured at all — seeding will cover it.
-        if ( empty( $mappings ) ) {
-            return false;
-        }
-
-        if ( self::mapping_exists( $mappings, 'expiration_date', 'pmp', 'expiration_date' ) ) {
-            return false;
-        }
-
-        $mappings[] = self::build_mapping(
-            'expiration_date',
-            'pmp',
-            'PMPro Smart Expiration Date',
-            'expiration_date',
-            'custom',
-            'Expiration Date (custom)',
-            'date',
-            'wp_to_fcrm'
-        );
-
-        $mapper->save_mappings( $mappings );
-        return true;
-    }
-
-    /**
-     * Ensures the PMPro billing-address mappings exist.
-     *
-     * Members who joined through PMPro checkout have their address only in
-     * pmpro_b* user meta; without these rows the sync engine faithfully
-     * propagates an empty ACF field and the CRM address stays blank.
-     *
-     * Inserted ahead of any ACF-sourced mapping for the same FluentCRM field
-     * so a filled ACF profile value still takes precedence.
-     *
-     * @return int Number of mappings added.
-     */
-    public static function ensure_pmp_billing_mappings(): int {
-        $mapper   = new self();
-        $mappings = $mapper->get_saved_mappings();
-
-        if ( empty( $mappings ) ) {
-            return 0;
-        }
-
-        $rows = [
-            [ 'pmpro_baddress1', 'PMPro Billing Address Line 1', 'address_line_1', 'Address Line 1' ],
-            [ 'pmpro_baddress2', 'PMPro Billing Address Line 2', 'address_line_2', 'Address Line 2' ],
-            [ 'pmpro_bcity',     'PMPro Billing City',           'city',           'City' ],
-            [ 'pmpro_bstate',    'PMPro Billing State',          'state',          'State' ],
-            [ 'pmpro_bzipcode',  'PMPro Billing Postal Code',    'postal_code',    'Postal Code' ],
-            [ 'pmpro_bcountry',  'PMPro Billing Country',        'country',        'Country' ],
-        ];
-
-        $new = [];
-        foreach ( $rows as [ $meta_key, $wp_label, $fcrm_key, $fcrm_label ] ) {
-            if ( self::mapping_exists( $mappings, $meta_key, 'meta', $fcrm_key ) ) {
-                continue;
-            }
-            $new[] = self::build_mapping(
-                $meta_key,
-                'meta',
-                $wp_label,
-                $fcrm_key,
-                'default',
-                $fcrm_label,
-                'text',
-                'wp_to_fcrm'
-            );
-        }
-
-        if ( empty( $new ) ) {
-            return 0;
-        }
-
-        // Prepend so ACF rows for the same FluentCRM field still win.
-        $mapper->save_mappings( array_merge( $new, $mappings ) );
-        return count( $new );
     }
 }

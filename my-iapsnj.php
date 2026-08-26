@@ -2,8 +2,8 @@
 /**
  * Plugin Name:       My IAPSNJ
  * Plugin URI:        https://github.com/S-FX-com/MyIAPSNJ
- * Description:       Member data sync and CRM tools for the IAPSNJ website. Bidirectional sync between FluentCRM contacts and WordPress users with pre-configured IAPSNJ field mappings, ACF support, Paid Memberships Pro integration, mismatch resolution, and note search.
- * Version:           3.0.0
+ * Description:       Membership operations for the IAPSNJ website. FluentCRM is the single source of truth: FluentCart payments set membership state (Paid-YYYY tags, member_type, paid_through), Fluent Forms applications are tracked until they are paid, mailed checks are reconciled in batch, and WordPress user profiles are mirrored one way from the CRM. Includes the PMPro → FluentCRM migration toolkit.
+ * Version:           4.0.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Requires Plugins:  fluent-crm
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'MY_IAPSNJ_VERSION', '3.0.0' );
+define( 'MY_IAPSNJ_VERSION', '4.0.0' );
 define( 'MY_IAPSNJ_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'MY_IAPSNJ_URL',     plugin_dir_url( __FILE__ ) );
 define( 'MY_IAPSNJ_FILE',    __FILE__ );
@@ -86,10 +86,19 @@ final class My_IAPSNJ_Plugin {
         My_IAPSNJ_Admin::get_instance();
         My_IAPSNJ_REST_API::get_instance();
 
-        // Boot PMPro integration only when Paid Memberships Pro is active.
-        if ( function_exists( 'pmpro_getMembershipLevelForUser' ) ) {
-            My_IAPSNJ_PMP_Integration::get_instance();
-            add_action( 'my_iapsnj_pmp_expiry_cron', [ 'My_IAPSNJ_PMP_Integration', 'run_expiry_cron' ] );
+        // FluentCart → membership state. Boots only when FluentCart is active;
+        // the admin screens explain what is missing otherwise.
+        if ( My_IAPSNJ_Membership::is_available() ) {
+            My_IAPSNJ_Membership::get_instance();
+        }
+
+        // Fluent Forms → application tracking.
+        if ( My_IAPSNJ_Applications::is_available() ) {
+            My_IAPSNJ_Applications::get_instance();
+        }
+
+        if ( defined( 'WP_CLI' ) && WP_CLI ) {
+            My_IAPSNJ_CLI::register();
         }
     }
 
@@ -105,12 +114,9 @@ final class My_IAPSNJ_Plugin {
     public static function activate(): void {
         // Migrate from old fcrm_wp_sync_* option keys if they exist.
         $migrations = [
-            'fcrm_wp_sync_field_mappings'        => 'my_iapsnj_field_mappings',
-            'fcrm_wp_sync_settings'              => 'my_iapsnj_settings',
-            'fcrm_wp_sync_pmp_tag_mappings'      => 'my_iapsnj_pmp_tag_mappings',
-            'fcrm_wp_sync_pmp_expiry_cron_enabled' => 'my_iapsnj_pmp_expiry_cron_enabled',
-            'fcrm_wp_sync_pmp_expiry_last_sync'  => 'my_iapsnj_pmp_expiry_last_sync',
-            'fcrm_wp_sync_last_bulk_sync'        => 'my_iapsnj_last_bulk_sync',
+            'fcrm_wp_sync_field_mappings' => 'my_iapsnj_field_mappings',
+            'fcrm_wp_sync_settings'       => 'my_iapsnj_settings',
+            'fcrm_wp_sync_last_bulk_sync' => 'my_iapsnj_last_bulk_sync',
         ];
         foreach ( $migrations as $old => $new ) {
             if ( get_option( $new ) === false ) {
@@ -126,23 +132,10 @@ final class My_IAPSNJ_Plugin {
             add_option( 'my_iapsnj_field_mappings', [] );
         }
         if ( get_option( 'my_iapsnj_settings' ) === false ) {
-            add_option( 'my_iapsnj_settings', [
-                'default_sync_direction' => 'both',
-                'sync_on_user_register'  => true,
-                'sync_on_profile_update' => true,
-                'sync_on_user_delete'    => true,
-                'sync_on_fcrm_update'    => true,
-                'sync_on_pmp_change'     => true,
-            ] );
+            add_option( 'my_iapsnj_settings', self::default_settings() );
         }
-        if ( get_option( 'my_iapsnj_pmp_tag_mappings' ) === false ) {
-            add_option( 'my_iapsnj_pmp_tag_mappings', [] );
-        }
-        if ( get_option( 'my_iapsnj_pmp_expiry_cron_enabled' ) === false ) {
-            add_option( 'my_iapsnj_pmp_expiry_cron_enabled', false );
-        }
-        if ( get_option( 'my_iapsnj_pmp_expiry_last_sync' ) === false ) {
-            add_option( 'my_iapsnj_pmp_expiry_last_sync', '' );
+        if ( get_option( My_IAPSNJ_Membership::OPTION_PRODUCTS ) === false ) {
+            add_option( My_IAPSNJ_Membership::OPTION_PRODUCTS, [] );
         }
 
         // Seed IAPSNJ default field mappings when no mappings are configured yet.
@@ -151,20 +144,51 @@ final class My_IAPSNJ_Plugin {
             My_IAPSNJ_Field_Mapper::seed_default_mappings();
         }
 
-        // Re-schedule the cron if it was already enabled (e.g. re-activation).
-        if ( get_option( 'my_iapsnj_pmp_expiry_cron_enabled' ) ) {
-            if ( ! wp_next_scheduled( 'my_iapsnj_pmp_expiry_cron' ) ) {
-                wp_schedule_event( time(), 'daily', 'my_iapsnj_pmp_expiry_cron' );
-            }
-        }
+        // Applications table (Fluent Forms submissions awaiting payment).
+        My_IAPSNJ_Applications::create_table();
 
         // Bring existing installs up to the current data version.
         self::maybe_upgrade();
     }
 
     public static function deactivate(): void {
-        // Clear the expiry cron on deactivation; data is preserved.
+        // Legacy PMPro expiry cron (pre-4.0). Data is preserved.
         wp_clear_scheduled_hook( 'my_iapsnj_pmp_expiry_cron' );
+    }
+
+    /**
+     * Default plugin settings (my_iapsnj_settings).
+     */
+    public static function default_settings(): array {
+        return [
+            // CRM → WP mirror triggers.
+            'sync_on_fcrm_update'     => true,
+            'link_on_user_register'   => true,
+            'sync_on_user_delete'     => true,
+            // Fluent Forms.
+            'join_form_id'            => 0,
+            'renewal_form_id'         => 0,
+            'form_email_field'        => 'email',
+            // Notifications.
+            'notify_new_member'       => true,
+            'notify_emails'           => get_option( 'admin_email' ),
+            // Checkout.
+            'checkout_fill_address'   => 'empty_only', // empty_only | overwrite
+            // Reports.
+            'aging_days'              => 30,
+            'cutover_date'            => '',
+        ];
+    }
+
+    /**
+     * Read settings merged over the defaults.
+     */
+    public static function settings(): array {
+        $saved = get_option( 'my_iapsnj_settings', [] );
+        if ( ! is_array( $saved ) ) {
+            $saved = [];
+        }
+        return array_merge( self::default_settings(), $saved );
     }
 
     // -----------------------------------------------------------------------
@@ -176,7 +200,7 @@ final class My_IAPSNJ_Plugin {
      * below; it is independent of MY_IAPSNJ_VERSION so that ordinary releases
      * do not re-run migrations.
      */
-    const DATA_VERSION = 4;
+    const DATA_VERSION = 5;
 
     /**
      * Runs any migration steps this install has not seen yet.
@@ -197,37 +221,11 @@ final class My_IAPSNJ_Plugin {
         }
 
         try {
-            // ---- v1: enable PMPro membership-change sync -------------------
-            // Shipped defaulting to false, which silently disabled every
-            // WP -> FluentCRM field sync on membership join/renew/expire.
-            if ( $installed < 1 ) {
-                $settings = get_option( 'my_iapsnj_settings', [] );
-                if ( is_array( $settings ) && empty( $settings['sync_on_pmp_change'] ) ) {
-                    $settings['sync_on_pmp_change'] = true;
-                    update_option( 'my_iapsnj_settings', $settings );
-                }
-            }
-
-            // ---- v2: seed the PMPro-sourced expiration_date mapping --------
-            // The expiry cron filters for wp_field_source === 'pmp', but the
-            // seeded expiration_date mapping is ACF-sourced, so the cron
-            // matched nothing and returned without doing any work.
-            if ( $installed < 2 ) {
-                My_IAPSNJ_Field_Mapper::ensure_pmp_expiry_mapping();
-            }
-
-            // ---- v3: seed the PMPro billing-address mappings ---------------
-            // Members who join through PMPro checkout have their address only
-            // in pmpro_b* user meta; without these rows nothing reaches the CRM.
-            if ( $installed < 3 ) {
-                My_IAPSNJ_Field_Mapper::ensure_pmp_billing_mappings();
-            }
+            // ---- v1–v3: PMPro-era steps. --------------------------------------
+            // They seeded PMPro mappings that v5 removes again, so on a fresh
+            // 4.x install there is nothing to do for them.
 
             // ---- v4: purge the removed CRM Assistant's credentials ---------
-            // The assistant stored third-party API keys as plaintext in
-            // wp_options. Deleting the feature does not delete the keys, so
-            // clear them out rather than leaving live credentials sitting in
-            // the database (and in every backup taken since).
             if ( $installed < 4 ) {
                 $settings = get_option( 'my_iapsnj_settings', [] );
                 if ( is_array( $settings ) ) {
@@ -245,6 +243,62 @@ final class My_IAPSNJ_Plugin {
                         update_option( 'my_iapsnj_settings', $settings );
                     }
                 }
+            }
+
+            // ---- v5: PMPro retired, sync becomes CRM → WP only -------------
+            // * Drop PMPro-sourced and pmpro_b* billing mappings.
+            // * Force every surviving mapping to fcrm_to_wp.
+            // * Remove PMPro options and the expiry cron.
+            // * Rename sync_on_user_register → link_on_user_register.
+            // * Create the applications table.
+            if ( $installed < 5 ) {
+                $mappings = get_option( 'my_iapsnj_field_mappings', [] );
+                if ( is_array( $mappings ) ) {
+                    $kept = [];
+                    foreach ( $mappings as $m ) {
+                        $src = $m['wp_field_source'] ?? '';
+                        $key = (string) ( $m['wp_field_key'] ?? '' );
+                        if ( $src === 'pmp' ) {
+                            continue;
+                        }
+                        if ( $src === 'meta' && strpos( $key, 'pmpro_' ) === 0 ) {
+                            continue;
+                        }
+                        // ID / username can never be written from the CRM.
+                        if ( $src === 'user' && in_array( $key, [ 'ID', 'user_login' ], true ) ) {
+                            continue;
+                        }
+                        $m['sync_direction'] = 'fcrm_to_wp';
+                        $kept[] = $m;
+                    }
+                    update_option( 'my_iapsnj_field_mappings', array_values( $kept ) );
+                }
+
+                $settings = get_option( 'my_iapsnj_settings', [] );
+                if ( ! is_array( $settings ) ) {
+                    $settings = [];
+                }
+                if ( isset( $settings['sync_on_user_register'] ) && ! isset( $settings['link_on_user_register'] ) ) {
+                    $settings['link_on_user_register'] = ! empty( $settings['sync_on_user_register'] );
+                }
+                unset(
+                    $settings['sync_on_user_register'],
+                    $settings['sync_on_profile_update'],
+                    $settings['sync_on_pmp_change'],
+                    $settings['default_sync_direction']
+                );
+                update_option( 'my_iapsnj_settings', array_merge( self::default_settings(), $settings ) );
+
+                delete_option( 'my_iapsnj_pmp_tag_mappings' );
+                delete_option( 'my_iapsnj_pmp_expiry_cron_enabled' );
+                delete_option( 'my_iapsnj_pmp_expiry_last_sync' );
+                wp_clear_scheduled_hook( 'my_iapsnj_pmp_expiry_cron' );
+
+                if ( get_option( My_IAPSNJ_Membership::OPTION_PRODUCTS ) === false ) {
+                    add_option( My_IAPSNJ_Membership::OPTION_PRODUCTS, [] );
+                }
+
+                My_IAPSNJ_Applications::create_table();
             }
 
             update_option( 'my_iapsnj_data_version', self::DATA_VERSION );

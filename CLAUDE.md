@@ -1,6 +1,25 @@
 # Claude Code Instructions – My IAPSNJ
 
-See `README.md` for what the plugin does and how its screens fit together.
+See `README.md` for what the plugin does and how its screens fit together, and
+`docs/` for the PMPro → FluentCRM/FluentCart migration project (findings, CRM
+schema, runbook, automations, forms, UAT matrix, what is not in git).
+
+## Stack facts that shape the code
+
+- FluentCRM is the single source of truth. The only writers are the FluentCart
+  integration (`class-membership.php`), the Fluent Forms integration
+  (`class-applications.php`) and the migration toolkit. `class-engine.php` is a
+  one-way CRM → WordPress mirror; never add a WP → CRM write path.
+- Paid Memberships Pro is retired. Read its tables with `$wpdb` only (migration);
+  never call PMPro functions, never write to `pmpro_*` tables or `pmpro_b*` meta.
+- FluentCart hooks were verified against the 1.6.3 source (see
+  `docs/phase1-findings.md`). `fluent_cart/order_paid` is the one path for card
+  and check payments; do not hook `payment_status_changed_to_paid` for that.
+- Tag slugs, custom-field slugs and member types live in `class-schema.php`;
+  never repeat the string literals.
+- `paid_through` is a calendar-date string: format with
+  `My_IAPSNJ_Dates::ymd_display()`, never `wp_date()`/`date()`. Lifetime and
+  Honorary have it **deleted**, never a far-future date.
 
 ## Plugin Version
 
@@ -62,6 +81,11 @@ installs pick the change up without a reinstall. Keep each step idempotent.
 
 Develop on the branch specified in the current session's system prompt. Never
 push to `main` directly.
+
+**4.x must not be merged to `main` before the production cutover.** Merging
+publishes a release the auto-updater installs on production within hours, and
+4.x has no PMPro integration. Merge as a cutover step (see
+`docs/migration-runbook.md`).
 
 ## Code conventions
 

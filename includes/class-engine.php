@@ -2,9 +2,16 @@
 /**
  * My_IAPSNJ_Engine
  *
- * Handles the actual bidirectional synchronisation between WordPress users
- * and FluentCRM contacts.  Uses a re-entrancy guard to prevent infinite
- * loops when each side's "updated" hook fires the other side's sync.
+ * One-directional mirror: FluentCRM contact → WordPress user.
+ *
+ * FluentCRM is the single source of truth for member data. WordPress users
+ * exist for login only, plus a copy of a few profile fields (kept in user
+ * meta so the profile-edit screen and any theme template still read them).
+ * Nothing is ever written from WordPress back to the CRM by this class; the
+ * FluentCart and Fluent Forms integrations are the only writers.
+ *
+ * The pre-4.0 bidirectional sync engine (WP → CRM, PMPro sources, mismatch
+ * detection) is gone by design — see docs/migration-runbook.md.
  */
 
 defined( 'ABSPATH' ) || exit;
@@ -19,35 +26,16 @@ class My_IAPSNJ_Engine {
     /** @var My_IAPSNJ_Field_Mapper */
     private My_IAPSNJ_Field_Mapper $mapper;
 
-    /**
-     * Re-entrancy guards — kept separate so that a WP→FCRM sync does not
-     * suppress the FCRM→WP hook that FluentCRM fires synchronously during
-     * createOrUpdate(), and vice-versa.
-     */
-    private bool $syncing_to_fcrm = false;
-    private bool $syncing_to_wp   = false;
+    /** Re-entrancy guard: our own wp_update_user() must not re-trigger a mirror. */
+    private bool $syncing_to_wp = false;
 
     /**
      * user_meta key that caches the resolved FluentCRM subscriber ID for a
-     * WordPress user. Without it, every sync falls back to an email lookup,
-     * which stops matching as soon as the member changes their WP email —
-     * and the next write then creates a duplicate contact.
+     * WordPress user. Without it, every lookup falls back to email, which
+     * stops matching as soon as the member changes their email (audit P3-7).
      */
     const LINK_META_KEY = '_my_iapsnj_subscriber_id';
 
-    /**
-     * Allow the mismatch resolver (or other callers) to activate / deactivate
-     * the re-entrancy guards from outside the normal sync methods.
-     */
-    public function set_syncing_to_fcrm( bool $state ): void {
-        $this->syncing_to_fcrm = $state;
-    }
-
-    public function set_syncing_to_wp( bool $state ): void {
-        $this->syncing_to_wp = $state;
-    }
-
-    // -----------------------------------------------------------------------
     public static function get_instance(): self {
         if ( null === self::$instance ) {
             self::$instance = new self();
@@ -60,96 +48,69 @@ class My_IAPSNJ_Engine {
         $this->register_hooks();
     }
 
-    // -----------------------------------------------------------------------
-    // Hook registration
-    // -----------------------------------------------------------------------
-
-    private function register_hooks(): void {
-        $settings = get_option( 'my_iapsnj_settings', [] );
-
-        if ( ! empty( $settings['sync_on_user_register'] ) ) {
-            add_action( 'user_register',  [ $this, 'on_user_register' ], 20 );
-        }
-        if ( ! empty( $settings['sync_on_profile_update'] ) ) {
-            add_action( 'profile_update', [ $this, 'on_profile_update' ], 20 );
-            // Also catches programmatic updates via wp_update_user()
-            add_action( 'updated_user_meta', [ $this, 'on_user_meta_updated' ], 20, 4 );
-        }
-        if ( ! empty( $settings['sync_on_user_delete'] ) ) {
-            add_action( 'delete_user',    [ $this, 'on_user_delete' ], 10 );
-        }
-        if ( ! empty( $settings['sync_on_fcrm_update'] ) ) {
-            // New-style hooks (FluentCRM 2.x+)
-            add_action( 'fluent_crm/contact_created', [ $this, 'on_fcrm_contact_saved' ], 20 );
-            add_action( 'fluent_crm/contact_updated', [ $this, 'on_fcrm_contact_saved' ], 20 );
-            // Legacy hooks fired by the FluentCRM UI in older versions
-            add_action( 'fluentcrm_contact_created', [ $this, 'on_fcrm_contact_saved' ], 20 );
-            add_action( 'fluentcrm_contact_updated', [ $this, 'on_fcrm_contact_saved' ], 20 );
-        }
+    public function set_syncing_to_wp( bool $state ): void {
+        $this->syncing_to_wp = $state;
     }
 
     // -----------------------------------------------------------------------
-    // WordPress hook callbacks
+    // Hooks
     // -----------------------------------------------------------------------
 
+    private function register_hooks(): void {
+        $settings = My_IAPSNJ_Plugin::settings();
+
+        if ( ! empty( $settings['sync_on_fcrm_update'] ) ) {
+            add_action( 'fluent_crm/contact_created', [ $this, 'on_fcrm_contact_saved' ], 20 );
+            add_action( 'fluent_crm/contact_updated', [ $this, 'on_fcrm_contact_saved' ], 20 );
+            // Legacy hook names fired by older FluentCRM UI paths.
+            add_action( 'fluentcrm_contact_created', [ $this, 'on_fcrm_contact_saved' ], 20 );
+            add_action( 'fluentcrm_contact_updated', [ $this, 'on_fcrm_contact_saved' ], 20 );
+        }
+        if ( ! empty( $settings['link_on_user_register'] ) ) {
+            add_action( 'user_register', [ $this, 'on_user_register' ], 20 );
+        }
+        if ( ! empty( $settings['sync_on_user_delete'] ) ) {
+            add_action( 'delete_user', [ $this, 'on_user_delete' ], 10 );
+        }
+    }
+
+    /**
+     * A new WordPress user: link to the existing CRM contact (by email) and
+     * mirror the contact's profile onto the user. No data flows to the CRM.
+     */
     public function on_user_register( int $user_id ): void {
         if ( $this->syncing_to_wp ) {
             return;
         }
-        $this->sync_wp_to_fcrm( $user_id );
-    }
-
-    public function on_profile_update( int $user_id ): void {
-        if ( $this->syncing_to_wp ) {
-            return;
-        }
-        $this->sync_wp_to_fcrm( $user_id );
-    }
-
-    /**
-     * Triggered by updated_user_meta; debounce to avoid firing once per meta key.
-     * We schedule a single sync via shutdown action.
-     */
-    public function on_user_meta_updated( int $meta_id, int $user_id, string $meta_key, $meta_value ): void {
-        if ( $this->syncing_to_wp ) {
-            return;
-        }
-        // Only respond to meta keys we actually have mapped
-        $mapped_meta_keys = $this->get_mapped_wp_meta_keys();
-        if ( ! in_array( $meta_key, $mapped_meta_keys, true ) ) {
-            return;
-        }
-        // Use a one-time shutdown action to batch multiple meta updates
-        static $scheduled = [];
-        if ( empty( $scheduled[ $user_id ] ) ) {
-            $scheduled[ $user_id ] = true;
-            add_action( 'shutdown', function () use ( $user_id ) {
-                if ( ! $this->syncing_to_wp ) {
-                    $this->sync_wp_to_fcrm( $user_id );
-                }
-            } );
+        $sub = self::find_linked_subscriber( $user_id );
+        if ( $sub instanceof Subscriber ) {
+            if ( empty( $sub->user_id ) ) {
+                $sub->user_id = $user_id;
+                $sub->save();
+            }
+            $this->sync_fcrm_to_wp( $sub );
         }
     }
 
     public function on_user_delete( int $user_id ): void {
         $subscriber = Subscriber::where( 'user_id', $user_id )->first();
         if ( $subscriber ) {
-            // Unlink rather than delete the contact — preserves marketing history.
+            // Unlink rather than delete the contact — the CRM record is the
+            // member's history and must survive a WordPress user deletion.
             $subscriber->user_id = null;
             $subscriber->save();
         }
         delete_user_meta( $user_id, self::LINK_META_KEY );
     }
 
-    // -----------------------------------------------------------------------
-    // FluentCRM hook callbacks
-    // -----------------------------------------------------------------------
-
-    public function on_fcrm_contact_saved( Subscriber $subscriber ): void {
-        if ( $this->syncing_to_fcrm ) {
+    public function on_fcrm_contact_saved( $subscriber ): void {
+        if ( ! $subscriber instanceof Subscriber ) {
             return;
         }
-        // Deduplicate: multiple hooks (legacy + new) may fire for the same save.
+        if ( $this->syncing_to_wp ) {
+            return;
+        }
+        // Deduplicate: legacy + new hooks may fire for the same save.
         static $processed = [];
         if ( ! empty( $processed[ $subscriber->id ] ) ) {
             return;
@@ -159,124 +120,24 @@ class My_IAPSNJ_Engine {
     }
 
     // -----------------------------------------------------------------------
-    // Core sync: WP → FluentCRM
+    // Core: FluentCRM → WP
     // -----------------------------------------------------------------------
 
     /**
-     * Sync a WordPress user to their FluentCRM contact.
-     *
-     * @param int $user_id
-     * @return Subscriber|WP_Error|null
-     */
-    public function sync_wp_to_fcrm( int $user_id, array $field_ids = [] ) {
-        $this->syncing_to_fcrm = true;
-        try {
-            $user_info = get_userdata( $user_id );
-            if ( ! $user_info ) {
-                return null;
-            }
-
-            // Find the subscriber that is actually linked to this WP user so we
-            // can use their FluentCRM email as the createOrUpdate() lookup key.
-            $existing_sub = self::find_linked_subscriber( $user_id, $user_info );
-
-            $data          = [];
-            $custom_values = [];
-            $mappings      = $this->mapper->get_active_mappings();
-
-            if ( ! empty( $field_ids ) ) {
-                $mappings = array_filter( $mappings, fn( $m ) => in_array( $m['id'] ?? '', $field_ids, true ) );
-            }
-
-            foreach ( $mappings as $mapping ) {
-                if ( ! in_array( $mapping['sync_direction'], [ 'both', 'wp_to_fcrm' ], true ) ) {
-                    continue;
-                }
-
-                $raw_value = $this->get_wp_field_value( $user_id, $user_info, $mapping );
-
-                if ( $raw_value === null || $raw_value === '' ) {
-                    continue;
-                }
-
-                $formatted = $this->format_value(
-                    $raw_value,
-                    $mapping['field_type'] ?? 'text',
-                    'to_fcrm',
-                    $mapping
-                );
-
-                $fcrm_key = $mapping['fcrm_field_key'];
-
-                if ( ( $mapping['fcrm_field_source'] ?? 'default' ) === 'custom' ) {
-                    $custom_values[ $fcrm_key ] = $formatted;
-                } else {
-                    $data[ $fcrm_key ] = $formatted;
-                }
-            }
-
-            if ( ! empty( $custom_values ) ) {
-                $data['custom_values'] = $custom_values;
-            }
-
-            // Resolve the lookup email for createOrUpdate().
-            $intended_email = null;
-            if ( $existing_sub instanceof Subscriber ) {
-                $mapped_email = $data['email'] ?? null;
-                if ( $mapped_email && $mapped_email !== $existing_sub->email ) {
-                    $conflict = Subscriber::where( 'email', $mapped_email )
-                        ->where( 'id', '!=', $existing_sub->id )
-                        ->first();
-                    if ( $conflict instanceof Subscriber ) {
-                        $data['email'] = $existing_sub->email;
-                    } else {
-                        $existing_sub->email = $mapped_email;
-                        $existing_sub->save();
-                    }
-                } elseif ( empty( $data['email'] ) ) {
-                    $data['email'] = $existing_sub->email;
-                }
-            } elseif ( empty( $data['email'] ) ) {
-                $data['email'] = $user_info->user_email;
-            }
-
-            $contact = FluentCrmApi( 'contacts' )->createOrUpdate( $data );
-
-            // Link the subscriber to this WP user if not already linked
-            if ( $contact instanceof Subscriber ) {
-                if ( ! $contact->user_id ) {
-                    $contact->user_id = $user_id;
-                    $contact->save();
-                }
-                self::remember_subscriber_link( $user_id, (int) $contact->id );
-            }
-
-            return $contact;
-
-        } finally {
-            $this->syncing_to_fcrm = false;
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // Core sync: FluentCRM → WP
-    // -----------------------------------------------------------------------
-
-    /**
-     * Sync a FluentCRM contact back to the linked WordPress user.
+     * Mirror a contact onto its linked WordPress user.
      *
      * @param Subscriber $subscriber
+     * @param string[]   $field_ids Restrict to these mapping ids (empty = all).
      */
     public function sync_fcrm_to_wp( Subscriber $subscriber, array $field_ids = [] ): void {
         $this->syncing_to_wp = true;
         try {
-            $user_id = $subscriber->user_id;
-            if ( ! $user_id ) {
+            $user_id = (int) $subscriber->user_id;
+            if ( ! $user_id || ! get_userdata( $user_id ) ) {
                 return;
             }
 
             $mappings = $this->mapper->get_active_mappings();
-
             if ( ! empty( $field_ids ) ) {
                 $mappings = array_filter( $mappings, fn( $m ) => in_array( $m['id'] ?? '', $field_ids, true ) );
             }
@@ -284,10 +145,6 @@ class My_IAPSNJ_Engine {
             $wp_user_data  = [];
 
             foreach ( $mappings as $mapping ) {
-                if ( ! in_array( $mapping['sync_direction'] ?? '', [ 'both', 'fcrm_to_wp' ], true ) ) {
-                    continue;
-                }
-
                 $fcrm_key = $mapping['fcrm_field_key'];
                 $source   = $mapping['fcrm_field_source'] ?? 'default';
 
@@ -297,6 +154,9 @@ class My_IAPSNJ_Engine {
                     $raw_value = $subscriber->{ $fcrm_key } ?? null;
                 }
 
+                // Explicit emptiness check (audit P3-6): a legitimate 0 / '0'
+                // (member number 0, a select whose stored value is '0') must
+                // still be mirrored; only null and '' mean "nothing to copy".
                 if ( $raw_value === null || $raw_value === '' ) {
                     continue;
                 }
@@ -304,7 +164,6 @@ class My_IAPSNJ_Engine {
                 $formatted = $this->format_value(
                     $raw_value,
                     $mapping['field_type'] ?? 'text',
-                    'to_wp',
                     $mapping
                 );
 
@@ -315,21 +174,16 @@ class My_IAPSNJ_Engine {
                 $wp_user_data['ID'] = $user_id;
                 wp_update_user( $wp_user_data );
             }
-
         } finally {
             $this->syncing_to_wp = false;
         }
     }
 
     // -----------------------------------------------------------------------
-    // Preview: read current values for all active mappings for one user
+    // Preview: current values on both sides for one user
     // -----------------------------------------------------------------------
 
     /**
-     * Return both WP-side and FluentCRM-side values for every active mapping
-     * for the given WordPress user.  Used by the Sample Data Preview feature.
-     *
-     * @param int $user_id
      * @return array[]
      */
     public function get_field_values_for_user( int $user_id ): array {
@@ -337,29 +191,17 @@ class My_IAPSNJ_Engine {
         if ( ! $user_info ) {
             return [];
         }
-
         $mappings = $this->mapper->get_active_mappings();
         if ( empty( $mappings ) ) {
             return [];
         }
 
-        // Try to find a linked FluentCRM contact.
-        $contact       = null;
-        $custom_fields = [];
-        if ( class_exists( '\FluentCrm\App\Models\Subscriber' ) ) {
-            $found = \FluentCrm\App\Models\Subscriber::where( 'user_id', $user_id )->first();
-            if ( $found instanceof \FluentCrm\App\Models\Subscriber ) {
-                $contact       = $found;
-                $custom_fields = $contact->custom_fields() ?: [];
-            }
-        }
+        $contact       = self::find_linked_subscriber( $user_id, $user_info );
+        $custom_fields = $contact ? ( $contact->custom_fields() ?: [] ) : [];
 
         $rows = [];
         foreach ( $mappings as $mapping ) {
-            // WP side
-            $wp_raw = $this->get_wp_field_value( $user_id, $user_info, $mapping );
-
-            // FluentCRM side
+            $wp_raw   = $this->get_wp_field_value( $user_id, $user_info, $mapping );
             $fcrm_raw = null;
             if ( $contact ) {
                 $fcrm_key = $mapping['fcrm_field_key'];
@@ -370,142 +212,87 @@ class My_IAPSNJ_Engine {
                 }
             }
 
-            // Flatten arrays/objects to a readable string.
-            $wp_display   = is_array( $wp_raw )   ? implode( ', ', $wp_raw )   : (string) ( $wp_raw   ?? '' );
+            $wp_display   = is_array( $wp_raw ) ? implode( ', ', $wp_raw ) : (string) ( $wp_raw ?? '' );
             $fcrm_display = is_array( $fcrm_raw ) ? implode( ', ', $fcrm_raw ) : (string) ( $fcrm_raw ?? '' );
 
-            // For date fields, normalise both sides to Y-m-d before comparing.
-            if ( ( $mapping['field_type'] ?? 'text' ) === 'date'
-                && ( $wp_display !== '' || $fcrm_display !== '' )
-            ) {
-                $match = $this->normalize_date( $wp_display, $mapping )
-                      === $this->normalize_date( $fcrm_display, $mapping );
+            if ( ( $mapping['field_type'] ?? 'text' ) === 'date' && ( $wp_display !== '' || $fcrm_display !== '' ) ) {
+                $match = $this->normalize_date( $wp_display, $mapping ) === $this->normalize_date( $fcrm_display, $mapping );
             } else {
                 $match = $wp_display === $fcrm_display;
             }
 
             $rows[] = [
                 'id'         => $mapping['id'] ?? '',
-                'wp_label'   => $mapping['wp_field_label']   ?? $mapping['wp_field_key'],
+                'wp_label'   => $mapping['wp_field_label'] ?? $mapping['wp_field_key'],
                 'fcrm_label' => $mapping['fcrm_field_label'] ?? $mapping['fcrm_field_key'],
-                'direction'  => $mapping['sync_direction'] ?? 'both',
                 'wp_value'   => $wp_display,
                 'fcrm_value' => $fcrm_display,
                 'match'      => $match,
             ];
         }
-
         return $rows;
     }
 
     // -----------------------------------------------------------------------
-    // Field value getters / setters
+    // WP field access
     // -----------------------------------------------------------------------
 
     /**
-     * Read a WP field value for a given mapping row.
+     * Read the WordPress side of a mapping (for preview / verification).
      *
-     * @param int      $user_id
-     * @param \WP_User $user_info
-     * @param array    $mapping
      * @return mixed
      */
     public function get_wp_field_value( int $user_id, \WP_User $user_info, array $mapping ) {
         $key    = $mapping['wp_field_key'];
-        $source = $mapping['wp_field_source'] ?? 'user';
+        $source = $mapping['wp_field_source'] ?? 'meta';
 
-        switch ( $source ) {
-            case 'user':
-                return $user_info->{ $key } ?? null;
-
-            case 'acf':
-                if ( function_exists( 'get_field' ) ) {
-                    $val = get_field( $key, 'user_' . $user_id );
-                    if ( ( $mapping['field_type'] ?? 'text' ) === 'date'
-                        && $val !== null && $val !== false && $val !== ''
-                    ) {
-                        return $this->acf_date_to_ymd( $key, 'user_' . $user_id, (string) $val );
-                    }
-                    // Explicit emptiness check: `?:` would also discard a
-                    // legitimate 0 / '0' / 0.0 (member number 0, unchecked
-                    // checkbox, a select whose stored value is '0').
-                    return ( $val !== null && $val !== '' && $val !== false ) ? $val : null;
-                }
-                // Fallback to user_meta — same explicit check.
-                $val = get_user_meta( $user_id, $key, true );
-                return ( $val !== '' && $val !== false ) ? $val : null;
-
-            case 'pmp':
-                if ( ! function_exists( 'pmpro_getMembershipLevelForUser' ) ) {
-                    return null;
-                }
-                $level = pmpro_getMembershipLevelForUser( $user_id );
-                if ( ! $level ) {
-                    return null;
-                }
-                switch ( $key ) {
-                    case 'startdate':
-                        return ! empty( $level->startdate )
-                            ? wp_date( 'Y-m-d', (int) $level->startdate )
-                            : null;
-                    case 'enddate':
-                        return ! empty( $level->enddate )
-                            ? wp_date( 'Y-m-d', (int) $level->enddate )
-                            : null;
-                    case 'expiration_date':
-                        return My_IAPSNJ_PMP_Integration::get_smart_expiration_date( $user_id, $level );
-                    case 'level_name':
-                        return $level->name ?? null;
-                    case 'level_id':
-                        return isset( $level->id )
-                            ? (int) $level->id
-                            : ( isset( $level->ID ) ? (int) $level->ID : null );
-                    default:
-                        return null;
-                }
-
-            case 'meta':
-            default:
-                $val = get_user_meta( $user_id, $key, true );
-                return ( $val !== '' && $val !== false ) ? $val : null;
+        if ( $source === 'user' ) {
+            return $user_info->{ $key } ?? null;
         }
+
+        // 'acf' and 'meta' both live in user meta; ACF just uses a different
+        // date storage format. Read raw meta so ACF need not be installed.
+        $val = get_user_meta( $user_id, $key, true );
+        if ( $val === '' || $val === false ) {
+            return null;
+        }
+        if ( $source === 'acf' && ( $mapping['field_type'] ?? 'text' ) === 'date' ) {
+            $canonical = $this->normalize_date( (string) $val, $mapping );
+            return $canonical !== '' ? $canonical : $val;
+        }
+        return $val;
     }
 
     /**
-     * Write a WP field value for a given mapping row.
+     * Write the WordPress side of a mapping.
      *
-     * @param int   $user_id
-     * @param array $mapping
      * @param mixed $value
-     * @param array &$wp_user_data  Accumulator for wp_update_user() fields
+     * @param array &$wp_user_data Accumulator for wp_update_user() fields
      */
     public function set_wp_field_value( int $user_id, array $mapping, $value, array &$wp_user_data ): void {
         $key    = $mapping['wp_field_key'];
-        $source = $mapping['wp_field_source'] ?? 'user';
-
-        // PMP fields are managed entirely by Paid Memberships Pro — never write back.
-        if ( $source === 'pmp' ) {
-            return;
-        }
-
-        // Fields that belong to the WP_User object go through wp_update_user()
-        $user_object_keys = [ 'user_email', 'user_url', 'display_name' ];
+        $source = $mapping['wp_field_source'] ?? 'meta';
 
         switch ( $source ) {
             case 'user':
-                // WordPress user ID and login are immutable — never write back from FluentCRM.
-                if ( in_array( $key, [ 'ID', 'user_login' ], true ) ) {
+                // ID and login are immutable; everything else on WP_User goes
+                // through wp_update_user() so WordPress runs its own checks.
+                if ( in_array( $key, [ 'ID', 'user_login', 'user_pass', 'user_registered' ], true ) ) {
                     return;
                 }
-                if ( in_array( $key, $user_object_keys, true ) ) {
-                    $wp_user_data[ $key ] = $value;
-                } else {
-                    update_user_meta( $user_id, $key, $value );
+                if ( $key === 'user_email' ) {
+                    // Refuse an email another user already owns — that would
+                    // fail in wp_update_user() and abort every other field.
+                    $owner = get_user_by( 'email', (string) $value );
+                    if ( $owner && (int) $owner->ID !== $user_id ) {
+                        return;
+                    }
                 }
+                $wp_user_data[ $key ] = $value;
                 break;
 
             case 'acf':
-                // ACF date pickers store dates internally in Ymd format.
+                // ACF date pickers store dates internally as Ymd.
                 if ( ( $mapping['field_type'] ?? 'text' ) === 'date' && $value !== '' && $value !== null ) {
                     $canonical = $this->normalize_date( (string) $value, $mapping );
                     if ( $canonical !== '' ) {
@@ -526,28 +313,23 @@ class My_IAPSNJ_Engine {
     }
 
     // -----------------------------------------------------------------------
-    // Value formatting
+    // Value formatting (CRM → WP)
     // -----------------------------------------------------------------------
 
     /**
-     * Format a raw value according to its field type and sync direction.
-     *
-     * @param mixed  $value
-     * @param string $type       One of: text, select, date, checkbox, number, email, textarea
-     * @param string $direction  'to_fcrm' | 'to_wp'
-     * @param array  $mapping    The full mapping row (for date formats, value_map, etc.)
+     * @param mixed $value
      * @return mixed
      */
-    public function format_value( $value, string $type, string $direction, array $mapping = [] ) {
+    public function format_value( $value, string $type, array $mapping = [] ) {
         switch ( $type ) {
             case 'date':
-                return $this->format_date( $value, $direction, $mapping );
+                return $this->format_date( $value, $mapping );
 
             case 'checkbox':
-                return $this->format_checkbox( $value, $direction );
+                return $this->format_checkbox( $value );
 
             case 'select':
-                return $this->format_select( $value, $direction, $mapping );
+                return $this->format_select( $value, $mapping );
 
             case 'number':
                 return is_numeric( $value ) ? (float) $value : $value;
@@ -562,32 +344,25 @@ class My_IAPSNJ_Engine {
         }
     }
 
-    /**
-     * Date format conversion.
-     */
-    private function format_date( $value, string $direction, array $mapping ): string {
-        if ( empty( $value ) ) {
+    private function format_date( $value, array $mapping ): string {
+        if ( $value === null || $value === '' ) {
             return '';
         }
-
         $canonical = $this->normalize_date( (string) $value, $mapping );
-
         if ( $canonical === '' ) {
-            return (string) $value; // unparseable — return unchanged
+            return (string) $value; // unparseable — pass through unchanged
         }
-
-        if ( $direction === 'to_fcrm' ) {
-            return $canonical; // already Y-m-d
-        }
-
-        // to_wp: reformat from Y-m-d to the configured WP format
         $fmt  = $mapping['date_format_wp'] ?? 'Y-m-d';
         $date = \DateTime::createFromFormat( 'Y-m-d', $canonical );
         return $date ? $date->format( $fmt ) : $canonical;
     }
 
     /**
-     * Parse any supported date string to a canonical Y-m-d string.
+     * Parse any supported date string to canonical Y-m-d.
+     *
+     * Date *strings* are round-tripped through UTC (strtotime + gmdate): they
+     * have no timezone, and formatting them in the site zone would shift a
+     * 12/31 expiration to 12/30 (audit P1-4).
      */
     public function normalize_date( string $value, array $mapping ): string {
         if ( $value === '' ) {
@@ -597,17 +372,17 @@ class My_IAPSNJ_Engine {
         // 1. Compact YYYYMMDD (ACF raw storage format)
         if ( is_numeric( $value ) && strlen( $value ) === 8 ) {
             $iso = substr( $value, 0, 4 ) . '-' . substr( $value, 4, 2 ) . '-' . substr( $value, 6, 2 );
-            $ts  = strtotime( $iso );
+            $ts  = strtotime( $iso . ' UTC' );
             return $ts !== false ? gmdate( 'Y-m-d', $ts ) : '';
         }
 
-        // 2. Try canonical Y-m-d FIRST
+        // 2. Canonical Y-m-d
         $date = \DateTime::createFromFormat( 'Y-m-d', $value );
         if ( $date && $date->format( 'Y-m-d' ) === $value ) {
             return $value;
         }
 
-        // 3. Parse using the known WP format
+        // 3. The configured WP format
         $wp_fmt = $mapping['date_format_wp'] ?? 'Y-m-d';
         if ( $wp_fmt !== 'Y-m-d' ) {
             $date = \DateTime::createFromFormat( $wp_fmt, $value );
@@ -616,51 +391,15 @@ class My_IAPSNJ_Engine {
             }
         }
 
-        // 4. Fallback via strtotime()
-        // gmdate(), not wp_date(): strtotime() parsed this string in UTC, so
-        // formatting it back in UTC round-trips the calendar day exactly.
-        $ts = strtotime( $value );
+        // 4. strtotime() fallback, UTC in and out
+        $ts = strtotime( $value . ' UTC' );
+        if ( $ts === false ) {
+            $ts = strtotime( $value );
+        }
         return $ts !== false ? gmdate( 'Y-m-d', $ts ) : '';
     }
 
-    /**
-     * Convenience: normalize only if the mapping is a date field.
-     */
-    public function normalize_date_if_date( string $value, array $mapping ): string {
-        if ( ( $mapping['field_type'] ?? 'text' ) === 'date' && $value !== '' ) {
-            $canonical = $this->normalize_date( $value, $mapping );
-            return $canonical !== '' ? $canonical : $value;
-        }
-        return $value;
-    }
-
-    /**
-     * Convert an ACF-formatted date string to canonical Y-m-d.
-     */
-    private function acf_date_to_ymd( string $key, string $context, string $val ): string {
-        if ( function_exists( 'get_field_object' ) ) {
-            $field_obj = get_field_object( $key, $context );
-            $fmt       = $field_obj['return_format'] ?? null;
-            if ( $fmt ) {
-                $dt = \DateTime::createFromFormat( $fmt, $val );
-                if ( $dt && $dt->format( $fmt ) === $val ) {
-                    return $dt->format( 'Y-m-d' );
-                }
-            }
-        }
-
-        if ( is_numeric( $val ) && strlen( $val ) === 8 ) {
-            return substr( $val, 0, 4 ) . '-' . substr( $val, 4, 2 ) . '-' . substr( $val, 6, 2 );
-        }
-
-        $ts = strtotime( $val );
-        return $ts !== false ? gmdate( 'Y-m-d', $ts ) : $val;
-    }
-
-    /**
-     * Checkbox / multi-select conversion.
-     */
-    private function format_checkbox( $value, string $direction ) {
+    private function format_checkbox( $value ) {
         if ( is_array( $value ) ) {
             return array_values( $value );
         }
@@ -679,31 +418,22 @@ class My_IAPSNJ_Engine {
     }
 
     /**
-     * Select / radio field conversion.
+     * Select / radio: translate CRM option value → WP option value via the
+     * mapping's value_map (stored as WP value => CRM value).
      */
-    private function format_select( $value, string $direction, array $mapping ): string {
+    private function format_select( $value, array $mapping ): string {
         $str_value = is_array( $value ) ? (string) reset( $value ) : (string) $value;
         $value_map = $mapping['value_map'] ?? [];
-
-        if ( empty( $value_map ) || ! is_array( $value_map ) ) {
+        if ( ! is_array( $value_map ) || ! $value_map ) {
             return $str_value;
         }
-
-        if ( $direction === 'to_fcrm' ) {
-            return isset( $value_map[ $str_value ] ) ? (string) $value_map[ $str_value ] : $str_value;
-        }
-
-        // to_wp: reverse the map
         $reverse_map = [];
         foreach ( $value_map as $wp_val => $fcrm_val ) {
             $reverse_map[ (string) $fcrm_val ] = (string) $wp_val;
         }
-        return isset( $reverse_map[ $str_value ] ) ? $reverse_map[ $str_value ] : $str_value;
+        // array_key_exists, not isset/??: a WP value of '0' is a real value.
+        return array_key_exists( $str_value, $reverse_map ) ? $reverse_map[ $str_value ] : $str_value;
     }
-
-    // -----------------------------------------------------------------------
-    // Helpers
-    // -----------------------------------------------------------------------
 
     // -----------------------------------------------------------------------
     // Subscriber linking
@@ -758,9 +488,6 @@ class My_IAPSNJ_Engine {
         return null;
     }
 
-    /**
-     * A contact may be claimed by this user only when nobody else holds it.
-     */
     private static function link_is_free( Subscriber $sub, int $user_id ): bool {
         return empty( $sub->user_id ) || (int) $sub->user_id === $user_id;
     }
@@ -778,30 +505,11 @@ class My_IAPSNJ_Engine {
         update_user_meta( $user_id, self::LINK_META_KEY, $subscriber_id );
     }
 
-    /**
-     * Returns the list of WP user_meta keys that appear in any active mapping.
-     */
-    private function get_mapped_wp_meta_keys(): array {
-        $keys = [];
-        foreach ( $this->mapper->get_active_mappings() as $m ) {
-            if ( in_array( $m['wp_field_source'] ?? '', [ 'meta', 'acf' ], true ) ) {
-                $keys[] = $m['wp_field_key'];
-            }
-        }
-        return $keys;
-    }
-
-    /**
-     * Direct access to the mapper (used by the REST API and admin pages).
-     */
     public function get_mapper(): My_IAPSNJ_Field_Mapper {
         return $this->mapper;
     }
 
-    /**
-     * Whether the engine is currently mid-sync (used externally for debugging).
-     */
     public function is_syncing(): bool {
-        return $this->syncing_to_fcrm || $this->syncing_to_wp;
+        return $this->syncing_to_wp;
     }
 }
