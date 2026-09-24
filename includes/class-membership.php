@@ -10,7 +10,8 @@
  *   check without the website → Record a Check         → fluent_cart/order_paid
  *
  * On fluent_cart/order_paid the handler applies Paid-YYYY tags, sets
- * member_type and paid_through, removes the pending tags, creates the
+ * member_type and paid_through, removes the pending tags, copies the
+ * application fields collected at checkout onto the contact, creates the
  * WordPress user if none exists, resolves the application, and sends the
  * new-member admin notification (name, full mailing address, email, phone,
  * department — the certificate trigger, and it fires on paid only).
@@ -42,11 +43,6 @@ class My_IAPSNJ_Membership {
     const META_DEPOSIT_DATE = '_my_iapsnj_deposit_date';
     const META_NOTIFIED     = '_my_iapsnj_notified';
 
-    // Cart checkout_data key and public query parameter carrying the token.
-    const CART_TOKEN_KEY = '__iapsnj_app';
-    const QUERY_TOKEN    = 'iapsnj_app';
-    const COOKIE_TOKEN   = 'my_iapsnj_app';
-
     // FluentCart's built-in offline method (labelled "Cash" until renamed).
     const OFFLINE_METHOD = 'offline_payment';
     const OFFLINE_SETTINGS_KEY = 'fluent_cart_payment_settings_offline_payment';
@@ -55,9 +51,6 @@ class My_IAPSNJ_Membership {
 
     /** @var bool Suppress FluentCart's "order placed (offline)" mail while Record a Check runs. */
     private static bool $suppress_offline_mail = false;
-
-    /** @var string Email to lock at checkout (set during the fields filter, printed in wp_footer). */
-    private string $lock_email = '';
 
     public static function get_instance(): self {
         if ( null === self::$instance ) {
@@ -70,11 +63,6 @@ class My_IAPSNJ_Membership {
         add_action( 'fluent_cart/order_paid',            [ $this, 'on_order_paid' ], 10, 1 );
         add_action( 'fluent_cart/order_placed_offline',  [ $this, 'on_order_placed_offline' ], 10, 1 );
         add_action( 'fluent_cart/order_fully_refunded',  [ $this, 'on_order_fully_refunded' ], 10, 1 );
-
-        // Application token → cart, email lock at checkout.
-        add_action( 'init', [ $this, 'capture_token_cookie' ] );
-        add_filter( 'fluent_cart/checkout_page_name_fields_schema', [ $this, 'filter_checkout_name_fields' ], 20, 2 );
-        add_action( 'wp_footer', [ $this, 'print_email_lock_script' ], 99 );
 
         add_filter( 'fluent_cart/should_send_email_notification', [ $this, 'filter_email_notification' ], 10, 2 );
     }
@@ -192,7 +180,8 @@ class My_IAPSNJ_Membership {
 
     /**
      * Instant-checkout URL for a variation (FluentCart 1.6 format, verified in
-     * WebRoutes::registerRoutes). Extra query args survive the redirect.
+     * WebRoutes::registerRoutes). These are the Join-page buttons; the
+     * application fields are collected on the checkout page itself.
      */
     public static function checkout_url( int $variation_id, array $extra = [] ): string {
         $url = site_url( '?fluent-cart=instant_checkout&item_id=' . $variation_id . '&quantity=1' );
@@ -334,6 +323,9 @@ class My_IAPSNJ_Membership {
             return null;
         }
 
+        // ---- Application fields collected at checkout ---------------------
+        My_IAPSNJ_Checkout_Fields::apply_to_contact( $order, $subscriber );
+
         // ---- member_type / paid_through -----------------------------------
         $new_type = $plan['member_type'];
         $old_type = $snapshot['member_type'];
@@ -462,6 +454,8 @@ class My_IAPSNJ_Membership {
                 $ids = My_IAPSNJ_Schema::tag_ids( [ My_IAPSNJ_Schema::TAG_PENDING_CHECK, My_IAPSNJ_Schema::TAG_ABANDONED ] );
                 $subscriber->attachTags( [ $ids[ My_IAPSNJ_Schema::TAG_PENDING_CHECK ] ] );
                 $subscriber->detachTags( [ $ids[ My_IAPSNJ_Schema::TAG_ABANDONED ] ] );
+                // Profile data from the application (department, rank …); not membership state.
+                My_IAPSNJ_Checkout_Fields::apply_to_contact( $order, $subscriber );
             }
             $app = My_IAPSNJ_Applications::resolve_for_order( $order );
             if ( $app ) {
@@ -538,131 +532,6 @@ class My_IAPSNJ_Membership {
         } catch ( \Throwable $e ) {
             error_log( 'My IAPSNJ: refund handler failed for order ' . (int) $order->id . ': ' . $e->getMessage() );
         }
-    }
-
-    // -----------------------------------------------------------------------
-    // Checkout: token capture + email lock
-    // -----------------------------------------------------------------------
-
-    /**
-     * The Fluent Forms redirect lands on ?fluent-cart=instant_checkout&…&iapsnj_app=TOKEN,
-     * which FluentCart forwards to the checkout page with the token intact.
-     * Remember it in a short-lived cookie for the rest of the checkout.
-     */
-    public function capture_token_cookie(): void {
-        if ( is_admin() || wp_doing_ajax() || wp_doing_cron() ) {
-            return;
-        }
-        // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-        $token = isset( $_GET[ self::QUERY_TOKEN ] ) ? sanitize_text_field( wp_unslash( $_GET[ self::QUERY_TOKEN ] ) ) : '';
-        if ( $token === '' || ! My_IAPSNJ_Applications::get_by_token( $token ) ) {
-            return;
-        }
-        if ( ! headers_sent() ) {
-            setcookie( self::COOKIE_TOKEN, $token, time() + 2 * HOUR_IN_SECONDS, COOKIEPATH ? COOKIEPATH : '/', COOKIE_DOMAIN, is_ssl(), true );
-        }
-        $_COOKIE[ self::COOKIE_TOKEN ] = $token;
-    }
-
-    /**
-     * Token for the current front-end request (query string, then cookie).
-     */
-    public static function current_token(): string {
-        // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-        $token = isset( $_GET[ self::QUERY_TOKEN ] ) ? sanitize_text_field( wp_unslash( $_GET[ self::QUERY_TOKEN ] ) ) : '';
-        if ( $token === '' && isset( $_COOKIE[ self::COOKIE_TOKEN ] ) ) {
-            $token = sanitize_text_field( wp_unslash( $_COOKIE[ self::COOKIE_TOKEN ] ) );
-        }
-        return $token;
-    }
-
-    /**
-     * fluent_cart/checkout_page_name_fields_schema — store the token on the
-     * cart and prefill + lock the email so the order cannot orphan.
-     *
-     * @param array $fields
-     * @param array $data ['cart' => Cart|null, 'scope' => 'render'|…]
-     * @return array
-     */
-    public function filter_checkout_name_fields( $fields, $data = [] ) {
-        if ( ! is_array( $fields ) ) {
-            return $fields;
-        }
-        $token = self::current_token();
-        if ( $token === '' ) {
-            return $fields;
-        }
-        $app = My_IAPSNJ_Applications::get_by_token( $token );
-        if ( ! $app ) {
-            return $fields;
-        }
-
-        $cart = is_array( $data ) ? ( $data['cart'] ?? null ) : null;
-        if ( is_object( $cart ) ) {
-            try {
-                $cd = $cart->checkout_data;
-                if ( ! is_array( $cd ) ) {
-                    $cd = [];
-                }
-                if ( ( $cd[ self::CART_TOKEN_KEY ] ?? '' ) !== $token ) {
-                    $cd[ self::CART_TOKEN_KEY ] = $token;
-                    $cart->checkout_data        = $cd;
-                    $cart->save();
-                }
-            } catch ( \Throwable $e ) {
-                error_log( 'My IAPSNJ: could not store application token on cart: ' . $e->getMessage() );
-            }
-        }
-
-        if ( isset( $fields['billing_email'] ) && is_array( $fields['billing_email'] ) ) {
-            $fields['billing_email']['value']    = (string) $app->email;
-            $fields['billing_email']['readonly'] = 'readonly';
-            $this->lock_email                    = (string) $app->email;
-        }
-        $full = trim( (string) $app->first_name . ' ' . (string) $app->last_name );
-        if ( $full !== '' && isset( $fields['billing_full_name'] ) && empty( $fields['billing_full_name']['value'] ) ) {
-            $fields['billing_full_name']['value'] = $full;
-        }
-        if ( isset( $fields['billing_first_name'] ) && empty( $fields['billing_first_name']['value'] ) ) {
-            $fields['billing_first_name']['value'] = (string) $app->first_name;
-        }
-        if ( isset( $fields['billing_last_name'] ) && empty( $fields['billing_last_name']['value'] ) ) {
-            $fields['billing_last_name']['value'] = (string) $app->last_name;
-        }
-        return $fields;
-    }
-
-    /**
-     * Belt and braces for the readonly attribute: FluentCart re-renders the
-     * checkout form client-side, so enforce the lock in the browser too.
-     */
-    public function print_email_lock_script(): void {
-        if ( $this->lock_email === '' ) {
-            return;
-        }
-        $email = wp_json_encode( $this->lock_email );
-        echo '<script>(function(){var e=' . $email . ';function lock(){var i=document.querySelector(\'input[name="billing_email"]\');if(i){if(!i.value){i.value=e;}i.readOnly=true;i.setAttribute("aria-readonly","true");}}lock();var t=setInterval(lock,800);setTimeout(function(){clearInterval(t);},60000);})();</script>' . "\n";
-    }
-
-    /**
-     * Token stored on the cart that produced an order ('' when none).
-     */
-    public static function token_for_order( $order ): string {
-        if ( ! class_exists( '\FluentCart\App\Models\Cart' ) || ! is_object( $order ) ) {
-            return '';
-        }
-        try {
-            $cart = \FluentCart\App\Models\Cart::query()->where( 'order_id', (int) $order->id )->first();
-            if ( $cart ) {
-                $cd = $cart->checkout_data;
-                if ( is_array( $cd ) && ! empty( $cd[ self::CART_TOKEN_KEY ] ) ) {
-                    return (string) $cd[ self::CART_TOKEN_KEY ];
-                }
-            }
-        } catch ( \Throwable $e ) {
-            // fall through
-        }
-        return '';
     }
 
     // -----------------------------------------------------------------------

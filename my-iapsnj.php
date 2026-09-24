@@ -2,8 +2,8 @@
 /**
  * Plugin Name:       My IAPSNJ
  * Plugin URI:        https://github.com/S-FX-com/MyIAPSNJ
- * Description:       Membership operations for the IAPSNJ website. FluentCRM is the single source of truth: FluentCart payments set membership state (Paid-YYYY tags, member_type, paid_through), Fluent Forms applications are tracked until they are paid, mailed checks are reconciled in batch, and WordPress user profiles are mirrored one way from the CRM. Includes the PMPro → FluentCRM migration toolkit.
- * Version:           4.0.0
+ * Description:       Membership operations for the IAPSNJ website. FluentCRM is the single source of truth: the membership application is collected on the FluentCart checkout page, FluentCart payments set membership state (Paid-YYYY tags, member_type, paid_through), applications are tracked until they are paid, mailed checks are reconciled in batch, and WordPress user profiles are mirrored one way from the CRM. Includes the PMPro → FluentCRM migration toolkit.
+ * Version:           4.1.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Requires Plugins:  fluent-crm
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'MY_IAPSNJ_VERSION', '4.0.0' );
+define( 'MY_IAPSNJ_VERSION', '4.1.0' );
 define( 'MY_IAPSNJ_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'MY_IAPSNJ_URL',     plugin_dir_url( __FILE__ ) );
 define( 'MY_IAPSNJ_FILE',    __FILE__ );
@@ -86,15 +86,12 @@ final class My_IAPSNJ_Plugin {
         My_IAPSNJ_Admin::get_instance();
         My_IAPSNJ_REST_API::get_instance();
 
-        // FluentCart → membership state. Boots only when FluentCart is active;
-        // the admin screens explain what is missing otherwise.
+        // FluentCart → membership state, and the application fields on the
+        // checkout page. Boots only when FluentCart is active; the admin
+        // screens explain what is missing otherwise.
         if ( My_IAPSNJ_Membership::is_available() ) {
             My_IAPSNJ_Membership::get_instance();
-        }
-
-        // Fluent Forms → application tracking.
-        if ( My_IAPSNJ_Applications::is_available() ) {
-            My_IAPSNJ_Applications::get_instance();
+            My_IAPSNJ_Checkout_Fields::get_instance();
         }
 
         if ( defined( 'WP_CLI' ) && WP_CLI ) {
@@ -144,8 +141,10 @@ final class My_IAPSNJ_Plugin {
             My_IAPSNJ_Field_Mapper::seed_default_mappings();
         }
 
-        // Applications table (Fluent Forms submissions awaiting payment).
+        // Applications table (checkouts awaiting payment) and the default
+        // application fields shown on the checkout page.
         My_IAPSNJ_Applications::create_table();
+        My_IAPSNJ_Checkout_Fields::seed_defaults();
 
         // Bring existing installs up to the current data version.
         self::maybe_upgrade();
@@ -165,10 +164,12 @@ final class My_IAPSNJ_Plugin {
             'sync_on_fcrm_update'     => true,
             'link_on_user_register'   => true,
             'sync_on_user_delete'     => true,
-            // Fluent Forms.
-            'join_form_id'            => 0,
-            'renewal_form_id'         => 0,
-            'form_email_field'        => 'email',
+            // Application on the checkout page.
+            'application_heading'     => '',   // default: "Membership application"
+            'application_intro'       => '',
+            'join_page_url'           => '',   // page with the membership buttons
+            'renewal_variation_regular'   => 0, // FluentCart variation a Regular member renews with
+            'renewal_variation_associate' => 0,
             // Notifications.
             'notify_new_member'       => true,
             'notify_emails'           => get_option( 'admin_email' ),
@@ -200,7 +201,7 @@ final class My_IAPSNJ_Plugin {
      * below; it is independent of MY_IAPSNJ_VERSION so that ordinary releases
      * do not re-run migrations.
      */
-    const DATA_VERSION = 5;
+    const DATA_VERSION = 6;
 
     /**
      * Runs any migration steps this install has not seen yet.
@@ -299,6 +300,25 @@ final class My_IAPSNJ_Plugin {
                 }
 
                 My_IAPSNJ_Applications::create_table();
+            }
+
+            // ---- v6: the application moves into the FluentCart checkout -----
+            // * Fluent Forms settings are gone (form ids, field names).
+            // * Applications table gains cart_hash + fields (dbDelta adds them).
+            // * Default checkout application fields are seeded.
+            if ( $installed < 6 ) {
+                $settings = get_option( 'my_iapsnj_settings', [] );
+                if ( is_array( $settings ) ) {
+                    unset(
+                        $settings['join_form_id'],
+                        $settings['renewal_form_id'],
+                        $settings['form_email_field'],
+                        $settings['form_product_field']
+                    );
+                    update_option( 'my_iapsnj_settings', array_merge( self::default_settings(), $settings ) );
+                }
+                My_IAPSNJ_Applications::create_table();
+                My_IAPSNJ_Checkout_Fields::seed_defaults();
             }
 
             update_option( 'my_iapsnj_data_version', self::DATA_VERSION );

@@ -339,6 +339,24 @@
             .always(function () { resetBtn($btn); });
     });
 
+    $('#fcrm-checkout-fields-form').on('change', 'input[name$="[enabled]"]', function () {
+        $(this).closest('tr').toggleClass('enabled', $(this).is(':checked'));
+    }).on('submit', function (e) {
+        e.preventDefault();
+        var $btn = $(this).find('[type="submit"]'), $notice = $('#fcrm-settings-notice'), data = {};
+        $(this).find('input, select, textarea').each(function () {
+            var name = $(this).attr('name');
+            if (!name) { return; }
+            if ($(this).is(':checkbox')) { if ($(this).is(':checked')) { data[name] = 1; } }
+            else { data[name] = $(this).val(); }
+        });
+        setBtn($btn, i18n.saving, true);
+        $.post(ajaxUrl, $.extend({ action: 'my_iapsnj_save_checkout_fields', nonce: nonce }, data))
+            .done(function (resp) { showNotice($notice, resp.success ? i18n.saved + ' ' + resp.data.count + ' application field(s) shown at checkout.' : errMsg(resp), resp.success ? 'success' : 'error'); })
+            .fail(function () { showNotice($notice, i18n.error, 'error'); })
+            .always(function () { resetBtn($btn); });
+    });
+
     $('#fcrm-apply-offline-labels').on('click', function () {
         var $btn = $(this), $notice = $('#fcrm-settings-notice');
         setBtn($btn, i18n.saving, true);
@@ -435,7 +453,7 @@
                 '<td>' + r.age_days + 'd</td>' +
                 '<td>' + (r.crm_url ? link(r.crm_url, r.customer_name || r.email) : escHtml(r.customer_name || r.email)) + '<br><small class="fcrm-muted">' + escHtml(r.email) + '</small></td>' +
                 '<td>' + escHtml(r.member_number || '—') + '</td>' +
-                '<td>' + escHtml((r.items || []).join('; ')) + '</td>' +
+                '<td>' + escHtml((r.items || []).join('; ')) + ((r.application || []).length ? '<br><small class="fcrm-muted">' + escHtml(r.application.join(' · ')) + '</small>' : '') + '</td>' +
                 '<td class="fcrm-num">' + escHtml(r.total) + '</td>' +
                 '<td><input type="text" class="fcrm-check-number small-text" placeholder="#" style="width:90px"></td>' +
                 '<td class="fcrm-row-result"></td></tr>';
@@ -551,14 +569,15 @@
 
     var reportColumns = {
         'open-applications': [
-            { key: 'date', label: 'Submitted' },
+            { key: 'date', label: 'Started' },
             { key: 'age_days', label: 'Age', render: function (r) { return r.age_days + 'd'; } },
-            { key: 'kind', label: 'Form' },
+            { key: 'kind', label: 'Kind' },
             { key: 'status', label: 'Status' },
             { key: 'name', label: 'Name', render: function (r) { return r.crm_url ? link(r.crm_url, r.name || r.email) : escHtml(r.name || r.email); } },
             { key: 'email', label: 'Email' },
-            { key: 'order_id', label: 'Order', render: function (r) { return r.order_id ? '#' + r.order_id : '—'; } },
-            { key: 'entry_url', label: 'Entry', render: function (r) { return r.entry_url ? link(r.entry_url, 'view') : ''; } }
+            { key: 'product', label: 'Product' },
+            { key: 'application', label: 'Application', render: function (r) { return escHtml((r.application || []).join(' · ') || '—'); } },
+            { key: 'order_id', label: 'Order', render: function (r) { return r.order_id ? link(r.order_url, '#' + r.order_id) : '—'; } }
         ],
         'orders-without-application': [
             { key: 'order_id', label: 'Order', render: function (r) { return link(r.admin_url, '#' + r.order_id); } },

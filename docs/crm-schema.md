@@ -14,7 +14,7 @@ in `includes/class-schema.php`.
 |---|---|---|---|---|
 | `Paid-2024` … `Paid-2031` (one per year, ongoing) | `paid-YYYY` | migration (`backfill_year_tags`), FluentCart `order_paid` | full refund of the order that added it | Year-by-year payment history, queryable |
 | `Payment-Pending-Check` | `payment-pending-check` | `order_placed_offline` (check chosen at checkout) | `order_paid` | Treasurer follow-up; Pending Checks screen |
-| `Checkout-Abandoned` | `checkout-abandoned` | Fluent Forms submission (join/renewal) | `order_placed_offline`, `order_paid` | Complete application, no payment — the follow-up list that did not exist before |
+| `Checkout-Abandoned` | `checkout-abandoned` | email typed at the FluentCart checkout (`checkout/form_data_changed`) | `order_placed_offline`, `order_paid` | Checkout started, no payment — the follow-up list that did not exist before |
 | `Honorary` | `honorary` | migration (`migrate_comped`) / admin by hand | admin | Comped; **excluded from every dues automation** |
 | `Lifetime` | `lifetime` | migration (`migrate_comped`), Lifetime product paid | admin | Comped; **excluded from every dues automation** |
 
@@ -27,19 +27,19 @@ Honorary is **never a product**: it is admin-assigned (tag + `member_type`).
 | `member_type` | select-one | `Regular` / `Associate` / `Lifetime` / `Honorary` | **Mandatory.** The exclusion condition for dues campaigns is `member_type` is none of `Lifetime`, `Honorary`. A purchase never lowers the type. |
 | `paid_through` | date (Y-m-d) | e.g. `2027-12-31` | Set from the product (fixed calendar-year date), only ever extended (`max`). **Null for Lifetime and Honorary** — the plugin deletes the value; never a far-future date. |
 | `member_number` | number | | Migrated from ACF `MemberNum` (already synced pre-4.0). Printed on the memo line of checks; shown in Pending Checks. |
-| `department` | text (or select-one, see below) | | Required for Regular on the join form. |
-| `rank_level` | text/select-one | | |
+| `department` | text (or select-one, see below) | | Required on the checkout application (dropdown options set in My IAPSNJ → Sync & Settings). |
+| `rank_level` | text/select-one | | Same. |
 | `join_date` | date | | Migrated from ACF `join_date`. |
 | `legacy_pmpro_level` | text | e.g. `3` or `3, 5` | Written by migration for members/orders on deleted PMPro levels (IDs 3, 5). Diagnostic only. |
 | `phone2` | text | | Alternate phone (keep — existed pre-4.0) |
 | `phone_work` | text | | Work phone |
-| `retirement_date` | date | | |
+| `retirement_date` | date | | Created by `crm-schema`; filled from the checkout application. |
 | `union_affiliation`, `union_position` | text | | |
 | `marital_status` | select-one | | |
 | `spouse_name` | text | | |
 | `armed_service` | checkbox | | |
 | `additional_information` | textarea | | |
-| `referred_by` | text | | |
+| `referred_by` | text | | Created by `crm-schema`; filled from the checkout application. |
 | `elo_title` | select-one | | Confirm with client whether still used |
 | `admin_notes` | textarea | **retire** → use FluentCRM Notes | Already searchable via Notes Search |
 
@@ -49,8 +49,8 @@ Default FluentCRM fields used: `first_name`, `last_name`, `email`, `phone`,
 
 `department` and `rank_level` were mapped as *select* in the ACF era. Keep them
 `select-one` in FluentCRM only if the option list is maintained there; the
-join form's own dropdown is the real constraint (non-submittable placeholder,
-no "N/A").
+checkout dropdown (My IAPSNJ → Sync & Settings → Application fields) is the
+real constraint (non-submittable placeholder, no "N/A").
 
 ## The 32 ACF-era fields — decision per field
 

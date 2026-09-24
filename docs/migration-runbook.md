@@ -21,9 +21,9 @@ Principles that are enforced in code:
 
 1. Staging is a full clone, outbound email blocked at the server, noindex,
    HTTP auth. Record the clone timestamp: `_______________`.
-2. Plugins active: FluentCRM (Pro current), Fluent Forms Pro, FluentCart +
-   Pro, My IAPSNJ 4.0.0. PMPro may stay active during Phase 3 on staging; it
-   is deactivated at cutover (never deleted).
+2. Plugins active: FluentCRM (Pro current), FluentCart 1.6+ (+ Pro),
+   My IAPSNJ 4.1.x. Fluent Forms is not needed. PMPro may stay active during
+   Phase 3 on staging; it is deactivated at cutover (never deleted).
 3. Baseline numbers (fill in):
 
    ```
@@ -115,9 +115,9 @@ Two options; **re-clone is simpler and safer**:
 **A. Re-clone (recommended)**
 1. Export the *configuration that is not in git* from staging (see
    `docs/not-in-git.md`): FluentCart products/settings, FluentCRM automations
-   and custom fields, Fluent Forms (export JSON), My IAPSNJ options
+   and custom fields, the Join page, My IAPSNJ options
    (`wp option get my_iapsnj_settings`, `my_iapsnj_products`,
-   `my_iapsnj_field_mappings`).
+   `my_iapsnj_checkout_fields`, `my_iapsnj_field_mappings`).
 2. Re-clone production → staging (DB + uploads). Re-apply the email block.
 3. Re-import the configuration; re-run **all** Phase 3 steps (idempotent).
 4. Re-run UAT smoke (one join, one renewal, one check).
@@ -138,13 +138,14 @@ never run PMPro checkout and FluentCart checkout in parallel.**
 1. **Backup** production DB + `wp-content` (verify restorable). Record
    `wp user list --format=count`.
 2. Put the site in maintenance mode (or disable the PMPro checkout page).
-3. Install/activate FluentCart + Pro, Fluent Forms Pro; import products,
-   forms, automations, My IAPSNJ options from staging (`docs/not-in-git.md`).
-   Payment gateways in **live** mode; offline method enabled and labelled
-   "Pay by Check".
-4. Update My IAPSNJ to 4.0.0 (merge the PR to `main`; the release/updater
+3. Install/activate FluentCart + Pro; import products, automations,
+   My IAPSNJ options from staging (`docs/not-in-git.md`); rebuild the Join
+   page buttons with the production variation ids. Payment gateways in
+   **live** mode; offline method enabled and labelled "Pay by Check".
+4. Update My IAPSNJ to 4.1.x (merge the PR to `main`; the release/updater
    picks it up, or upload the zip). Activation creates the applications
-   table and runs data-version 5 (drops PMPro mappings, forces CRM → WP).
+   table and runs data-versions 5–6 (drops PMPro mappings, forces CRM → WP,
+   seeds the checkout application fields).
 5. **Deactivate PMPro** (Plugins → Deactivate). Do **not** delete. Tables stay.
 6. `wp iapsnj crm-schema --years=2024-2032`
 7. Run the Phase 3 sequence exactly as rehearsed (dry-run first, then apply),
@@ -153,9 +154,10 @@ never run PMPro checkout and FluentCart checkout in parallel.**
 9. `wp iapsnj reconcile` — compare with the staging reconciliation.
 10. `wp iapsnj export-orders --file=…` — hand to the treasurer.
 11. Smoke test with a real card (small product, then refund) and one check flow.
-12. Point the Join / Renew menu links at the Fluent Forms pages. Redirect the
-    old PMPro `/membership-account/`, `/membership-checkout/` URLs to the new
-    pages (theme or redirect plugin).
+12. Point the Join menu link at the Join page and the Renew link at the
+    member-area page carrying `[iapsnj_renew_link]`. Redirect the old PMPro
+    `/membership-account/`, `/membership-checkout/` URLs to those pages (theme
+    or redirect plugin).
 13. Leave maintenance mode. Watch `wp-content/debug.log` and My IAPSNJ →
     Reports for 48 hours.
 14. Set the **cutover date** in My IAPSNJ → Sync & Settings so the orphan

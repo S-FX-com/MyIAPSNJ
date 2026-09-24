@@ -86,6 +86,10 @@ class My_IAPSNJ_Checks {
             }
             $customer = is_object( $order->customer ?? null ) ? $order->customer : null;
             $app      = My_IAPSNJ_Applications::get_by_order( (int) $order->id );
+            $summary  = [];
+            foreach ( My_IAPSNJ_Checkout_Fields::summary_for_order( $order ) as $label => $value ) {
+                $summary[] = $label . ': ' . $value;
+            }
 
             $rows[] = [
                 'id'             => (int) $order->id,
@@ -104,6 +108,7 @@ class My_IAPSNJ_Checks {
                 'member_number'  => $sub instanceof Subscriber ? My_IAPSNJ_Schema::field( $sub, My_IAPSNJ_Schema::FIELD_MEMBER_NUMBER ) : '',
                 'subscriber_id'  => $sub instanceof Subscriber ? (int) $sub->id : 0,
                 'application_id' => $app ? (int) $app->id : 0,
+                'application'    => $summary,
                 'source'         => (string) ( $order->getMeta( My_IAPSNJ_Membership::META_SOURCE ) ?: 'checkout' ),
                 'admin_url'      => My_IAPSNJ_Membership::order_admin_url( $order ),
                 'crm_url'        => $sub instanceof Subscriber ? admin_url( 'admin.php?page=fluentcrm-admin#/subscribers/' . (int) $sub->id ) : '',
@@ -369,6 +374,8 @@ class My_IAPSNJ_Checks {
             ],
         ];
 
+        // Not an application: no checkout fields, no application row, no "please pay" mail.
+        My_IAPSNJ_Checkout_Fields::suppress( true );
         My_IAPSNJ_Membership::suppress_offline_mail( true );
         try {
             $order = \FluentCart\Api\Resource\OrderResource::updatedPlaceOrder( $data );
@@ -392,10 +399,10 @@ class My_IAPSNJ_Checks {
                 }
             }
         } catch ( \Throwable $e ) {
-            My_IAPSNJ_Membership::suppress_offline_mail( false );
             return new WP_Error( 'order_failed', $e->getMessage() );
         } finally {
             My_IAPSNJ_Membership::suppress_offline_mail( false );
+            My_IAPSNJ_Checkout_Fields::suppress( false );
         }
 
         $paid = self::mark_paid_one( (int) $order->id, $deposit_date, $check_number, '' );

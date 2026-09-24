@@ -7,9 +7,14 @@ schema, runbook, automations, forms, UAT matrix, what is not in git).
 ## Stack facts that shape the code
 
 - FluentCRM is the single source of truth. The only writers are the FluentCart
-  integration (`class-membership.php`), the Fluent Forms integration
-  (`class-applications.php`) and the migration toolkit. `class-engine.php` is a
-  one-way CRM → WordPress mirror; never add a WP → CRM write path.
+  integration (`class-membership.php`), the checkout application
+  (`class-checkout-fields.php` / `class-applications.php`) and the migration
+  toolkit. `class-engine.php` is a one-way CRM → WordPress mirror; never add a
+  WP → CRM write path.
+- The membership application is collected **on the FluentCart checkout page**
+  (hooks `fluent_cart/before_payment_methods`, `checkout/validate_data`,
+  `checkout/prepare_other_data`, `checkout/form_data_changed`). Fluent Forms is
+  not part of the stack; do not reintroduce a separate form step.
 - Paid Memberships Pro is retired. Read its tables with `$wpdb` only (migration);
   never call PMPro functions, never write to `pmpro_*` tables or `pmpro_b*` meta.
 - FluentCart hooks were verified against the 1.6.3 source (see

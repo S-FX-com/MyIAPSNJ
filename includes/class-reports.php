@@ -120,8 +120,9 @@ class My_IAPSNJ_Reports {
     // -----------------------------------------------------------------------
 
     /**
-     * Paid membership orders with no application row. Orders recorded through
-     * "Record a Check" are excluded by design (there is no application).
+     * Paid membership orders with no application row (a checkout the plugin
+     * did not see, e.g. an order created by hand in FluentCart). Orders
+     * recorded through "Record a Check" are excluded by design.
      *
      * @return array<int,array>
      */
@@ -182,7 +183,13 @@ class My_IAPSNJ_Reports {
     public static function applications_without_order( int $older_than_days = 0 ): array {
         $rows  = My_IAPSNJ_Applications::open_applications( $older_than_days );
         $items = [];
+        $products = My_IAPSNJ_Membership::products_config();
         foreach ( $rows as $r ) {
+            $summary = [];
+            foreach ( My_IAPSNJ_Checkout_Fields::summary( My_IAPSNJ_Applications::fields_of( $r ) ) as $label => $value ) {
+                $summary[] = $label . ': ' . $value;
+            }
+            $vid     = (int) $r->variation_id;
             $items[] = [
                 'id'            => (int) $r->id,
                 'kind'          => (string) $r->kind,
@@ -193,8 +200,10 @@ class My_IAPSNJ_Reports {
                 'email'         => (string) $r->email,
                 'subscriber_id' => (int) $r->subscriber_id,
                 'order_id'      => (int) $r->order_id,
+                'product'       => $vid && isset( $products[ $vid ] ) ? (string) $products[ $vid ]['label'] : ( $vid ? 'Variation #' . $vid : '' ),
+                'application'   => $summary,
                 'crm_url'       => $r->subscriber_id ? admin_url( 'admin.php?page=fluentcrm-admin#/subscribers/' . (int) $r->subscriber_id ) : '',
-                'entry_url'     => ( $r->form_id && $r->submission_id ) ? admin_url( 'admin.php?page=fluent_forms&route=entries&form_id=' . (int) $r->form_id . '#/entries/' . (int) $r->submission_id ) : '',
+                'order_url'     => $r->order_id ? admin_url( 'admin.php?page=fluent-cart#/orders/' . (int) $r->order_id . '/view' ) : '',
             ];
         }
         return $items;

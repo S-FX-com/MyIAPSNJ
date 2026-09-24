@@ -30,6 +30,8 @@ final class My_IAPSNJ_Schema {
     const FIELD_RANK           = 'rank_level';
     const FIELD_JOIN_DATE      = 'join_date';
     const FIELD_LEGACY_LEVEL   = 'legacy_pmpro_level';
+    const FIELD_RETIREMENT_DATE = 'retirement_date';
+    const FIELD_REFERRED_BY    = 'referred_by';
 
     // ---- member_type values (stored as displayed) ------------------------
     const TYPE_REGULAR   = 'Regular';
@@ -134,6 +136,16 @@ final class My_IAPSNJ_Schema {
             [
                 'slug'  => self::FIELD_LEGACY_LEVEL,
                 'label' => 'Legacy PMPro Level',
+                'type'  => 'text',
+            ],
+            [
+                'slug'  => self::FIELD_RETIREMENT_DATE,
+                'label' => 'Retirement Date',
+                'type'  => 'date',
+            ],
+            [
+                'slug'  => self::FIELD_REFERRED_BY,
+                'label' => 'Referred By',
                 'type'  => 'text',
             ],
         ];

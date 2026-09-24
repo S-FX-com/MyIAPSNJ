@@ -1,0 +1,45 @@
+/* My IAPSNJ – application fields inside the FluentCart checkout. */
+.my-iapsnj-application {
+    margin: 24px 0;
+}
+.my-iapsnj-application-title {
+    margin: 0 0 8px;
+}
+.my-iapsnj-application-intro {
+    margin: 0 0 16px;
+    opacity: 0.85;
+}
+.my-iapsnj-field {
+    margin-bottom: 16px;
+}
+.my-iapsnj-field > label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 600;
+}
+.my-iapsnj-field .fct-input,
+.my-iapsnj-field select,
+.my-iapsnj-field textarea {
+    width: 100%;
+    box-sizing: border-box;
+}
+.my-iapsnj-checkbox {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-weight: 400;
+    cursor: pointer;
+}
+.my-iapsnj-checkbox input {
+    margin-top: 4px;
+    flex: 0 0 auto;
+    width: auto;
+}
+.my-iapsnj-required {
+    color: #c0392b;
+}
+.my-iapsnj-help {
+    margin: 4px 0 0;
+    font-size: 0.9em;
+    opacity: 0.8;
+}
