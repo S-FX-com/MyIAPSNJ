@@ -6,8 +6,13 @@
  * There is no separate form: the member picks a product on the Join page
  * (each option is an instant-checkout link), lands on checkout, and fills
  * FluentCart's own name / email / phone / billing-address fields plus the
- * application fields this class injects (department, rank, retirement date,
- * date of birth, referred by, certification …).
+ * application fields this class injects.
+ *
+ * The field list is defined by the admin in Sync & Settings → Application
+ * fields: built-in fields (department, rank …) can be toggled, required,
+ * relabelled and given options; new fields can be added with a type, options
+ * and a FluentCRM target (an existing custom field, the contact's date of
+ * birth, a brand-new custom field created on save, or "not stored").
  *
  * Hooks (FluentCart 1.6.x, dev.fluentcart.com):
  *
@@ -39,12 +44,25 @@ class My_IAPSNJ_Checkout_Fields {
     const META_FIELDS  = '_my_iapsnj_application';          // order meta: key => value
     const META_APPLIED = '_my_iapsnj_application_applied';  // order meta: UTC datetime
     const PREFIX       = 'iapsnj_';                          // input name prefix
+    const NEW_TARGET   = '__new__';                          // "create a CRM custom field" picker value
+
+    /** @var string[] */
+    const TYPES = [ 'text', 'textarea', 'select', 'radio', 'date', 'checkbox' ];
+
+    /** @var array<string,string> FluentCRM contact columns offered as targets */
+    const DEFAULT_TARGETS = [
+        'date_of_birth' => 'Date of birth',
+        'prefix'        => 'Prefix (Mr / Mrs …)',
+    ];
 
     /** @var bool Record a Check places an admin order; it is not an application. */
     private static bool $suppress = false;
 
     /** @var bool The fields were printed on this request. */
     private bool $rendered = false;
+
+    /** @var array<string,array>|null per-request cache */
+    private static ?array $config_cache = null;
 
     public static function get_instance(): self {
         if ( null === self::$instance ) {
@@ -68,13 +86,12 @@ class My_IAPSNJ_Checkout_Fields {
     }
 
     // -----------------------------------------------------------------------
-    // Field catalogue
+    // Built-in fields
     // -----------------------------------------------------------------------
 
     /**
-     * Built-in application fields. Admins toggle, require, relabel and set
-     * the option lists from Sync & Settings; the keys and CRM targets are
-     * fixed here so the CRM schema stays consistent.
+     * Built-in application fields: the seed for a fresh install and the
+     * fallback definition when a built-in key is missing from the saved list.
      *
      * crm_kind: 'custom' (FluentCRM custom field slug), 'default' (contact
      * column), 'none' (not stored on the contact).
@@ -166,36 +183,89 @@ class My_IAPSNJ_Checkout_Fields {
         ];
     }
 
+    // -----------------------------------------------------------------------
+    // Configuration (ordered field list)
+    // -----------------------------------------------------------------------
+
     /**
-     * Definitions merged with the saved settings.
+     * The configured fields in display order: key => definition
+     * (label, help, type, options, crm, crm_kind, enabled, required, builtin).
      *
      * @return array<string,array>
      */
     public static function config(): array {
+        if ( self::$config_cache !== null ) {
+            return self::$config_cache;
+        }
         $saved = get_option( self::OPTION, [] );
         if ( ! is_array( $saved ) ) {
             $saved = [];
         }
-        $out = [];
-        foreach ( self::definitions() as $key => $def ) {
-            $s = is_array( $saved[ $key ] ?? null ) ? $saved[ $key ] : [];
-            if ( array_key_exists( 'enabled', $s ) ) {
-                $def['enabled'] = ! empty( $s['enabled'] );
+        $builtins = self::definitions();
+        $out      = [];
+
+        foreach ( $saved as $k => $row ) {
+            if ( ! is_array( $row ) ) {
+                continue;
             }
-            if ( array_key_exists( 'required', $s ) ) {
-                $def['required'] = ! empty( $s['required'] );
+            $key = sanitize_key( (string) ( $row['key'] ?? $k ) );
+            if ( $key === '' || isset( $out[ $key ] ) ) {
+                continue;
             }
-            if ( isset( $s['label'] ) && trim( (string) $s['label'] ) !== '' ) {
-                $def['label'] = (string) $s['label'];
+            $base = $builtins[ $key ] ?? [
+                'label'    => '',
+                'help'     => '',
+                'type'     => 'text',
+                'options'  => [],
+                'crm'      => '',
+                'crm_kind' => 'none',
+                'enabled'  => true,
+                'required' => false,
+            ];
+            $def = $base;
+            // 4.1.0 stored only overrides per built-in key (no 'type'); a full
+            // row always carries 'type'. Both shapes are read.
+            if ( array_key_exists( 'enabled', $row ) ) {
+                $def['enabled'] = ! empty( $row['enabled'] );
             }
-            if ( isset( $s['help'] ) ) {
-                $def['help'] = (string) $s['help'];
+            if ( array_key_exists( 'required', $row ) ) {
+                $def['required'] = ! empty( $row['required'] );
             }
-            if ( isset( $s['options'] ) && is_array( $s['options'] ) ) {
-                $def['options'] = array_values( array_filter( array_map( 'trim', array_map( 'strval', $s['options'] ) ), 'strlen' ) );
+            if ( isset( $row['label'] ) && trim( (string) $row['label'] ) !== '' ) {
+                $def['label'] = (string) $row['label'];
             }
-            $out[ $key ] = $def;
+            if ( isset( $row['help'] ) ) {
+                $def['help'] = (string) $row['help'];
+            }
+            if ( isset( $row['options'] ) && is_array( $row['options'] ) ) {
+                $def['options'] = array_values( array_filter( array_map( 'trim', array_map( 'strval', $row['options'] ) ), 'strlen' ) );
+            }
+            if ( isset( $row['type'] ) && in_array( $row['type'], self::TYPES, true ) ) {
+                $def['type'] = $row['type'];
+            }
+            if ( array_key_exists( 'crm_kind', $row ) && in_array( $row['crm_kind'], [ 'custom', 'default', 'none' ], true ) ) {
+                $def['crm_kind'] = $row['crm_kind'];
+                $def['crm']      = $row['crm_kind'] === 'none' ? '' : sanitize_key( (string) ( $row['crm'] ?? '' ) );
+            }
+            if ( $def['label'] === '' ) {
+                continue;
+            }
+            $def['builtin'] = isset( $builtins[ $key ] );
+            $out[ $key ]    = $def;
         }
+
+        // Built-ins missing from the saved list are kept, disabled, so they
+        // can be switched on again from the screen.
+        foreach ( $builtins as $key => $def ) {
+            if ( ! isset( $out[ $key ] ) ) {
+                $def['enabled'] = $saved ? false : $def['enabled'];
+                $def['builtin'] = true;
+                $out[ $key ]    = $def;
+            }
+        }
+
+        // Fresh install (nothing saved): built-in order and defaults.
+        self::$config_cache = $out;
         return $out;
     }
 
@@ -209,47 +279,215 @@ class My_IAPSNJ_Checkout_Fields {
     }
 
     /**
-     * Persist the admin configuration. Unknown keys are dropped.
+     * FluentCRM targets a field can be written to, for the admin picker:
+     * value => label. Values are "none", "default:column", "custom:slug" and
+     * "__new__" (create a custom field named after the checkout field).
      *
-     * @param array<string,array> $raw key => ['enabled','required','label','help','options' (string, one per line, or array)]
+     * @return array<string,string>
      */
-    public static function save_config( array $raw ): void {
+    public static function crm_targets(): array {
+        $out = [ 'none' => __( '— not stored on the contact —', 'my-iapsnj' ) ];
+        foreach ( self::DEFAULT_TARGETS as $column => $label ) {
+            $out[ 'default:' . $column ] = $label . ' ' . __( '(contact field)', 'my-iapsnj' );
+        }
+        $custom = fluentcrm_get_option( 'contact_custom_fields', [] );
+        if ( is_array( $custom ) ) {
+            foreach ( $custom as $cf ) {
+                if ( empty( $cf['slug'] ) ) {
+                    continue;
+                }
+                $slug = sanitize_key( (string) $cf['slug'] );
+                $out[ 'custom:' . $slug ] = (string) ( $cf['label'] ?? $slug ) . ' (' . $slug . ')';
+            }
+        }
+        $out[ self::NEW_TARGET ] = __( '+ Create a new CRM custom field for this field', 'my-iapsnj' );
+        return $out;
+    }
+
+    public static function target_value( array $def ): string {
+        if ( $def['crm_kind'] === 'custom' && $def['crm'] !== '' ) {
+            return 'custom:' . $def['crm'];
+        }
+        if ( $def['crm_kind'] === 'default' && $def['crm'] !== '' ) {
+            return 'default:' . $def['crm'];
+        }
+        return 'none';
+    }
+
+    /**
+     * Persist the admin configuration.
+     *
+     * @param array<string|int,array> $rows Posted rows: ['key','label','help','type','options'(string|array),'crm_target','enabled','required','order']
+     */
+    public static function save_config( array $rows ): void {
+        $builtins = self::definitions();
+        $existing = self::config();
+        $ordered  = [];
+        $position = 0;
+        foreach ( $rows as $row_id => $row ) {
+            if ( ! is_array( $row ) ) {
+                continue;
+            }
+            $order = isset( $row['order'] ) && is_numeric( $row['order'] ) ? (int) $row['order'] : $position;
+            $ordered[] = [ $order, $position, $row_id, $row ];
+            $position++;
+        }
+        usort( $ordered, function ( $a, $b ) {
+            return $a[0] === $b[0] ? $a[1] - $b[1] : $a[0] - $b[0];
+        } );
+
         $clean = [];
-        foreach ( self::definitions() as $key => $def ) {
-            $s = is_array( $raw[ $key ] ?? null ) ? $raw[ $key ] : [];
-            $options = $s['options'] ?? [];
+        $used  = [];
+        foreach ( $ordered as [ , , $row_id, $row ] ) {
+            $label = sanitize_text_field( (string) ( $row['label'] ?? '' ) );
+            $key   = sanitize_key( (string) ( $row['key'] ?? '' ) );
+            $is_builtin = $key !== '' && isset( $builtins[ $key ] );
+            if ( $label === '' ) {
+                if ( $is_builtin ) {
+                    $label = $builtins[ $key ]['label'];
+                } else {
+                    continue; // a custom field needs a label
+                }
+            }
+            if ( $key === '' ) {
+                $key = 'app_' . sanitize_key( str_replace( ' ', '_', strtolower( $label ) ) );
+                $key = substr( $key, 0, 40 ) ?: 'app_field';
+            }
+            $base_key = $key;
+            $n        = 2;
+            while ( isset( $used[ $key ] ) ) {
+                $key = $base_key . '_' . $n++;
+            }
+            $used[ $key ] = true;
+
+            $type = $is_builtin ? $builtins[ $key ]['type'] : (string) ( $row['type'] ?? 'text' );
+            if ( ! in_array( $type, self::TYPES, true ) ) {
+                $type = 'text';
+            }
+            $options = $row['options'] ?? [];
             if ( is_string( $options ) ) {
                 $options = preg_split( '/\r\n|\r|\n/', $options );
             }
             $options = array_values( array_filter( array_map( 'sanitize_text_field', array_map( 'strval', (array) $options ) ), 'strlen' ) );
+
+            // CRM target.
+            $target   = (string) ( $row['crm_target'] ?? '' );
+            $crm_kind = 'none';
+            $crm      = '';
+            if ( $target === '' && isset( $existing[ $key ] ) ) {
+                $target = self::target_value( $existing[ $key ] );
+            }
+            if ( $target === self::NEW_TARGET ) {
+                $slug = self::create_crm_field( $key, $label, $type, $options );
+                if ( $slug !== '' ) {
+                    $crm_kind = 'custom';
+                    $crm      = $slug;
+                }
+            } elseif ( strpos( $target, 'custom:' ) === 0 ) {
+                $crm_kind = 'custom';
+                $crm      = sanitize_key( substr( $target, 7 ) );
+            } elseif ( strpos( $target, 'default:' ) === 0 ) {
+                $column = sanitize_key( substr( $target, 8 ) );
+                if ( isset( self::DEFAULT_TARGETS[ $column ] ) ) {
+                    $crm_kind = 'default';
+                    $crm      = $column;
+                }
+            }
+            if ( $crm === '' ) {
+                $crm_kind = 'none';
+            }
+
             $clean[ $key ] = [
-                'enabled'  => ! empty( $s['enabled'] ),
-                'required' => ! empty( $s['required'] ),
-                'label'    => sanitize_text_field( (string) ( $s['label'] ?? '' ) ),
-                'help'     => sanitize_text_field( (string) ( $s['help'] ?? '' ) ),
-                'options'  => $def['type'] === 'select' ? $options : [],
+                'key'      => $key,
+                'label'    => $label,
+                'help'     => sanitize_text_field( (string) ( $row['help'] ?? '' ) ),
+                'type'     => $type,
+                'options'  => in_array( $type, [ 'select', 'radio' ], true ) ? $options : [],
+                'crm'      => $crm,
+                'crm_kind' => $crm_kind,
+                'enabled'  => ! empty( $row['enabled'] ),
+                'required' => ! empty( $row['required'] ),
             ];
         }
         update_option( self::OPTION, $clean );
+        self::$config_cache = null;
     }
 
     /**
-     * Seed the option on first install / upgrade (idempotent).
+     * Create a FluentCRM custom field for a checkout field (idempotent by
+     * slug). Returns the slug, '' on failure.
+     *
+     * @param string[] $options
+     */
+    public static function create_crm_field( string $key, string $label, string $type, array $options ): string {
+        $slug = sanitize_key( $key );
+        if ( $slug === '' ) {
+            return '';
+        }
+        $fields = fluentcrm_get_option( 'contact_custom_fields', [] );
+        if ( ! is_array( $fields ) ) {
+            $fields = [];
+        }
+        foreach ( $fields as $f ) {
+            if ( ( $f['slug'] ?? '' ) === $slug ) {
+                return $slug;
+            }
+        }
+        $map = [
+            'text'     => 'text',
+            'textarea' => 'textarea',
+            'select'   => 'select-one',
+            'radio'    => 'radio',
+            'date'     => 'date',
+            'checkbox' => 'checkbox',
+        ];
+        $def = [
+            'group' => 'default',
+            'slug'  => $slug,
+            'label' => $label,
+            'type'  => $map[ $type ] ?? 'text',
+        ];
+        if ( in_array( $def['type'], [ 'select-one', 'radio' ], true ) ) {
+            $def['options'] = $options;
+        } elseif ( $def['type'] === 'checkbox' ) {
+            $def['options'] = [ 'Yes' ];
+        }
+        $fields[] = $def;
+        fluentcrm_update_option( 'contact_custom_fields', array_values( $fields ) );
+        return $slug;
+    }
+
+    /**
+     * Seed the option on first install (idempotent).
      */
     public static function seed_defaults(): void {
         if ( get_option( self::OPTION ) === false ) {
             $seed = [];
             foreach ( self::definitions() as $key => $def ) {
-                $seed[ $key ] = [
-                    'enabled'  => $def['enabled'],
-                    'required' => $def['required'],
-                    'label'    => '',
-                    'help'     => '',
-                    'options'  => [],
-                ];
+                $seed[ $key ] = array_merge( [ 'key' => $key ], $def );
             }
             add_option( self::OPTION, $seed );
         }
+    }
+
+    /**
+     * Data migration (v7): rewrite the 4.1.0 per-key override format as the
+     * ordered full-row format. Safe to run repeatedly.
+     */
+    public static function upgrade_config(): void {
+        $saved = get_option( self::OPTION, [] );
+        if ( ! is_array( $saved ) || ! $saved ) {
+            self::seed_defaults();
+            return;
+        }
+        self::$config_cache = null;
+        $rows = [];
+        foreach ( self::config() as $key => $def ) {
+            unset( $def['builtin'] );
+            $rows[ $key ] = array_merge( [ 'key' => $key ], $def );
+        }
+        update_option( self::OPTION, $rows );
+        self::$config_cache = null;
     }
 
     public static function input_name( string $key ): string {
@@ -372,28 +610,40 @@ class My_IAPSNJ_Checkout_Fields {
         $req_attr = $required ? ' required aria-required="true"' : '';
         $star     = $required ? ' <span class="fct_required my-iapsnj-required" aria-hidden="true">*</span>' : '';
         $help     = (string) ( $def['help'] ?? '' );
+        $type     = (string) $def['type'];
+        $options  = (array) ( $def['options'] ?? [] );
 
-        echo '<div class="fct_form_group my-iapsnj-field my-iapsnj-field-' . esc_attr( $def['type'] ) . '" data-my-iapsnj-field="' . esc_attr( $key ) . '">';
+        echo '<div class="fct_form_group my-iapsnj-field my-iapsnj-field-' . esc_attr( $type ) . '" data-my-iapsnj-field="' . esc_attr( $key ) . '">';
 
-        if ( $def['type'] === 'checkbox' ) {
+        if ( $type === 'checkbox' ) {
             echo '<label class="fct_input_label fct_input_label_checkbox my-iapsnj-checkbox" for="' . esc_attr( $id ) . '">';
             echo '<input type="checkbox" class="fct-input fct-input-checkbox" id="' . esc_attr( $id ) . '" name="' . esc_attr( $name ) . '" value="yes"' . checked( $value, 'yes', false ) . $req_attr . '> ';
             echo '<span>' . esc_html( $def['label'] ) . '</span>' . $star; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- $star is static markup
             echo '</label>';
+        } elseif ( $type === 'radio' && $options ) {
+            echo '<fieldset class="my-iapsnj-radio-group"><legend class="fct_input_label">' . esc_html( $def['label'] ) . $star . '</legend>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+            $i = 0;
+            foreach ( $options as $opt ) {
+                $oid = $id . '-' . $i++;
+                echo '<label class="fct_input_label fct_input_label_checkbox my-iapsnj-radio" for="' . esc_attr( $oid ) . '">';
+                echo '<input type="radio" class="fct-input" id="' . esc_attr( $oid ) . '" name="' . esc_attr( $name ) . '" value="' . esc_attr( $opt ) . '"' . checked( $value, $opt, false ) . ( $required && $i === 1 ? ' required' : '' ) . '> ';
+                echo '<span>' . esc_html( $opt ) . '</span></label>';
+            }
+            echo '</fieldset>';
         } else {
             echo '<label class="fct_input_label" for="' . esc_attr( $id ) . '">' . esc_html( $def['label'] ) . $star . '</label>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-            if ( $def['type'] === 'select' && ! empty( $def['options'] ) ) {
+            if ( $type === 'select' && $options ) {
                 echo '<select class="fct-input fct-select" id="' . esc_attr( $id ) . '" name="' . esc_attr( $name ) . '"' . $req_attr . '>';
                 echo '<option value="">' . esc_html__( '— Select —', 'my-iapsnj' ) . '</option>';
-                foreach ( $def['options'] as $opt ) {
+                foreach ( $options as $opt ) {
                     echo '<option value="' . esc_attr( $opt ) . '"' . selected( $value, $opt, false ) . '>' . esc_html( $opt ) . '</option>';
                 }
                 echo '</select>';
-            } elseif ( $def['type'] === 'textarea' ) {
+            } elseif ( $type === 'textarea' ) {
                 echo '<textarea class="fct-input" id="' . esc_attr( $id ) . '" name="' . esc_attr( $name ) . '" rows="3"' . $req_attr . '>' . esc_textarea( $value ) . '</textarea>';
             } else {
-                $type = $def['type'] === 'date' ? 'date' : 'text';
-                echo '<input type="' . esc_attr( $type ) . '" class="fct-input" id="' . esc_attr( $id ) . '" name="' . esc_attr( $name ) . '" value="' . esc_attr( $value ) . '"' . $req_attr . ( $type === 'text' ? ' autocomplete="off"' : '' ) . '>';
+                $input_type = $type === 'date' ? 'date' : 'text';
+                echo '<input type="' . esc_attr( $input_type ) . '" class="fct-input" id="' . esc_attr( $id ) . '" name="' . esc_attr( $name ) . '" value="' . esc_attr( $value ) . '"' . $req_attr . ( $input_type === 'text' ? ' autocomplete="off"' : '' ) . '>';
             }
         }
         if ( $help !== '' ) {
@@ -403,8 +653,8 @@ class My_IAPSNJ_Checkout_Fields {
     }
 
     /**
-     * Values to prefill: what the cart already holds for this checkout, then
-     * the logged-in member's CRM profile (renewals).
+     * Values to prefill: the logged-in member's CRM profile (renewals), then
+     * whatever the cart already holds for this checkout.
      *
      * @return array<string,string>
      */
@@ -412,7 +662,6 @@ class My_IAPSNJ_Checkout_Fields {
         $values = [];
         $config = self::enabled_fields();
 
-        // Logged-in member → CRM profile.
         $user_id = get_current_user_id();
         if ( $user_id > 0 ) {
             try {
@@ -433,7 +682,6 @@ class My_IAPSNJ_Checkout_Fields {
             }
         }
 
-        // Values FluentCart may already have stored on the cart for this session.
         $cart = $args['cart'] ?? null;
         if ( is_object( $cart ) ) {
             try {
@@ -442,7 +690,7 @@ class My_IAPSNJ_Checkout_Fields {
                     foreach ( $config as $key => $def ) {
                         $name = self::input_name( $key );
                         if ( isset( $cd[ $name ] ) && is_scalar( $cd[ $name ] ) && (string) $cd[ $name ] !== '' ) {
-                            $values[ $key ] = self::sanitize_value( $def, $cd[ $name ] );
+                            $values[ $key ] = (string) $cd[ $name ];
                         }
                     }
                 }
@@ -469,8 +717,8 @@ class My_IAPSNJ_Checkout_Fields {
         echo '<script>(function(){var P=' . $prefix . ',K="my_iapsnj_application";' // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- JSON-encoded constant
             . 'function all(){return document.querySelectorAll(\'[name^="\'+P+\'"]\');}'
             . 'function read(){try{return JSON.parse(sessionStorage.getItem(K)||"{}")}catch(e){return {}}}'
-            . 'function save(){var o=read();all().forEach(function(i){o[i.name]=i.type==="checkbox"?(i.checked?"yes":""):i.value;});try{sessionStorage.setItem(K,JSON.stringify(o))}catch(e){}}'
-            . 'function restore(){var o=read();all().forEach(function(i){if(!(i.name in o)){return;}if(i.type==="checkbox"){if(!i.checked&&o[i.name]==="yes"){i.checked=true;}}else if(!i.value&&o[i.name]){i.value=o[i.name];}});}'
+            . 'function save(){var o=read();all().forEach(function(i){if(i.type==="radio"){if(i.checked){o[i.name]=i.value;}}else{o[i.name]=i.type==="checkbox"?(i.checked?"yes":""):i.value;}});try{sessionStorage.setItem(K,JSON.stringify(o))}catch(e){}}'
+            . 'function restore(){var o=read();all().forEach(function(i){if(!(i.name in o)){return;}if(i.type==="checkbox"){if(!i.checked&&o[i.name]==="yes"){i.checked=true;}}else if(i.type==="radio"){if(i.value===o[i.name]){i.checked=true;}}else if(!i.value&&o[i.name]){i.value=o[i.name];}});}'
             . 'function watch(e){if(e.target&&e.target.name&&e.target.name.indexOf(P)===0){save();}}'
             . 'document.addEventListener("change",watch,true);document.addEventListener("input",watch,true);'
             . 'restore();var n=0,t=setInterval(function(){restore();if(++n>120){clearInterval(t);}},1000);'
@@ -510,7 +758,7 @@ class My_IAPSNJ_Checkout_Fields {
             if ( $value === '' ) {
                 if ( ! empty( $def['required'] ) ) {
                     $errors[ $name ]['required'] = $def['type'] === 'checkbox'
-                        ? __( 'Please confirm the certification statement.', 'my-iapsnj' )
+                        ? sprintf( /* translators: checkbox label */ __( 'Please tick: %s', 'my-iapsnj' ), $def['label'] )
                         : sprintf( /* translators: field label */ __( '%s is required.', 'my-iapsnj' ), $label );
                 }
                 continue;
@@ -518,7 +766,7 @@ class My_IAPSNJ_Checkout_Fields {
             if ( $def['type'] === 'date' && My_IAPSNJ_Dates::ymd( $value ) === '' ) {
                 $errors[ $name ]['invalid'] = sprintf( /* translators: field label */ __( '%s is not a valid date.', 'my-iapsnj' ), $label );
             }
-            if ( $def['type'] === 'select' && ! empty( $def['options'] ) && ! in_array( $value, $def['options'], true ) ) {
+            if ( in_array( $def['type'], [ 'select', 'radio' ], true ) && ! empty( $def['options'] ) && ! in_array( $value, $def['options'], true ) ) {
                 $errors[ $name ]['invalid'] = sprintf( /* translators: field label */ __( 'Please choose a valid %s.', 'my-iapsnj' ), $label );
             }
         }
@@ -731,14 +979,14 @@ class My_IAPSNJ_Checkout_Fields {
         }
         $custom   = [];
         $defaults = [];
-        foreach ( self::definitions() as $key => $def ) {
+        foreach ( self::config() as $key => $def ) {
             $value = isset( $values[ $key ] ) ? self::sanitize_value( $def, $values[ $key ] ) : '';
             if ( $value === '' || $def['crm'] === '' ) {
                 continue;
             }
             if ( $def['crm_kind'] === 'custom' ) {
-                $custom[ $def['crm'] ] = $value;
-            } elseif ( $def['crm_kind'] === 'default' ) {
+                $custom[ $def['crm'] ] = $def['type'] === 'checkbox' ? 'Yes' : $value;
+            } elseif ( $def['crm_kind'] === 'default' && isset( self::DEFAULT_TARGETS[ $def['crm'] ] ) ) {
                 $defaults[ $def['crm'] ] = $value;
             }
         }

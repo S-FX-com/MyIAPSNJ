@@ -24,9 +24,8 @@ Checkout links**:
 https://SITE/?fluent-cart=instant_checkout&item_id={VARIATION_ID}&quantity=1
 ```
 
-Regular Member 2027 · Associate Member 2027 · Lifetime Member · Multi-Year
-2027–2031 · 2026 Catch-Up + 2027 (Oct–Dec only; remove the button after
-Dec 31). Set the page URL in **Sync & Settings → Join page URL**.
+Regular Membership · Associate Membership · Lifetime Membership · Multi-Year
+Membership. Set the page URL in **Sync & Settings → Join page URL**.
 
 Variation ids differ between staging and production — rebuild the buttons
 after the product import (`docs/not-in-git.md`).
@@ -40,8 +39,16 @@ billing address (all required except line 2), no shipping (digital). Turn on
 *Agree to terms* checkbox.
 
 **My IAPSNJ fields**, rendered above the payment methods
-(`fluent_cart/before_payment_methods`) and configured in **Sync & Settings →
-Application fields** (show / required / label / help / dropdown options):
+(`fluent_cart/before_payment_methods`) and defined in **Sync & Settings →
+Application fields**. The screen is a small field builder: order, show,
+required, label, type (text, paragraph, dropdown, radio, date, checkbox),
+options, help text, and *Stored in FluentCRM as* — an existing custom field,
+a contact field (date of birth, prefix), **a new custom field created on
+save**, or not stored. Built-in fields can be hidden but not removed; added
+fields get a key `app_<label>` and, when "create new" is chosen, a FluentCRM
+custom field of the matching type with the same slug.
+
+Built-in fields:
 
 | Key | Type | Default | CRM target | Notes |
 |---|---|---|---|---|
@@ -54,8 +61,8 @@ Application fields** (show / required / label / help / dropdown options):
 | `union_position` | text | off | custom `union_position` | candidate to retire |
 | `certify` | checkbox | on, required | — | "I certify that the information I provided is accurate …" |
 
-Input names are prefixed `iapsnj_` (`iapsnj_department`, …). A dropdown with
-no options renders as a text box.
+Input names are prefixed `iapsnj_` (`iapsnj_department`, …). A dropdown or
+radio group with no options renders as a text box.
 
 **Behaviour**
 
@@ -81,10 +88,14 @@ no options renders as a text box.
 
 ## 3. Renewal
 
-A logged-in member clicks **Renew** — the `[iapsnj_renew_link]` shortcode
-(member area, dues emails) — and lands on the checkout of the renewal product
-configured for their type (**Sync & Settings → Renewal product**, Regular →
-Regular Member 2027, Associate → Associate Member 2027). Name, email, address
+With annual products sold as FluentCart subscriptions, most renewals are
+automatic: the renewal order fires `fluent_cart/renewal_paid` and the plugin
+extends `paid_through` by the term rule (`docs/crm-schema.md`). For a member
+without an active subscription (lapsed, check payer, migrated from PMPro) a
+logged-in click on **Renew** — the `[iapsnj_renew_link]` shortcode (member
+area, dues emails) — lands on the checkout of the renewal product configured
+for their type (**Sync & Settings → Renewal product**, Regular → Regular
+Membership, Associate → Associate Membership). Name, email, address
 come from FluentCart's customer record; the application fields come prefilled
 from the CRM. Lifetime / Honorary members get no link; visitors get the Join
 page.

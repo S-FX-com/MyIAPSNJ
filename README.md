@@ -29,12 +29,17 @@ Documentation: [`docs/phase1-findings.md`](docs/phase1-findings.md) ·
 
 ## What it does
 
-* **Membership state from payments** — on `fluent_cart/order_paid` (card at
-  checkout, check marked paid, or a check recorded by hand — one code path)
-  the linked CRM contact gets `Paid-YYYY` tags, `member_type`, `paid_through`
-  (never shortened; null for Lifetime/Honorary), loses `Payment-Pending-Check`
-  / `Checkout-Abandoned`, gets a WordPress login if it has none, and the
+* **Membership state from payments** — on `fluent_cart/order_paid` /
+  `fluent_cart/renewal_paid` (card at checkout, subscription renewal, check
+  marked paid, or a check recorded by hand — one code path) the linked CRM
+  contact gets `Paid-YYYY` tags, `member_type`, `paid_through` (never
+  shortened; null for Lifetime/Honorary), loses `Payment-Pending-Check` /
+  `Checkout-Abandoned`, gets a WordPress login if it has none, and the
   application is closed. Full refunds revert exactly what the order applied.
+* **Term rule** — products carry no year. A payment before the renewal-season
+  cutover (default Oct 1, Sync & Settings) covers through Dec 31 of that year;
+  on/after it, through Dec 31 of the next year. Multi-year products add whole
+  years. Checks count from the deposit date.
 * **New-member notification** — plain-text email on *payment* with name, full
   mailing address, email, phone, department, rank, member number, product,
   amount and links. Never on application submitted.
@@ -44,7 +49,10 @@ Documentation: [`docs/phase1-findings.md`](docs/phase1-findings.md) ·
   date of birth, referred by, certification …), validates them server-side,
   stores them on the order and writes them to the CRM contact when the order
   is placed by check or paid. Logged-in members see them prefilled from the
-  CRM (renewals). Fields are configured in Sync & Settings; no Fluent Forms.
+  CRM (renewals). Sync & Settings has a small field builder: add fields, pick
+  the type and where the answer is stored in FluentCRM (existing custom
+  field, contact field, or a new custom field created on save). No Fluent
+  Forms.
 * **Application tracking** — as soon as an email is typed at checkout the
   contact exists and is tagged `Checkout-Abandoned`, and an application row
   (join or renewal, decided from the contact's Paid history) is opened. The
@@ -96,7 +104,9 @@ Upgrading from 3.x: data-version 5 drops PMPro-sourced and `pmpro_b*`
 mappings, forces the mirror to CRM → WP, removes the PMPro options/cron and
 creates the applications table. Data-version 6 (4.1) removes the Fluent Forms
 settings, adds `cart_hash` / `fields` to the applications table and seeds the
-default checkout fields. Nothing in the CRM is changed by an upgrade.
+default checkout fields. Data-version 7 (4.2) converts product rows to *years
+covered* and the checkout fields to the builder format. Nothing in the CRM is
+changed by an upgrade.
 
 ## Admin screens (My IAPSNJ menu, `manage_options`)
 
@@ -104,7 +114,7 @@ default checkout fields. Nothing in the CRM is changed by an upgrade.
 |---|---|---|
 | Dashboard | `my-iapsnj` | counts, members by type, paid years, environment checklist |
 | Pending Checks | `my-iapsnj-checks` | batch mark paid; record a check |
-| Membership Products | `my-iapsnj-products` | FluentCart variation → member type / paid_through / years; checkout links |
+| Membership Products | `my-iapsnj-products` | FluentCart variation → member type / years covered; checkout links |
 | Reports | `my-iapsnj-reports` | open applications, orphan orders, aging, WP↔CRM orphans |
 | Profile Mirror | `my-iapsnj-mapping` | CRM → WP field map with sample preview |
 | Sync & Settings | `my-iapsnj-sync` | mirror now, triggers, application fields, renewal products, notification, checkout, CRM schema |
@@ -155,7 +165,7 @@ Actions: `my_iapsnj/membership_paid($subscriber, $order, $applied)`,
 `my_iapsnj/application_recorded($row, $cart)`.
 Filters: `my_iapsnj/new_member_notification($mail, …)`, `my_iapsnj_top_menu_slugs`.
 
-FluentCart hooks consumed: `fluent_cart/order_paid`,
+FluentCart hooks consumed: `fluent_cart/order_paid`, `fluent_cart/renewal_paid`,
 `fluent_cart/order_placed_offline`, `fluent_cart/order_fully_refunded`,
 `fluent_cart/should_send_email_notification`; checkout:
 `fluent_cart/before_payment_methods` (render),

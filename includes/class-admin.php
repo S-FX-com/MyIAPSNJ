@@ -407,7 +407,7 @@ class My_IAPSNJ_Admin {
             <div id="fcrm-checks-table"><p class="fcrm-placeholder"><?php esc_html_e( 'Loading pending checks…', 'my-iapsnj' ); ?></p></div>
 
             <div class="fcrm-deposit-bar">
-                <label><?php esc_html_e( 'Deposit date', 'my-iapsnj' ); ?> <input type="date" id="fcrm-deposit-date" value="<?php echo esc_attr( My_IAPSNJ_Dates::today() ); ?>"></label>
+                <label title="<?php esc_attr_e( 'Also decides the membership term: before the renewal-season cutover the check covers this year, on/after it the next year.', 'my-iapsnj' ); ?>"><?php esc_html_e( 'Deposit date', 'my-iapsnj' ); ?> <input type="date" id="fcrm-deposit-date" value="<?php echo esc_attr( My_IAPSNJ_Dates::today() ); ?>"></label>
                 <label><?php esc_html_e( 'Deposit slip total', 'my-iapsnj' ); ?> <input type="text" id="fcrm-deposit-expected" class="small-text" placeholder="0.00" style="width:90px"></label>
                 <span class="fcrm-deposit-total"><?php esc_html_e( 'Selected:', 'my-iapsnj' ); ?> <strong id="fcrm-selected-count">0</strong> · <strong id="fcrm-selected-total">$0.00</strong> <span id="fcrm-deposit-match"></span></span>
                 <button id="fcrm-mark-paid" class="button button-primary" disabled><?php esc_html_e( 'Mark selected as paid', 'my-iapsnj' ); ?></button>
@@ -446,7 +446,7 @@ class My_IAPSNJ_Admin {
                         <select id="fcrm-rc-variation">
                             <option value=""><?php esc_html_e( '— Select membership product —', 'my-iapsnj' ); ?></option>
                             <?php foreach ( $products as $vid => $cfg ) : ?>
-                                <option value="<?php echo esc_attr( (string) $vid ); ?>"><?php echo esc_html( ( $cfg['label'] ?: ( 'Variation #' . $vid ) ) . ' — ' . $cfg['member_type'] . ( $cfg['paid_through'] ? ' → ' . My_IAPSNJ_Dates::ymd_display( $cfg['paid_through'] ) : '' ) ); ?></option>
+                                <option value="<?php echo esc_attr( (string) $vid ); ?>"><?php echo esc_html( ( $cfg['label'] ?: ( 'Variation #' . $vid ) ) . ' — ' . My_IAPSNJ_Membership::product_grant_label( $cfg ) ); ?></option>
                             <?php endforeach; ?>
                         </select>
                     </td>
@@ -457,6 +457,7 @@ class My_IAPSNJ_Admin {
                         <input type="text" id="fcrm-rc-check-number" placeholder="<?php esc_attr_e( 'Check #', 'my-iapsnj' ); ?>" class="small-text" style="width:120px">
                         <label><?php esc_html_e( 'Received', 'my-iapsnj' ); ?> <input type="date" id="fcrm-rc-received" value="<?php echo esc_attr( My_IAPSNJ_Dates::today() ); ?>"></label>
                         <label><?php esc_html_e( 'Deposited', 'my-iapsnj' ); ?> <input type="date" id="fcrm-rc-deposit" value="<?php echo esc_attr( My_IAPSNJ_Dates::today() ); ?>"></label>
+                        <p class="description"><?php esc_html_e( 'The deposit date decides the term: before the renewal-season cutover it covers this year, on/after it the next year.', 'my-iapsnj' ); ?></p>
                     </td>
                 </tr>
                 <tr>
@@ -477,11 +478,14 @@ class My_IAPSNJ_Admin {
 
     public function render_products_page(): void {
         $this->guard();
-        $this->page_header( __( 'Membership Products', 'my-iapsnj' ), __( 'Map each FluentCart product to the membership state a payment grants. Honorary is never a product — it is assigned by tag in FluentCRM. All products are one-time purchases with fixed calendar-year expiration.', 'my-iapsnj' ) );
+        $this->page_header( __( 'Membership Products', 'my-iapsnj' ), __( 'Map each FluentCart product (one-time or subscription) to the member type it grants and how many years it covers. The expiration date is computed from the payment date, not from the product: paid before the renewal-season cutover → Dec 31 of that year; paid on/after it → Dec 31 of the next year. Honorary is never a product — it is assigned by tag in FluentCRM.', 'my-iapsnj' ) );
         $variations = My_IAPSNJ_Membership::all_variations();
         $raw        = get_option( My_IAPSNJ_Membership::OPTION_PRODUCTS, [] );
         $raw        = is_array( $raw ) ? $raw : [];
-        $this_year  = (int) wp_date( 'Y' );
+        $cutover    = My_IAPSNJ_Membership::renewal_cutover();
+        $today      = My_IAPSNJ_Dates::today();
+        $example_1  = My_IAPSNJ_Dates::membership_term( $today, 1, $cutover );
+        $example_5  = My_IAPSNJ_Dates::membership_term( $today, 5, $cutover );
         ?>
         <div id="fcrm-products-notice" class="fcrm-notice" style="display:none"></div>
         <?php if ( ! My_IAPSNJ_Membership::is_available() ) : ?>
@@ -489,7 +493,7 @@ class My_IAPSNJ_Admin {
             <?php return; ?>
         <?php endif; ?>
         <?php if ( ! $variations ) : ?>
-            <div class="fcrm-section"><p><?php esc_html_e( 'No FluentCart products found yet. Create the products in FluentCart first (Regular Member 2027, Associate Member 2027, Lifetime Member, Multi-Year 2027–2031, 2026 Catch-Up + 2027), then return here.', 'my-iapsnj' ); ?></p></div></div>
+            <div class="fcrm-section"><p><?php esc_html_e( 'No FluentCart products found yet. Create the products in FluentCart first (Regular Membership, Associate Membership, Lifetime Membership, Multi-Year Membership), then return here.', 'my-iapsnj' ); ?></p></div></div>
             <?php return; ?>
         <?php endif; ?>
         <form id="fcrm-products-form">
@@ -500,19 +504,21 @@ class My_IAPSNJ_Admin {
                     <th><?php esc_html_e( 'FluentCart product / variation', 'my-iapsnj' ); ?></th>
                     <th><?php esc_html_e( 'Price', 'my-iapsnj' ); ?></th>
                     <th><?php esc_html_e( 'Member type', 'my-iapsnj' ); ?></th>
-                    <th><?php esc_html_e( 'Sets paid_through', 'my-iapsnj' ); ?></th>
-                    <th><?php esc_html_e( 'Paid-YYYY tags (comma-separated years)', 'my-iapsnj' ); ?></th>
+                    <th><?php esc_html_e( 'Years covered per payment', 'my-iapsnj' ); ?></th>
                 </tr></thead>
                 <tbody>
                 <?php foreach ( $variations as $vid => $v ) :
-                    $cfg = is_array( $raw[ $vid ] ?? null ) ? $raw[ $vid ] : [];
-                    $years = implode( ', ', array_map( 'intval', (array) ( $cfg['years'] ?? [] ) ) );
-                    $type  = (string) ( $cfg['member_type'] ?? '' );
+                    $cfg      = is_array( $raw[ $vid ] ?? null ) ? $raw[ $vid ] : [];
+                    $type     = (string) ( $cfg['member_type'] ?? '' );
+                    $duration = (int) ( $cfg['duration'] ?? 0 );
+                    if ( $duration <= 0 ) {
+                        $duration = max( 1, count( array_filter( array_map( 'intval', (array) ( $cfg['years'] ?? [] ) ) ) ) );
+                    }
                 ?>
                     <tr class="<?php echo ! empty( $cfg['enabled'] ) ? 'enabled' : ''; ?>">
                         <td style="text-align:center"><input type="checkbox" name="products[<?php echo esc_attr( (string) $vid ); ?>][enabled]" value="1" <?php checked( ! empty( $cfg['enabled'] ) ); ?>>
                             <input type="hidden" name="products[<?php echo esc_attr( (string) $vid ); ?>][label]" value="<?php echo esc_attr( $v['title'] ); ?>"></td>
-                        <td><strong><?php echo esc_html( $v['title'] ); ?></strong><br><small class="fcrm-muted">variation #<?php echo (int) $vid; ?> · <?php echo esc_html( $v['payment_type'] ?: 'onetime' ); ?><?php echo $v['payment_type'] === 'subscription' ? ' — <span class="fcrm-error">' . esc_html__( 'subscription products are not supported', 'my-iapsnj' ) . '</span>' : ''; ?></small></td>
+                        <td><strong><?php echo esc_html( $v['title'] ); ?></strong><br><small class="fcrm-muted">variation #<?php echo (int) $vid; ?> · <?php echo esc_html( $v['payment_type'] === 'subscription' ? __( 'subscription (auto-renews; each renewal payment extends the term)', 'my-iapsnj' ) : __( 'one-time', 'my-iapsnj' ) ); ?></small></td>
                         <td><?php echo esc_html( My_IAPSNJ_Membership::format_money( $v['price_cents'] ) ); ?></td>
                         <td><select name="products[<?php echo esc_attr( (string) $vid ); ?>][member_type]">
                             <option value=""><?php esc_html_e( '—', 'my-iapsnj' ); ?></option>
@@ -520,14 +526,21 @@ class My_IAPSNJ_Admin {
                                 <option value="<?php echo esc_attr( $t ); ?>" <?php selected( $type, $t ); ?>><?php echo esc_html( $t ); ?></option>
                             <?php endforeach; ?>
                         </select></td>
-                        <td><input type="date" name="products[<?php echo esc_attr( (string) $vid ); ?>][paid_through]" value="<?php echo esc_attr( (string) ( $cfg['paid_through'] ?? '' ) ); ?>" <?php echo $type === My_IAPSNJ_Schema::TYPE_LIFETIME ? 'disabled' : ''; ?>>
-                            <br><small class="fcrm-muted"><?php esc_html_e( 'Lifetime: left null on purpose.', 'my-iapsnj' ); ?></small></td>
-                        <td><input type="text" name="products[<?php echo esc_attr( (string) $vid ); ?>][years]" value="<?php echo esc_attr( $years ); ?>" placeholder="<?php echo esc_attr( (string) ( $this_year + 1 ) ); ?>" class="regular-text" style="width:220px"></td>
+                        <td><input type="number" name="products[<?php echo esc_attr( (string) $vid ); ?>][duration]" value="<?php echo esc_attr( (string) $duration ); ?>" min="1" max="10" class="small-text" <?php disabled( $type === My_IAPSNJ_Schema::TYPE_LIFETIME ); ?>>
+                            <br><small class="fcrm-muted"><?php esc_html_e( '1 for annual, 5 for multi-year. Lifetime: no term.', 'my-iapsnj' ); ?></small></td>
                     </tr>
                 <?php endforeach; ?>
                 </tbody>
             </table>
-            <p class="description"><?php esc_html_e( 'Examples: Regular Member 2027 → Regular, 2027-12-31, 2027. Multi-Year 2027–2031 → Regular, 2031-12-31, 2027, 2028, 2029, 2030, 2031. 2026 Catch-Up + 2027 → Regular, 2027-12-31, 2026, 2027. Lifetime Member → Lifetime, (no date), (no years).', 'my-iapsnj' ); ?></p>
+            <p class="description"><?php echo esc_html( sprintf(
+                /* translators: 1: cutover MM-DD, 2: today, 3: 1-year paid_through, 4: 5-year paid_through, 5: cutover year example */
+                __( 'Rule (cutover %1$s, change it in Sync & Settings): a payment today (%2$s) covers through %3$s for a 1-year product and through %4$s for a 5-year product; a payment on or after %5$s covers the following year. Paid-YYYY tags follow the same years. Lifetime → member_type Lifetime, paid_through deleted, Lifetime tag.', 'my-iapsnj' ),
+                $cutover,
+                My_IAPSNJ_Dates::ymd_display( $today ),
+                My_IAPSNJ_Dates::ymd_display( $example_1['paid_through'] ),
+                My_IAPSNJ_Dates::ymd_display( $example_5['paid_through'] ),
+                My_IAPSNJ_Dates::ymd_display( substr( $today, 0, 4 ) . '-' . $cutover )
+            ) ); ?></p>
             <button type="submit" class="button button-primary"><?php esc_html_e( 'Save products', 'my-iapsnj' ); ?></button>
         </div>
         </form>
@@ -805,6 +818,10 @@ class My_IAPSNJ_Admin {
                     <?php endforeach; ?>
                     <p class="description"><?php esc_html_e( 'Which checkout a logged-in member is sent to by [iapsnj_renew_link] (and by the dues-reminder emails). Lifetime and Honorary members get no link.', 'my-iapsnj' ); ?></p>
                 </td></tr>
+                <tr><th><?php esc_html_e( 'Renewal season starts', 'my-iapsnj' ); ?></th><td>
+                    <input type="text" name="renewal_cutover" value="<?php echo esc_attr( My_IAPSNJ_Membership::renewal_cutover() ); ?>" class="small-text" style="width:80px" placeholder="10-01" pattern="\d{2}-\d{2}"> <span class="fcrm-muted">MM-DD</span>
+                    <p class="description"><?php esc_html_e( 'A payment on or after this date buys the following year (paid through Dec 31 of next year); before it, the current year. Applies to card payments, subscription renewals and checks (by deposit date).', 'my-iapsnj' ); ?></p>
+                </td></tr>
             </table>
         </div>
 
@@ -834,34 +851,34 @@ class My_IAPSNJ_Admin {
         <form id="fcrm-checkout-fields-form">
         <div class="fcrm-section" id="application-fields">
             <h2><?php esc_html_e( 'Application fields', 'my-iapsnj' ); ?></h2>
-            <p class="description"><?php esc_html_e( 'Shown on the checkout page above the payment methods, in this order. Dropdown options: one per line (a dropdown with no options renders as a text box). Each field is written to the CRM column shown; blank answers never erase existing CRM data.', 'my-iapsnj' ); ?></p>
-            <table class="widefat fcrm-products-table">
+            <p class="description"><?php esc_html_e( 'Shown on the checkout page above the payment methods, in this order. Add your own fields, pick a type and where the answer is stored in FluentCRM (an existing custom field, a contact field, a new custom field created on save, or nowhere). Dropdown / radio options: one per line. Blank answers never erase existing CRM data. Built-in fields can be hidden but not removed.', 'my-iapsnj' ); ?></p>
+            <table class="widefat fcrm-products-table" id="fcrm-fields-table">
                 <thead><tr>
+                    <th style="width:60px"><?php esc_html_e( 'Order', 'my-iapsnj' ); ?></th>
                     <th><?php esc_html_e( 'Show', 'my-iapsnj' ); ?></th>
                     <th><?php esc_html_e( 'Required', 'my-iapsnj' ); ?></th>
-                    <th><?php esc_html_e( 'Field', 'my-iapsnj' ); ?></th>
                     <th><?php esc_html_e( 'Label shown to the member', 'my-iapsnj' ); ?></th>
+                    <th><?php esc_html_e( 'Type', 'my-iapsnj' ); ?></th>
+                    <th><?php esc_html_e( 'Options (one per line)', 'my-iapsnj' ); ?></th>
                     <th><?php esc_html_e( 'Help text', 'my-iapsnj' ); ?></th>
-                    <th><?php esc_html_e( 'Dropdown options', 'my-iapsnj' ); ?></th>
+                    <th><?php esc_html_e( 'Stored in FluentCRM as', 'my-iapsnj' ); ?></th>
+                    <th></th>
                 </tr></thead>
-                <tbody>
-                <?php foreach ( My_IAPSNJ_Checkout_Fields::config() as $key => $def ) :
-                    $defaults = My_IAPSNJ_Checkout_Fields::definitions()[ $key ];
-                    $n        = 'fields[' . $key . ']';
+                <tbody id="fcrm-fields-rows">
+                <?php
+                $targets = My_IAPSNJ_Checkout_Fields::crm_targets();
+                foreach ( My_IAPSNJ_Checkout_Fields::config() as $key => $def ) {
+                    $this->render_checkout_field_row( $key, $def, $targets );
+                }
                 ?>
-                    <tr class="<?php echo ! empty( $def['enabled'] ) ? 'enabled' : ''; ?>">
-                        <td style="text-align:center"><input type="checkbox" name="<?php echo esc_attr( $n ); ?>[enabled]" value="1" <?php checked( ! empty( $def['enabled'] ) ); ?>></td>
-                        <td style="text-align:center"><input type="checkbox" name="<?php echo esc_attr( $n ); ?>[required]" value="1" <?php checked( ! empty( $def['required'] ) ); ?>></td>
-                        <td><strong><?php echo esc_html( $defaults['label'] ); ?></strong><br><small class="fcrm-muted"><?php echo esc_html( $def['type'] . ( $def['crm'] !== '' ? ' → CRM ' . $def['crm'] : ' → ' . __( 'not stored', 'my-iapsnj' ) ) ); ?></small></td>
-                        <td><input type="text" name="<?php echo esc_attr( $n ); ?>[label]" value="<?php echo esc_attr( $def['label'] !== $defaults['label'] ? $def['label'] : '' ); ?>" placeholder="<?php echo esc_attr( $defaults['label'] ); ?>" class="regular-text" style="width:100%"></td>
-                        <td><input type="text" name="<?php echo esc_attr( $n ); ?>[help]" value="<?php echo esc_attr( (string) $def['help'] ); ?>" class="regular-text" style="width:100%"></td>
-                        <td><?php if ( $def['type'] === 'select' ) : ?><textarea name="<?php echo esc_attr( $n ); ?>[options]" rows="4" style="width:100%" placeholder="<?php esc_attr_e( 'One option per line', 'my-iapsnj' ); ?>"><?php echo esc_textarea( implode( "\n", (array) $def['options'] ) ); ?></textarea><?php else : ?><span class="fcrm-muted">—</span><?php endif; ?></td>
-                    </tr>
-                <?php endforeach; ?>
                 </tbody>
             </table>
+            <template id="fcrm-field-row-template"><?php $this->render_checkout_field_row( '__TEMPLATE__', [ 'label' => '', 'help' => '', 'type' => 'text', 'options' => [], 'crm' => '', 'crm_kind' => 'none', 'enabled' => true, 'required' => false, 'builtin' => false ], $targets, true ); ?></template>
+            <p style="margin-top:10px">
+                <button type="button" id="fcrm-add-field" class="button">+ <?php esc_html_e( 'Add field', 'my-iapsnj' ); ?></button>
+                <button type="submit" class="button button-primary"><?php esc_html_e( 'Save application fields', 'my-iapsnj' ); ?></button>
+            </p>
             <p class="description"><?php esc_html_e( 'Tip: FluentCart\'s own "Agree to terms" checkbox (Settings → Checkout Fields → Legal) can replace the certification checkbox if you prefer a single legal line.', 'my-iapsnj' ); ?></p>
-            <button type="submit" class="button button-primary"><?php esc_html_e( 'Save application fields', 'my-iapsnj' ); ?></button>
         </div>
         </form>
 
@@ -888,6 +905,58 @@ class My_IAPSNJ_Admin {
         </div>
         </div>
         <?php
+    }
+
+    /**
+     * One row of the application-fields builder (also the JS template).
+     *
+     * @param array<string,string> $targets CRM target picker options
+     */
+    private function render_checkout_field_row( string $key, array $def, array $targets, bool $is_template = false ): void {
+        static $position = 0;
+        $position++;
+        $n       = 'fields[' . $key . ']';
+        $builtin = ! empty( $def['builtin'] );
+        $target  = My_IAPSNJ_Checkout_Fields::target_value( $def );
+        $types   = [
+            'text'     => __( 'Text', 'my-iapsnj' ),
+            'textarea' => __( 'Paragraph', 'my-iapsnj' ),
+            'select'   => __( 'Dropdown', 'my-iapsnj' ),
+            'radio'    => __( 'Radio buttons', 'my-iapsnj' ),
+            'date'     => __( 'Date', 'my-iapsnj' ),
+            'checkbox' => __( 'Checkbox (yes / no)', 'my-iapsnj' ),
+        ];
+        $has_options = in_array( $def['type'], [ 'select', 'radio' ], true );
+
+        echo '<tr class="fcrm-field-row' . ( ! empty( $def['enabled'] ) ? ' enabled' : '' ) . '" data-key="' . esc_attr( $key ) . '">';
+        echo '<td><input type="number" name="' . esc_attr( $n ) . '[order]" value="' . esc_attr( (string) ( $is_template ? 99 : $position ) ) . '" class="small-text fcrm-field-order" style="width:52px">';
+        echo '<input type="hidden" name="' . esc_attr( $n ) . '[key]" value="' . esc_attr( $builtin ? $key : '' ) . '">';
+        echo ' <button type="button" class="button-link fcrm-field-up" title="' . esc_attr__( 'Move up', 'my-iapsnj' ) . '">&#9650;</button><button type="button" class="button-link fcrm-field-down" title="' . esc_attr__( 'Move down', 'my-iapsnj' ) . '">&#9660;</button></td>';
+        echo '<td style="text-align:center"><input type="checkbox" name="' . esc_attr( $n ) . '[enabled]" value="1"' . checked( ! empty( $def['enabled'] ), true, false ) . '></td>';
+        echo '<td style="text-align:center"><input type="checkbox" name="' . esc_attr( $n ) . '[required]" value="1"' . checked( ! empty( $def['required'] ), true, false ) . '></td>';
+        echo '<td><input type="text" name="' . esc_attr( $n ) . '[label]" value="' . esc_attr( (string) $def['label'] ) . '" class="regular-text" style="width:100%" placeholder="' . esc_attr__( 'Label', 'my-iapsnj' ) . '">';
+        if ( $builtin ) {
+            echo '<br><small class="fcrm-muted">' . esc_html__( 'built-in', 'my-iapsnj' ) . ' · ' . esc_html( $key ) . '</small>';
+        }
+        echo '</td>';
+        echo '<td><select name="' . esc_attr( $n ) . '[type]" class="fcrm-field-type"' . ( $builtin ? ' disabled' : '' ) . '>';
+        foreach ( $types as $val => $label ) {
+            echo '<option value="' . esc_attr( $val ) . '"' . selected( $def['type'], $val, false ) . '>' . esc_html( $label ) . '</option>';
+        }
+        echo '</select></td>';
+        echo '<td><textarea name="' . esc_attr( $n ) . '[options]" rows="3" class="fcrm-field-options" style="width:100%;min-width:140px' . ( $has_options ? '' : ';display:none' ) . '" placeholder="' . esc_attr__( 'One option per line', 'my-iapsnj' ) . '">' . esc_textarea( implode( "\n", (array) $def['options'] ) ) . '</textarea>'
+            . '<span class="fcrm-muted fcrm-field-no-options"' . ( $has_options ? ' style="display:none"' : '' ) . '>—</span></td>';
+        echo '<td><input type="text" name="' . esc_attr( $n ) . '[help]" value="' . esc_attr( (string) $def['help'] ) . '" class="regular-text" style="width:100%"></td>';
+        echo '<td><select name="' . esc_attr( $n ) . '[crm_target]" style="max-width:220px">';
+        if ( $target !== 'none' && ! isset( $targets[ $target ] ) ) {
+            echo '<option value="' . esc_attr( $target ) . '" selected>' . esc_html( $def['crm'] ) . ' ' . esc_html__( '(missing in CRM)', 'my-iapsnj' ) . '</option>';
+        }
+        foreach ( $targets as $val => $label ) {
+            echo '<option value="' . esc_attr( $val ) . '"' . selected( $target, $val, false ) . '>' . esc_html( $label ) . '</option>';
+        }
+        echo '</select></td>';
+        echo '<td style="text-align:center">' . ( $builtin ? '' : '<button type="button" class="button fcrm-field-remove" title="' . esc_attr__( 'Remove', 'my-iapsnj' ) . '">&#10005;</button>' ) . '</td>';
+        echo '</tr>';
     }
 
     // -----------------------------------------------------------------------
@@ -1023,6 +1092,9 @@ class My_IAPSNJ_Admin {
         if ( array_key_exists( 'join_page_url', $post ) ) {
             $settings['join_page_url'] = esc_url_raw( (string) $post['join_page_url'] );
         }
+        if ( array_key_exists( 'renewal_cutover', $post ) ) {
+            $settings['renewal_cutover'] = My_IAPSNJ_Dates::month_day( (string) $post['renewal_cutover'] );
+        }
         if ( array_key_exists( 'notify_emails', $post ) ) {
             $emails = array_filter( array_map( 'sanitize_email', preg_split( '/[\s,;]+/', (string) $post['notify_emails'] ) ) );
             $settings['notify_emails'] = implode( ', ', $emails );
@@ -1154,11 +1226,10 @@ class My_IAPSNJ_Admin {
                 continue;
             }
             $config[ (int) $vid ] = [
-                'label'        => (string) ( $cfg['label'] ?? '' ),
-                'enabled'      => ! empty( $cfg['enabled'] ),
-                'member_type'  => (string) ( $cfg['member_type'] ?? '' ),
-                'paid_through' => (string) ( $cfg['paid_through'] ?? '' ),
-                'years'        => array_filter( array_map( 'trim', explode( ',', (string) ( $cfg['years'] ?? '' ) ) ) ),
+                'label'       => (string) ( $cfg['label'] ?? '' ),
+                'enabled'     => ! empty( $cfg['enabled'] ),
+                'member_type' => (string) ( $cfg['member_type'] ?? '' ),
+                'duration'    => (int) ( $cfg['duration'] ?? 1 ),
             ];
         }
         My_IAPSNJ_Membership::save_products_config( $config );
@@ -1169,8 +1240,6 @@ class My_IAPSNJ_Admin {
             }
             if ( $cfg['member_type'] === '' ) {
                 $errors[] = sprintf( __( 'Variation #%d is enabled but has no member type; it will be ignored.', 'my-iapsnj' ), $vid );
-            } elseif ( $cfg['member_type'] !== My_IAPSNJ_Schema::TYPE_LIFETIME && My_IAPSNJ_Dates::ymd( $cfg['paid_through'] ) === '' ) {
-                $errors[] = sprintf( __( 'Variation #%d has no paid_through date.', 'my-iapsnj' ), $vid );
             }
         }
         wp_send_json_success( [ 'count' => count( My_IAPSNJ_Membership::products_config() ), 'warnings' => $errors ] );

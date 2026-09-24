@@ -339,20 +339,70 @@
             .always(function () { resetBtn($btn); });
     });
 
+    // ---- Application fields builder -------------------------------------------
+
+    var $fieldRows = $('#fcrm-fields-rows');
+    var fieldRowTemplate = document.getElementById('fcrm-field-row-template');
+
+    function renumberFieldRows() {
+        $fieldRows.find('tr.fcrm-field-row').each(function (i) {
+            $(this).find('.fcrm-field-order').val(i + 1);
+        });
+    }
+
+    function toggleFieldOptions($row) {
+        var type = $row.find('.fcrm-field-type').val();
+        var has = type === 'select' || type === 'radio';
+        $row.find('.fcrm-field-options').toggle(has);
+        $row.find('.fcrm-field-no-options').toggle(!has);
+    }
+
+    $('#fcrm-add-field').on('click', function () {
+        if (!fieldRowTemplate) { return; }
+        var clone = document.importNode(fieldRowTemplate.content, true);
+        var newId = 'new_' + Math.random().toString(36).substr(2, 8);
+        var $row  = $(clone).find('tr');
+        $row.attr('data-key', newId);
+        $row.find('input, select, textarea').each(function () {
+            if ($(this).attr('name')) { $(this).attr('name', $(this).attr('name').replace('__TEMPLATE__', newId)); }
+        });
+        $fieldRows.append($row);
+        renumberFieldRows();
+        toggleFieldOptions($row);
+        $row.find('input[name$="[label]"]').focus();
+    });
+
+    $fieldRows.on('click', '.fcrm-field-remove', function () {
+        $(this).closest('tr').remove();
+        renumberFieldRows();
+    }).on('click', '.fcrm-field-up', function () {
+        var $tr = $(this).closest('tr'), $prev = $tr.prev('tr');
+        if ($prev.length) { $prev.before($tr); renumberFieldRows(); }
+    }).on('click', '.fcrm-field-down', function () {
+        var $tr = $(this).closest('tr'), $next = $tr.next('tr');
+        if ($next.length) { $next.after($tr); renumberFieldRows(); }
+    }).on('change', '.fcrm-field-type', function () {
+        toggleFieldOptions($(this).closest('tr'));
+    });
+
     $('#fcrm-checkout-fields-form').on('change', 'input[name$="[enabled]"]', function () {
         $(this).closest('tr').toggleClass('enabled', $(this).is(':checked'));
     }).on('submit', function (e) {
         e.preventDefault();
         var $btn = $(this).find('[type="submit"]'), $notice = $('#fcrm-settings-notice'), data = {};
+        renumberFieldRows();
         $(this).find('input, select, textarea').each(function () {
             var name = $(this).attr('name');
             if (!name) { return; }
             if ($(this).is(':checkbox')) { if ($(this).is(':checked')) { data[name] = 1; } }
-            else { data[name] = $(this).val(); }
+            else { data[name] = $(this).val(); } // disabled selects (built-in type) are sent too: jQuery reads them
         });
         setBtn($btn, i18n.saving, true);
         $.post(ajaxUrl, $.extend({ action: 'my_iapsnj_save_checkout_fields', nonce: nonce }, data))
-            .done(function (resp) { showNotice($notice, resp.success ? i18n.saved + ' ' + resp.data.count + ' application field(s) shown at checkout.' : errMsg(resp), resp.success ? 'success' : 'error'); })
+            .done(function (resp) {
+                showNotice($notice, resp.success ? i18n.saved + ' ' + resp.data.count + ' application field(s) shown at checkout.' : errMsg(resp), resp.success ? 'success' : 'error');
+                if (resp.success) { setTimeout(function () { window.location.href = window.location.pathname + window.location.search + '#application-fields'; window.location.reload(); }, 1200); }
+            })
             .fail(function () { showNotice($notice, i18n.error, 'error'); })
             .always(function () { resetBtn($btn); });
     });
@@ -384,10 +434,10 @@
     // =========================================================================
 
     $('#fcrm-products-form').on('change', 'select[name$="[member_type]"]', function () {
-        var $date = $(this).closest('tr').find('input[type="date"]');
+        var $duration = $(this).closest('tr').find('input[name$="[duration]"]');
         var lifetime = $(this).val() === 'Lifetime';
-        $date.prop('disabled', lifetime);
-        if (lifetime) { $date.val(''); }
+        $duration.prop('disabled', lifetime);
+        if (!lifetime && !$duration.val()) { $duration.val(1); }
     }).on('change', 'input[type="checkbox"]', function () {
         $(this).closest('tr').toggleClass('enabled', $(this).is(':checked'));
     }).on('submit', function (e) {

@@ -3,7 +3,7 @@
  * Plugin Name:       My IAPSNJ
  * Plugin URI:        https://github.com/S-FX-com/MyIAPSNJ
  * Description:       Membership operations for the IAPSNJ website. FluentCRM is the single source of truth: the membership application is collected on the FluentCart checkout page, FluentCart payments set membership state (Paid-YYYY tags, member_type, paid_through), applications are tracked until they are paid, mailed checks are reconciled in batch, and WordPress user profiles are mirrored one way from the CRM. Includes the PMPro → FluentCRM migration toolkit.
- * Version:           4.1.0
+ * Version:           4.2.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Requires Plugins:  fluent-crm
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'MY_IAPSNJ_VERSION', '4.1.0' );
+define( 'MY_IAPSNJ_VERSION', '4.2.0' );
 define( 'MY_IAPSNJ_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'MY_IAPSNJ_URL',     plugin_dir_url( __FILE__ ) );
 define( 'MY_IAPSNJ_FILE',    __FILE__ );
@@ -170,6 +170,8 @@ final class My_IAPSNJ_Plugin {
             'join_page_url'           => '',   // page with the membership buttons
             'renewal_variation_regular'   => 0, // FluentCart variation a Regular member renews with
             'renewal_variation_associate' => 0,
+            // Membership term rule: paid on/after this MM-DD buys the following year.
+            'renewal_cutover'         => '10-01',
             // Notifications.
             'notify_new_member'       => true,
             'notify_emails'           => get_option( 'admin_email' ),
@@ -201,7 +203,7 @@ final class My_IAPSNJ_Plugin {
      * below; it is independent of MY_IAPSNJ_VERSION so that ordinary releases
      * do not re-run migrations.
      */
-    const DATA_VERSION = 6;
+    const DATA_VERSION = 7;
 
     /**
      * Runs any migration steps this install has not seen yet.
@@ -319,6 +321,29 @@ final class My_IAPSNJ_Plugin {
                 }
                 My_IAPSNJ_Applications::create_table();
                 My_IAPSNJ_Checkout_Fields::seed_defaults();
+            }
+
+            // ---- v7: term from the payment date; admin-defined checkout fields
+            // * Products: fixed paid_through + years list → duration (years covered).
+            // * Checkout fields option: per-key overrides → ordered field list.
+            if ( $installed < 7 ) {
+                $raw = get_option( My_IAPSNJ_Membership::OPTION_PRODUCTS, [] );
+                if ( is_array( $raw ) ) {
+                    $changed = false;
+                    foreach ( $raw as $vid => $cfg ) {
+                        if ( ! is_array( $cfg ) || isset( $cfg['duration'] ) ) {
+                            continue;
+                        }
+                        $years = array_filter( array_map( 'intval', (array) ( $cfg['years'] ?? [] ) ) );
+                        $raw[ $vid ]['duration'] = max( 1, count( $years ) );
+                        unset( $raw[ $vid ]['paid_through'], $raw[ $vid ]['years'] );
+                        $changed = true;
+                    }
+                    if ( $changed ) {
+                        update_option( My_IAPSNJ_Membership::OPTION_PRODUCTS, $raw );
+                    }
+                }
+                My_IAPSNJ_Checkout_Fields::upgrade_config();
             }
 
             update_option( 'my_iapsnj_data_version', self::DATA_VERSION );

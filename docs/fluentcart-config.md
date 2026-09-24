@@ -3,26 +3,31 @@
 Done in the FluentCart UI on staging, exported/re-created on production
 (`docs/not-in-git.md`). Then mapped in My IAPSNJ → Membership Products.
 
-## Products (all one-time, no subscriptions)
+## Products (no year in the name; annual ones are subscriptions)
 
 FluentCart → Products → Add. Product type *simple* (one variation) or one
 product "IAPSNJ Membership" with one **variation per line** below — variations
-are what checkout links point at (`item_id` = variation id). Fulfillment
-**digital** (no shipping) so paid orders auto-complete.
+are what the Join-page buttons point at (`item_id` = variation id).
+Fulfillment **digital** (no shipping) so paid orders auto-complete.
 
-| Product / variation | Price | Notes |
-|---|---|---|
-| Regular Member 2027 | $30 | |
-| Associate Member 2027 | $50 | |
-| Lifetime Member | $300 | one-time |
-| Multi-Year 2027–2031 | $120 | |
-| 2026 Catch-Up + 2027 | $45 | Oct–Dec 2026 only → set product visibility/private after Dec 31, or remove from the form dropdown |
+| Product / variation | Price | Billing | Notes |
+|---|---|---|---|
+| Regular Membership | $30 | subscription, every 1 year | auto-renews; each renewal payment extends the term |
+| Associate Membership | $50 | subscription, every 1 year | |
+| Lifetime Membership | $300 | one-time | |
+| Multi-Year Membership | $120 | one-time | covers 5 years |
 
-Honorary is **not** a product.
+Honorary is **not** a product. No "Catch-Up" product: the term rule in
+`docs/crm-schema.md` gives a payment before the cutover the current year.
 
-Then My IAPSNJ → Membership Products: enable each, set member type,
-paid_through (`2027-12-31`, `2031-12-31`, none for Lifetime) and the Paid-YYYY
-years (`2027`; `2027,2028,2029,2030,2031`; `2026,2027`).
+Then My IAPSNJ → Membership Products: enable each, set member type and *years
+covered per payment* (1, 1, —, 5). Set the renewal-season cutover (default
+`10-01`) in Sync & Settings.
+
+Subscriptions work in FluentCart free with Stripe; Pro is not required for
+them. Renewal reminder emails: FluentCart → Settings → Emails → Reminders.
+Read the "known gap with subscriptions" note in `docs/crm-schema.md` before
+choosing subscription billing.
 
 ## Payments
 
@@ -66,10 +71,11 @@ instructions.
 
 ## Refund test (do explicitly — young plugin)
 
-1. Pay for Regular Member 2027 with a Stripe test card.
-2. Confirm CRM: `Paid-2027`, `member_type = Regular`, `paid_through = 2027-12-31`.
+1. Pay for Regular Membership with a Stripe test card.
+2. Confirm CRM: `Paid-YYYY` for the year the rule gives, `member_type = Regular`,
+   `paid_through = YYYY-12-31`.
 3. FluentCart → order → **Refund** (full).
-4. Confirm: FluentCart payment status `refunded`; CRM tag `Paid-2027` removed,
+4. Confirm: FluentCart payment status `refunded`; CRM tag `Paid-YYYY` removed,
    `member_type`/`paid_through` back to the pre-payment values (order note "My
    IAPSNJ: membership reverted"); application row `refunded`; refund email sent
    (check the mail log — outbound is blocked).

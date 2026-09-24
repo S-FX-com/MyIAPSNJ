@@ -103,20 +103,42 @@ the existing member-area profile screen keeps rendering:
 ## Products → membership state (FluentCart)
 
 Configured in My IAPSNJ → Membership Products (option `my_iapsnj_products`).
-All one-time purchases; no subscriptions.
+Products carry **no year**: a product says which member type it grants and
+how many years one payment covers. Annual products are FluentCart yearly
+subscriptions (auto-renew); Lifetime and Multi-Year are one-time.
 
-| Product | Price | member_type | Sets paid_through | Paid-YYYY tags | Availability |
-|---|---|---|---|---|---|
-| Regular Member 2027 | $30 | Regular | 2027-12-31 | 2027 | ongoing |
-| Associate Member 2027 | $50 | Associate | 2027-12-31 | 2027 | ongoing |
-| Lifetime Member | $300 | Lifetime | null | — (tag `Lifetime`) | ongoing |
-| Multi-Year 2027–2031 | $120 | Regular | 2031-12-31 | 2027, 2028, 2029, 2030, 2031 | ongoing |
-| 2026 Catch-Up + 2027 | $45 | Regular | 2027-12-31 | 2026, 2027 | Oct–Dec 2026 only (FluentCart product visibility / schedule) |
+| Product | Price | member_type | Years covered | Billing |
+|---|---|---|---|---|
+| Regular Membership | $30 | Regular | 1 | yearly subscription |
+| Associate Membership | $50 | Associate | 1 | yearly subscription |
+| Lifetime Membership | $300 | Lifetime | — | one-time |
+| Multi-Year Membership | $120 | Regular | 5 | one-time |
 
-Rules applied on `order_paid`:
+**Term rule** (`My_IAPSNJ_Dates::membership_term`, cutover in Sync & Settings,
+default `10-01`): the payment date decides the term, not the product.
 
-* `paid_through` = max(existing, product) — never shortened.
+| Paid on | 1-year product | 5-year product |
+|---|---|---|
+| 2026-09-24 | through 2026-12-31, `Paid-2026` | through 2030-12-31, `Paid-2026…2030` |
+| 2026-10-01 or later | through 2027-12-31, `Paid-2027` | through 2031-12-31, `Paid-2027…2031` |
+
+For checks the deposit date is the payment date. Subscription renewal orders
+(type `renewal`, hook `fluent_cart/renewal_paid`) go through the same rule on
+their own payment date. The former "Catch-Up" product is unnecessary: a
+payment before the cutover simply buys the current year.
+
+Rules applied on `order_paid` / `renewal_paid`:
+
+* `paid_through` = max(existing, computed) — never shortened.
 * `member_type` = the higher of existing and product (Honorary/Lifetime stay).
 * Lifetime → `paid_through` deleted, `Lifetime` tag added.
 * `Payment-Pending-Check` and `Checkout-Abandoned` removed.
 * Full refund reverses only what that order added (snapshot on the order).
+
+**Known gap with subscriptions:** FluentCart charges the renewal on the
+purchase anniversary. A member who joins on March 1 is paid through Dec 31 and
+charged again on March 1 of the next year, so on paper `paid_through` is past
+from Jan 1 to Mar 1 while the subscription is active. Only Oct–Dec joiners line
+up with Dec 31. Decision pending with the client: treat an active subscription
+as in good standing, move the next billing date to Jan 1 in FluentCart, or use
+one-time products with the January renewal campaign.
