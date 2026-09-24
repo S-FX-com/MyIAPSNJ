@@ -170,7 +170,9 @@ FluentCart hooks consumed: `fluent_cart/order_paid`, `fluent_cart/renewal_paid`,
 `fluent_cart/should_send_email_notification`; checkout:
 `fluent_cart/before_payment_methods` (render),
 `fluent_cart/checkout/validate_data`, `fluent_cart/checkout/prepare_other_data`,
-`fluent_cart/checkout/form_data_changed`, `fluent_cart/after_receipt_first_time`.
+`fluent_cart/checkout/form_data_changed`, `fluent_cart/after_receipt_first_time`,
+`fluent_cart/checkout_page_name_fields_schema`, `fluent_cart/checkout_renderer/billing_fields`
+(CRM → checkout prefill), `fluent_cart/subscription_renewed`.
 
 ## Data
 

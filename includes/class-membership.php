@@ -68,7 +68,13 @@ class My_IAPSNJ_Membership {
 
     private function __construct() {
         add_action( 'fluent_cart/order_paid',            [ $this, 'on_order_paid' ], 10, 1 );
+        // Store-billed renewals (manual / system invoices) fire renewal_paid;
+        // gateway-billed renewals (Stripe auto-charge) only fire
+        // subscription_renewed. Both carry ['order' => renewal Order]. The
+        // handler is idempotent per order (verified in FluentCart 1.6.5:
+        // StatusHelper::syncOrderStatuses, SubscriptionService).
         add_action( 'fluent_cart/renewal_paid',          [ $this, 'on_order_paid' ], 10, 1 );
+        add_action( 'fluent_cart/subscription_renewed',  [ $this, 'on_order_paid' ], 10, 1 );
         add_action( 'fluent_cart/order_placed_offline',  [ $this, 'on_order_placed_offline' ], 10, 1 );
         add_action( 'fluent_cart/order_fully_refunded',  [ $this, 'on_order_fully_refunded' ], 10, 1 );
 
@@ -342,6 +348,12 @@ class My_IAPSNJ_Membership {
         $plan = self::plan_for_order( $order, self::paid_as_of( $order ) );
         if ( ! $plan ) {
             $order->updateMeta( self::META_SKIPPED, 'no_configured_membership_product' );
+            $this->order_log(
+                $order,
+                'My IAPSNJ: membership not applied',
+                'None of the order items is configured in My IAPSNJ → Membership Products (variation ids may have changed). Items: ' . My_IAPSNJ_Checkout_Fields::order_item_ids( $order ),
+                'warning'
+            );
             return null;
         }
 

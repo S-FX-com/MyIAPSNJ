@@ -73,6 +73,9 @@ class My_IAPSNJ_Checkout_Fields {
 
     private function __construct() {
         add_action( 'fluent_cart/before_payment_methods',      [ $this, 'render' ], 10, 1 );
+        // FluentCart's own name / email / billing fields, prefilled from the CRM contact.
+        add_filter( 'fluent_cart/checkout_page_name_fields_schema', [ $this, 'prefill_name_fields' ], 20, 2 );
+        add_filter( 'fluent_cart/checkout_renderer/billing_fields', [ $this, 'prefill_billing_fields' ], 20, 2 );
         add_filter( 'fluent_cart/checkout/validate_data',      [ $this, 'validate' ], 10, 2 );
         add_action( 'fluent_cart/checkout/prepare_other_data', [ $this, 'on_prepare_other_data' ], 10, 1 );
         add_action( 'fluent_cart/checkout/form_data_changed',  [ $this, 'on_form_data_changed' ], 10, 1 );
@@ -653,8 +656,161 @@ class My_IAPSNJ_Checkout_Fields {
     }
 
     /**
-     * Values to prefill: the logged-in member's CRM profile (renewals), then
-     * whatever the cart already holds for this checkout.
+     * The CRM contact behind the current checkout: the logged-in user's
+     * contact (by user id or email), the FluentCRM secure-link cookie (a
+     * member arriving from a CRM email), or the email already typed into the
+     * cart. Null when none.
+     *
+     * @param object|null $cart FluentCart Cart
+     */
+    public static function current_contact( $cart = null ): ?Subscriber {
+        static $cache = [];
+        $cart_key = is_object( $cart ) && ! empty( $cart->cart_hash ) ? (string) $cart->cart_hash : '-';
+        if ( array_key_exists( $cart_key, $cache ) ) {
+            return $cache[ $cart_key ];
+        }
+        $contact = null;
+        try {
+            if ( function_exists( 'fluentcrm_get_current_contact' ) ) {
+                $contact = fluentcrm_get_current_contact();
+            }
+            if ( ! $contact instanceof Subscriber && get_current_user_id() > 0 ) {
+                $contact = My_IAPSNJ_Engine::find_linked_subscriber( get_current_user_id() );
+            }
+            if ( ! $contact instanceof Subscriber && is_object( $cart ) ) {
+                $email = '';
+                if ( ! empty( $cart->email ) ) {
+                    $email = (string) $cart->email;
+                }
+                if ( $email === '' ) {
+                    $cd    = $cart->checkout_data;
+                    $email = is_array( $cd ) ? (string) ( $cd['form_data']['billing_email'] ?? ( $cd['billing_email'] ?? '' ) ) : '';
+                }
+                $email = sanitize_email( $email );
+                if ( is_email( $email ) ) {
+                    $contact = Subscriber::where( 'email', $email )->first();
+                }
+            }
+        } catch ( \Throwable $e ) {
+            $contact = null;
+        }
+        $cache[ $cart_key ] = $contact instanceof Subscriber ? $contact : null;
+        return $cache[ $cart_key ];
+    }
+
+    /**
+     * fluent_cart/checkout_page_name_fields_schema — first name, last name,
+     * full name and email from the CRM contact when FluentCart has nothing.
+     *
+     * @param mixed $fields
+     * @param mixed $data ['cart','scope']
+     * @return mixed
+     */
+    public function prefill_name_fields( $fields, $data = [] ) {
+        if ( ! is_array( $fields ) ) {
+            return $fields;
+        }
+        $contact = self::current_contact( is_array( $data ) ? ( $data['cart'] ?? null ) : null );
+        if ( ! $contact instanceof Subscriber ) {
+            return $fields;
+        }
+        $map = [
+            'billing_first_name' => (string) $contact->first_name,
+            'billing_last_name'  => (string) $contact->last_name,
+            'billing_full_name'  => trim( (string) $contact->first_name . ' ' . (string) $contact->last_name ),
+            'billing_email'      => (string) $contact->email,
+        ];
+        foreach ( $map as $key => $value ) {
+            if ( $value !== '' && isset( $fields[ $key ] ) && is_array( $fields[ $key ] ) && empty( $fields[ $key ]['value'] ) ) {
+                $fields[ $key ]['value'] = $value;
+            }
+        }
+        return $fields;
+    }
+
+    /**
+     * fluent_cart/checkout_renderer/billing_fields — address and phone from
+     * the CRM contact when the cart holds nothing yet. Country and state are
+     * matched against FluentCart's option lists (code or name).
+     *
+     * @param mixed $fields keyed country, address_1, address_2, state, city, postcode, phone …
+     * @param mixed $data   ['checkout_renderer','cart']
+     * @return mixed
+     */
+    public function prefill_billing_fields( $fields, $data = [] ) {
+        if ( ! is_array( $fields ) ) {
+            return $fields;
+        }
+        $contact = self::current_contact( is_array( $data ) ? ( $data['cart'] ?? null ) : null );
+        if ( ! $contact instanceof Subscriber ) {
+            return $fields;
+        }
+        $map = [
+            'address_1' => (string) $contact->address_line_1,
+            'address_2' => (string) $contact->address_line_2,
+            'city'      => (string) $contact->city,
+            'postcode'  => (string) $contact->postal_code,
+            'phone'     => (string) $contact->phone,
+            'country'   => (string) $contact->country,
+            'state'     => (string) $contact->state,
+        ];
+        foreach ( $map as $key => $value ) {
+            $value = trim( $value );
+            if ( $value === '' || ! isset( $fields[ $key ] ) || ! is_array( $fields[ $key ] ) || ! empty( $fields[ $key ]['value'] ) ) {
+                continue;
+            }
+            $options = $fields[ $key ]['options'] ?? null;
+            if ( is_array( $options ) && $options ) {
+                $value = self::match_option( $options, $value );
+                if ( $value === '' ) {
+                    continue;
+                }
+                if ( $key === 'state' && ! self::option_exists( $options, $value ) ) {
+                    // The states list was built for another (or no) country; add ours so it can be selected.
+                    $fields[ $key ]['options'][] = [ 'name' => $value, 'value' => $value ];
+                }
+            }
+            $fields[ $key ]['value'] = $value;
+        }
+        return $fields;
+    }
+
+    /**
+     * Resolve a stored value ("US", "United States", "NJ", "New Jersey") to
+     * an option value; the raw value when no option matches (text states).
+     *
+     * @param array<int,array> $options [['name','value'], …]
+     */
+    private static function match_option( array $options, string $value ): string {
+        foreach ( $options as $opt ) {
+            if ( ! is_array( $opt ) ) {
+                continue;
+            }
+            if ( strcasecmp( (string) ( $opt['value'] ?? '' ), $value ) === 0 && (string) $opt['value'] !== '' ) {
+                return (string) $opt['value'];
+            }
+        }
+        foreach ( $options as $opt ) {
+            if ( is_array( $opt ) && strcasecmp( (string) ( $opt['name'] ?? '' ), $value ) === 0 && (string) ( $opt['value'] ?? '' ) !== '' ) {
+                return (string) $opt['value'];
+            }
+        }
+        return $value;
+    }
+
+    private static function option_exists( array $options, string $value ): bool {
+        foreach ( $options as $opt ) {
+            if ( is_array( $opt ) && (string) ( $opt['value'] ?? '' ) === $value ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Values to prefill the application fields: the CRM contact behind this
+     * checkout (renewals, members arriving from a CRM email), then whatever
+     * the cart already holds for this session.
      *
      * @return array<string,string>
      */
@@ -662,24 +818,21 @@ class My_IAPSNJ_Checkout_Fields {
         $values = [];
         $config = self::enabled_fields();
 
-        $user_id = get_current_user_id();
-        if ( $user_id > 0 ) {
-            try {
-                $subscriber = My_IAPSNJ_Engine::find_linked_subscriber( $user_id );
-                if ( $subscriber instanceof Subscriber ) {
-                    $custom = $subscriber->custom_fields();
-                    foreach ( $config as $key => $def ) {
-                        if ( $def['crm_kind'] === 'custom' && ! empty( $custom[ $def['crm'] ] ) ) {
-                            $v = $custom[ $def['crm'] ];
-                            $values[ $key ] = is_array( $v ) ? (string) reset( $v ) : (string) $v;
-                        } elseif ( $def['crm_kind'] === 'default' && ! empty( $subscriber->{ $def['crm'] } ) ) {
-                            $values[ $key ] = (string) $subscriber->{ $def['crm'] };
-                        }
+        try {
+            $subscriber = self::current_contact( $args['cart'] ?? null );
+            if ( $subscriber instanceof Subscriber ) {
+                $custom = $subscriber->custom_fields();
+                foreach ( $config as $key => $def ) {
+                    if ( $def['crm_kind'] === 'custom' && ! empty( $custom[ $def['crm'] ] ) ) {
+                        $v = $custom[ $def['crm'] ];
+                        $values[ $key ] = is_array( $v ) ? (string) reset( $v ) : (string) $v;
+                    } elseif ( $def['crm_kind'] === 'default' && ! empty( $subscriber->{ $def['crm'] } ) ) {
+                        $values[ $key ] = (string) $subscriber->{ $def['crm'] };
                     }
                 }
-            } catch ( \Throwable $e ) {
-                // prefill is best effort
             }
+        } catch ( \Throwable $e ) {
+            // prefill is best effort
         }
 
         $cart = $args['cart'] ?? null;
@@ -793,19 +946,30 @@ class My_IAPSNJ_Checkout_Fields {
             return;
         }
         try {
-            if ( ! My_IAPSNJ_Membership::plan_for_order( $order ) ) {
-                return; // not a membership order
-            }
             $request = [];
             foreach ( [ 'request_data', 'validated_data' ] as $k ) {
                 if ( isset( $args[ $k ] ) && is_array( $args[ $k ] ) ) {
                     $request = array_merge( $args[ $k ], $request );
                 }
             }
+            // The answers are kept on the order whatever the product mapping
+            // says, so a mapping mistake never loses what the member typed.
             $values = self::collect( $request );
             if ( $values ) {
                 $order->updateMeta( self::META_FIELDS, $values );
                 $order->deleteMeta( self::META_APPLIED );
+            }
+            $plan = My_IAPSNJ_Membership::plan_for_order( $order );
+            if ( ! $plan ) {
+                if ( $values && method_exists( $order, 'addLog' ) ) {
+                    $order->addLog(
+                        'My IAPSNJ: application received (product not mapped)',
+                        'The order carries application answers but none of its items is configured in My IAPSNJ → Membership Products, so no membership will be applied on payment. Items: ' . self::order_item_ids( $order ),
+                        'warning',
+                        'My IAPSNJ'
+                    );
+                }
+                return;
             }
 
             $email = '';
@@ -875,6 +1039,21 @@ class My_IAPSNJ_Checkout_Fields {
         } catch ( \Throwable $e ) {
             error_log( 'My IAPSNJ: form_data_changed handler failed: ' . $e->getMessage() );
         }
+    }
+
+    /**
+     * "variation #12 (Regular Membership), …" for order logs.
+     */
+    public static function order_item_ids( $order ): string {
+        $out = [];
+        try {
+            foreach ( $order->order_items ?? [] as $item ) {
+                $out[] = 'variation #' . (int) ( $item->object_id ?? 0 ) . ' (' . trim( (string) ( $item->post_title ?? '' ) . ' ' . (string) ( $item->title ?? '' ) ) . ')';
+            }
+        } catch ( \Throwable $e ) {
+            // ignore
+        }
+        return $out ? implode( ', ', $out ) : '(none)';
     }
 
     /**

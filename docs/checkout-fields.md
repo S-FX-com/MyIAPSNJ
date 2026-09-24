@@ -81,9 +81,21 @@ radio group with no options renders as a text box.
   Blank answers never erase existing CRM data; it runs once per order so a
   manual CRM edit between "check placed" and "check deposited" survives.
   `member_type`, `paid_through` and the tags are set by the payment only.
-* Logged-in members see the fields prefilled from their CRM profile; typed
-  values also survive FluentCart's client-side re-renders (sessionStorage,
-  cleared on the receipt page).
+* **Prefill from the CRM.** The contact behind the checkout is resolved as
+  the logged-in user's contact (by user id or email), the FluentCRM
+  secure-link cookie (a member arriving from a CRM email), or the email
+  already typed into the cart. From it the plugin fills FluentCart's own
+  name, email, phone and billing address fields
+  (`fluent_cart/checkout_page_name_fields_schema`,
+  `fluent_cart/checkout_renderer/billing_fields`; country and state are
+  matched against FluentCart's option lists by code or name) and the
+  application fields. Only empty fields are filled; what the member typed in
+  this session wins. Typed values survive FluentCart's client-side re-renders
+  (sessionStorage, cleared on the receipt page).
+* The answers are stored on the order even when none of its items is mapped
+  in Membership Products; the order then gets a warning note "product not
+  mapped" and, on payment, "membership not applied". The Dashboard flags
+  mapped variation ids that no longer exist in FluentCart (products recreated).
 * Record a Check (admin) never renders, validates or records an application.
 
 ## 3. Renewal

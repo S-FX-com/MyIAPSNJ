@@ -349,9 +349,12 @@ class My_IAPSNJ_Admin {
 
         // Environment checklist.
         $enabled_fields = My_IAPSNJ_Checkout_Fields::enabled_fields();
+        $variations     = My_IAPSNJ_Membership::is_available() ? My_IAPSNJ_Membership::all_variations() : [];
+        $stale          = array_diff_key( $products, $variations );
         $checks = [
             [ My_IAPSNJ_Membership::is_available(), __( 'FluentCart active', 'my-iapsnj' ), '' ],
             [ count( $products ) > 0, sprintf( __( 'Membership products configured (%d)', 'my-iapsnj' ), count( $products ) ), admin_url( 'admin.php?page=my-iapsnj-products' ) ],
+            [ ! $stale, $stale ? sprintf( __( 'Mapped variations no longer exist in FluentCart: #%s — re-map after recreating products', 'my-iapsnj' ), implode( ', #', array_keys( $stale ) ) ) : __( 'Every mapped variation exists in FluentCart', 'my-iapsnj' ), admin_url( 'admin.php?page=my-iapsnj-products' ) ],
             [ count( $enabled_fields ) > 0, sprintf( __( 'Application fields on the checkout page (%d enabled)', 'my-iapsnj' ), count( $enabled_fields ) ), admin_url( 'admin.php?page=my-iapsnj-sync#application' ) ],
             [ (int) $settings['renewal_variation_regular'] > 0, __( 'Renewal product set for Regular members', 'my-iapsnj' ), admin_url( 'admin.php?page=my-iapsnj-sync#application' ) ],
             [ $offline['configured'] && $offline['active'] && stripos( $offline['label'], 'check' ) !== false, sprintf( __( 'Offline payment method active and labelled "%s"', 'my-iapsnj' ), $offline['label'] !== '' ? $offline['label'] : 'Cash' ), admin_url( 'admin.php?page=my-iapsnj-sync#checkout' ) ],
