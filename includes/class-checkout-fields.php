@@ -96,44 +96,44 @@ class My_IAPSNJ_Checkout_Fields {
      * Built-in application fields: the seed for a fresh install and the
      * fallback definition when a built-in key is missing from the saved list.
      *
+     * This is the whole ACF-era onboarding form minus what FluentCart itself
+     * collects (name, email, phone, billing address), the membership state
+     * the payment sets (member number, type, dates) and admin notes. Keys
+     * match the ACF field names so option lists can be pulled from ACF.
+     *
      * crm_kind: 'custom' (FluentCRM custom field slug), 'default' (contact
      * column), 'none' (not stored on the contact).
+     *
+     * Dropdown option lists are empty here on purpose: they are filled by
+     * import_options() (ACF choices → existing CRM values → built-in list)
+     * on install / upgrade and from the Application fields screen.
      *
      * @return array<string,array>
      */
     public static function definitions(): array {
-        return [
-            'department' => [
-                'label'    => __( 'Department', 'my-iapsnj' ),
-                'help'     => __( 'Your law-enforcement agency.', 'my-iapsnj' ),
-                'type'     => 'select',
+        $custom = function ( string $label, string $help, string $type, string $slug, bool $enabled = true, bool $required = false ): array {
+            return [
+                'label'    => $label,
+                'help'     => $help,
+                'type'     => $type,
                 'options'  => [],
-                'crm'      => My_IAPSNJ_Schema::FIELD_DEPARTMENT,
+                'crm'      => $slug,
                 'crm_kind' => 'custom',
-                'enabled'  => true,
-                'required' => true,
-            ],
-            'rank_level' => [
-                'label'    => __( 'Rank', 'my-iapsnj' ),
-                'help'     => '',
-                'type'     => 'select',
-                'options'  => [],
-                'crm'      => My_IAPSNJ_Schema::FIELD_RANK,
-                'crm_kind' => 'custom',
-                'enabled'  => true,
-                'required' => true,
-            ],
-            'retirement_date' => [
-                'label'    => __( 'Retirement date (if retired)', 'my-iapsnj' ),
-                'help'     => '',
-                'type'     => 'date',
-                'options'  => [],
-                'crm'      => My_IAPSNJ_Schema::FIELD_RETIREMENT_DATE,
-                'crm_kind' => 'custom',
-                'enabled'  => true,
-                'required' => false,
-            ],
-            'date_of_birth' => [
+                'enabled'  => $enabled,
+                'required' => $required,
+            ];
+        };
+        $fields = [
+            // -- Law-enforcement profile ------------------------------------
+            'department'      => $custom( __( 'Department', 'my-iapsnj' ), __( 'Your law-enforcement agency.', 'my-iapsnj' ), 'select', My_IAPSNJ_Schema::FIELD_DEPARTMENT, true, true ),
+            'rank_level'      => $custom( __( 'Rank', 'my-iapsnj' ), '', 'select', My_IAPSNJ_Schema::FIELD_RANK, true, true ),
+            'retirement_date' => $custom( __( 'Retirement date (if retired)', 'my-iapsnj' ), '', 'date', My_IAPSNJ_Schema::FIELD_RETIREMENT_DATE ),
+            'phone_work'      => $custom( __( 'Work phone', 'my-iapsnj' ), '', 'text', My_IAPSNJ_Schema::FIELD_PHONE_WORK ),
+            'phone2'          => $custom( __( 'Alternate phone', 'my-iapsnj' ), '', 'text', My_IAPSNJ_Schema::FIELD_PHONE2 ),
+            'union_affiliation' => $custom( __( 'Union affiliation', 'my-iapsnj' ), __( 'PBA, FOP, STFA … (optional)', 'my-iapsnj' ), 'text', My_IAPSNJ_Schema::FIELD_UNION_AFFILIATION ),
+            'union_position'  => $custom( __( 'Union position', 'my-iapsnj' ), '', 'text', My_IAPSNJ_Schema::FIELD_UNION_POSITION ),
+            // -- Personal ---------------------------------------------------
+            'date_of_birth'   => [
                 'label'    => __( 'Date of birth', 'my-iapsnj' ),
                 'help'     => '',
                 'type'     => 'date',
@@ -143,37 +143,20 @@ class My_IAPSNJ_Checkout_Fields {
                 'enabled'  => true,
                 'required' => false,
             ],
-            'referred_by' => [
-                'label'    => __( 'Referred by', 'my-iapsnj' ),
-                'help'     => __( 'Name of the member who referred you (optional).', 'my-iapsnj' ),
-                'type'     => 'text',
-                'options'  => [],
-                'crm'      => My_IAPSNJ_Schema::FIELD_REFERRED_BY,
-                'crm_kind' => 'custom',
-                'enabled'  => true,
-                'required' => false,
-            ],
-            'union_affiliation' => [
-                'label'    => __( 'Union affiliation', 'my-iapsnj' ),
-                'help'     => '',
-                'type'     => 'text',
-                'options'  => [],
-                'crm'      => 'union_affiliation',
-                'crm_kind' => 'custom',
-                'enabled'  => false,
-                'required' => false,
-            ],
-            'union_position' => [
-                'label'    => __( 'Union position', 'my-iapsnj' ),
-                'help'     => '',
-                'type'     => 'text',
-                'options'  => [],
-                'crm'      => 'union_position',
-                'crm_kind' => 'custom',
-                'enabled'  => false,
-                'required' => false,
-            ],
-            'certify' => [
+            'marital_status'  => $custom( __( 'Marital status', 'my-iapsnj' ), '', 'select', My_IAPSNJ_Schema::FIELD_MARITAL_STATUS ),
+            'spouse_name'     => $custom( __( 'Spouse\'s name', 'my-iapsnj' ), '', 'text', My_IAPSNJ_Schema::FIELD_SPOUSE_NAME ),
+            'armed_service'   => $custom( __( 'I have served in the U.S. Armed Forces', 'my-iapsnj' ), '', 'checkbox', My_IAPSNJ_Schema::FIELD_ARMED_SERVICE ),
+            // -- Employer (Associate members) -------------------------------
+            'company_name'    => $custom( __( 'Employer / company name', 'my-iapsnj' ), __( 'Associate members: where you work.', 'my-iapsnj' ), 'text', My_IAPSNJ_Schema::FIELD_COMPANY_NAME ),
+            'company_title'   => $custom( __( 'Job title', 'my-iapsnj' ), '', 'text', My_IAPSNJ_Schema::FIELD_COMPANY_TITLE ),
+            'company_type'    => $custom( __( 'Type of business', 'my-iapsnj' ), '', 'text', My_IAPSNJ_Schema::FIELD_COMPANY_TYPE ),
+            // -- Other ------------------------------------------------------
+            'referred_by'     => $custom( __( 'Referred by', 'my-iapsnj' ), __( 'Name of the member who referred you (optional).', 'my-iapsnj' ), 'text', My_IAPSNJ_Schema::FIELD_REFERRED_BY ),
+            'additional_information' => $custom( __( 'Additional information', 'my-iapsnj' ), __( 'Anything else you would like us to know (optional).', 'my-iapsnj' ), 'textarea', My_IAPSNJ_Schema::FIELD_ADDITIONAL_INFO ),
+            // Existed on the ACF form; meaning to confirm with the client, so
+            // hidden until the options are imported / the client asks for it.
+            'elo_title'       => $custom( __( 'ELO title', 'my-iapsnj' ), '', 'select', My_IAPSNJ_Schema::FIELD_ELO_TITLE, false ),
+            'certify'         => [
                 'label'    => __( 'I certify that the information I provided is accurate and that I meet the eligibility requirements for IAPSNJ membership.', 'my-iapsnj' ),
                 'help'     => '',
                 'type'     => 'checkbox',
@@ -184,6 +167,252 @@ class My_IAPSNJ_Checkout_Fields {
                 'required' => true,
             ],
         ];
+        return $fields;
+    }
+
+    /**
+     * Built-in keys whose dropdown options are known without ACF or CRM data.
+     *
+     * @return array<string,string[]>
+     */
+    public static function builtin_options(): array {
+        return [
+            'rank_level'     => My_IAPSNJ_Schema::default_rank_options(),
+            'marital_status' => My_IAPSNJ_Schema::marital_status_options(),
+        ];
+    }
+
+    // -----------------------------------------------------------------------
+    // Dropdown options: ACF choices → existing CRM values → built-in list
+    // -----------------------------------------------------------------------
+
+    /**
+     * Candidate options for a dropdown / radio field, in order of preference:
+     * the choices of the ACF user field with the same name (the retired
+     * onboarding form), the distinct values already stored in the CRM custom
+     * field (existing members), the distinct values in the ACF-era user meta
+     * of the same name, then the built-in list. Returns
+     * ['source' => 'acf'|'crm'|'usermeta'|'builtin'|'', 'options' => string[]].
+     *
+     * @param string $key      checkout field key (matches the ACF field name)
+     * @param string $crm_slug FluentCRM custom-field slug ('' when not stored)
+     */
+    public static function discover_options( string $key, string $crm_slug ): array {
+        $acf = self::acf_choices( $key );
+        if ( $acf ) {
+            return [ 'source' => 'acf', 'options' => $acf ];
+        }
+        if ( $crm_slug !== '' ) {
+            $crm = self::crm_distinct_values( $crm_slug );
+            if ( $crm ) {
+                return [ 'source' => 'crm', 'options' => $crm ];
+            }
+        }
+        $meta = self::usermeta_distinct_values( $key );
+        if ( $meta ) {
+            return [ 'source' => 'usermeta', 'options' => $meta ];
+        }
+        $builtin = self::builtin_options();
+        if ( ! empty( $builtin[ $key ] ) ) {
+            return [ 'source' => 'builtin', 'options' => $builtin[ $key ] ];
+        }
+        return [ 'source' => '', 'options' => [] ];
+    }
+
+    /**
+     * Choices of the ACF user-profile field named $name (select / radio /
+     * checkbox), [] when ACF is inactive or the field has none.
+     *
+     * @return string[]
+     */
+    public static function acf_choices( string $name ): array {
+        if ( ! function_exists( 'acf_get_field_groups' ) || ! function_exists( 'acf_get_fields' ) ) {
+            return [];
+        }
+        try {
+            foreach ( (array) acf_get_field_groups( [ 'user_form' => 'all' ] ) as $group ) {
+                $fields = acf_get_fields( $group );
+                if ( ! is_array( $fields ) ) {
+                    continue;
+                }
+                foreach ( $fields as $field ) {
+                    if ( ( $field['name'] ?? '' ) !== $name || empty( $field['choices'] ) || ! is_array( $field['choices'] ) ) {
+                        continue;
+                    }
+                    $out = [];
+                    foreach ( $field['choices'] as $label ) {
+                        $label = trim( (string) $label );
+                        if ( $label !== '' && ! self::is_placeholder_option( $label ) ) {
+                            $out[] = $label;
+                        }
+                    }
+                    return array_values( array_unique( $out ) );
+                }
+            }
+        } catch ( \Throwable $e ) {
+            // ACF is optional; fall through
+        }
+        return [];
+    }
+
+    /**
+     * Distinct non-empty values stored in a FluentCRM custom field, most
+     * frequent first, then alphabetical (capped at 300).
+     *
+     * @return string[]
+     */
+    public static function crm_distinct_values( string $slug ): array {
+        global $wpdb;
+        $table = $wpdb->prefix . 'fc_subscriber_meta';
+        try {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+            $rows = $wpdb->get_results( $wpdb->prepare(
+                "SELECT value, COUNT(*) AS n FROM {$table} WHERE object_type = 'custom_field' AND `key` = %s AND value <> '' GROUP BY value ORDER BY n DESC, value ASC LIMIT 300", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+                $slug
+            ), ARRAY_A );
+        } catch ( \Throwable $e ) {
+            return [];
+        }
+        return self::values_from_rows( (array) $rows );
+    }
+
+    /**
+     * Distinct non-empty values of a user-meta key (the ACF-era profile
+     * fields), most frequent first (capped at 300).
+     *
+     * @return string[]
+     */
+    public static function usermeta_distinct_values( string $meta_key ): array {
+        global $wpdb;
+        $meta_key = sanitize_key( $meta_key );
+        if ( $meta_key === '' ) {
+            return [];
+        }
+        try {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+            $rows = $wpdb->get_results( $wpdb->prepare(
+                "SELECT meta_value AS value, COUNT(*) AS n FROM {$wpdb->usermeta} WHERE meta_key = %s AND meta_value <> '' GROUP BY meta_value ORDER BY n DESC, meta_value ASC LIMIT 300",
+                $meta_key
+            ), ARRAY_A );
+        } catch ( \Throwable $e ) {
+            return [];
+        }
+        return self::values_from_rows( (array) $rows );
+    }
+
+    /**
+     * @param array<int,array> $rows [['value' => string], …]; serialized arrays are expanded
+     * @return string[]
+     */
+    private static function values_from_rows( array $rows ): array {
+        $out = [];
+        foreach ( $rows as $row ) {
+            $value = (string) ( $row['value'] ?? '' );
+            $value = is_serialized( $value ) ? maybe_unserialize( $value ) : $value;
+            foreach ( (array) $value as $v ) {
+                $v = trim( (string) $v );
+                if ( $v !== '' && ! self::is_placeholder_option( $v ) ) {
+                    $out[ $v ] = true;
+                }
+            }
+        }
+        return array_keys( $out );
+    }
+
+    private static function is_placeholder_option( string $value ): bool {
+        $v = strtolower( trim( $value, " -—–\t" ) );
+        return in_array( $v, [ 'n/a', 'na', 'none', 'select', 'select one', 'please select', 'choose', '' ], true );
+    }
+
+    /**
+     * Fill the option list of every configured dropdown / radio field that
+     * has none (or of every one, when $only_empty is false) from
+     * discover_options(). Saves the configuration. Idempotent.
+     *
+     * @return array<string,array{source:string,count:int}> key => what was imported (only fields that changed)
+     */
+    public static function import_options( bool $only_empty = true ): array {
+        $saved = get_option( self::OPTION, [] );
+        if ( ! is_array( $saved ) || ! $saved ) {
+            self::seed_defaults();
+            $saved = get_option( self::OPTION, [] );
+        }
+        $report  = [];
+        $changed = false;
+        foreach ( self::config() as $key => $def ) {
+            if ( ! in_array( $def['type'], [ 'select', 'radio' ], true ) ) {
+                continue;
+            }
+            if ( $only_empty && ! empty( $def['options'] ) ) {
+                continue;
+            }
+            $found = self::discover_options( $key, $def['crm_kind'] === 'custom' ? (string) $def['crm'] : '' );
+            if ( ! $found['options'] || $found['options'] === (array) $def['options'] ) {
+                continue;
+            }
+            if ( ! isset( $saved[ $key ] ) || ! is_array( $saved[ $key ] ) ) {
+                unset( $def['builtin'] );
+                $saved[ $key ] = array_merge( [ 'key' => $key ], $def );
+            }
+            $saved[ $key ]['options'] = $found['options'];
+            $report[ $key ]           = [ 'source' => $found['source'], 'count' => count( $found['options'] ) ];
+            $changed                  = true;
+        }
+        if ( $changed ) {
+            update_option( self::OPTION, $saved );
+            self::$config_cache = null;
+        }
+        return $report;
+    }
+
+    /**
+     * Append built-in fields that a saved configuration does not know yet,
+     * with their default visibility (a new release adding fields shows them
+     * without an admin having to switch each one on). Existing rows are not
+     * touched. Idempotent.
+     *
+     * @return string[] keys added
+     */
+    public static function add_missing_builtins(): array {
+        $saved = get_option( self::OPTION, [] );
+        if ( ! is_array( $saved ) || ! $saved ) {
+            self::seed_defaults();
+            return [];
+        }
+        $have = [];
+        foreach ( $saved as $k => $row ) {
+            $have[ sanitize_key( (string) ( is_array( $row ) && isset( $row['key'] ) ? $row['key'] : $k ) ) ] = true;
+        }
+        $added = [];
+        $rows  = [];
+        // Keep the saved order; slot new built-ins before the certification
+        // checkbox when it is the last row, otherwise append.
+        $certify  = null;
+        $last_row = end( $saved );
+        $last_key = sanitize_key( (string) ( is_array( $last_row ) && isset( $last_row['key'] ) ? $last_row['key'] : key( $saved ) ) );
+        foreach ( $saved as $k => $row ) {
+            $key = sanitize_key( (string) ( is_array( $row ) && isset( $row['key'] ) ? $row['key'] : $k ) );
+            if ( $key === 'certify' && $last_key === 'certify' ) {
+                $certify = [ $k, $row ];
+                continue;
+            }
+            $rows[ $k ] = $row;
+        }
+        foreach ( self::definitions() as $key => $def ) {
+            if ( isset( $have[ $key ] ) ) {
+                continue;
+            }
+            $rows[ $key ] = array_merge( [ 'key' => $key ], $def );
+            $added[]      = $key;
+        }
+        if ( $certify ) {
+            $rows[ $certify[0] ] = $certify[1];
+        }
+        if ( $added ) {
+            update_option( self::OPTION, $rows );
+            self::$config_cache = null;
+        }
+        return $added;
     }
 
     // -----------------------------------------------------------------------
@@ -1164,7 +1393,15 @@ class My_IAPSNJ_Checkout_Fields {
                 continue;
             }
             if ( $def['crm_kind'] === 'custom' ) {
-                $custom[ $def['crm'] ] = $def['type'] === 'checkbox' ? 'Yes' : $value;
+                if ( $def['type'] === 'checkbox' ) {
+                    $value = 'Yes';
+                }
+                // FluentCRM stores checkbox / multi-select custom fields as
+                // an array of chosen options.
+                if ( in_array( My_IAPSNJ_Schema::custom_field_type( $def['crm'] ), [ 'checkbox', 'select-multi' ], true ) ) {
+                    $value = [ $value ];
+                }
+                $custom[ $def['crm'] ] = $value;
             } elseif ( $def['crm_kind'] === 'default' && isset( self::DEFAULT_TARGETS[ $def['crm'] ] ) ) {
                 $defaults[ $def['crm'] ] = $value;
             }

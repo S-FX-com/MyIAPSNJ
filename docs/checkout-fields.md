@@ -48,21 +48,47 @@ save**, or not stored. Built-in fields can be hidden but not removed; added
 fields get a key `app_<label>` and, when "create new" is chosen, a FluentCRM
 custom field of the matching type with the same slug.
 
-Built-in fields:
+Built-in fields (4.3.0: the whole ACF-era onboarding form, per Shane
+2026-09-24 "take everything that was in the other onboarding form and move it
+into the main checkout"). Left out on purpose: what FluentCart collects (name,
+email, phone, billing address), what the payment sets (member number, type,
+join / expiration dates) and `admin_notes` (FluentCRM Notes).
 
 | Key | Type | Default | CRM target | Notes |
 |---|---|---|---|---|
-| `department` | dropdown | on, required | custom `department` | Options one per line; **no "N/A"**. Associate treatment still to confirm with the client (make it optional, or relabel "Employer / affiliation"). |
-| `rank_level` | dropdown | on, required | custom `rank_level` | |
+| `department` | dropdown | on, required | custom `department` | Options imported (see below); **no "N/A"**. Associate treatment still to confirm with the client (make it optional, or relabel "Employer / affiliation"). |
+| `rank_level` | dropdown | on, required | custom `rank_level` | Options imported; built-in NJ rank list as last resort. |
 | `retirement_date` | date | on, optional | custom `retirement_date` | |
+| `phone_work` | text | on, optional | custom `phone_work` | |
+| `phone2` | text | on, optional | custom `phone2` | alternate phone |
+| `union_affiliation` | text | on, optional | custom `union_affiliation` | |
+| `union_position` | text | on, optional | custom `union_position` | |
 | `date_of_birth` | date | on, optional | contact `date_of_birth` | |
+| `marital_status` | dropdown | on, optional | custom `marital_status` | Single / Married / Divorced / Widowed / Separated (ACF choices win if present) |
+| `spouse_name` | text | on, optional | custom `spouse_name` | |
+| `armed_service` | checkbox | on, optional | custom `armed_service` | stored as `["Yes"]` (FluentCRM checkbox field) |
+| `company_name` | text | on, optional | custom `company_name` | Associate members' employer |
+| `company_title` | text | on, optional | custom `company_title` | |
+| `company_type` | text | on, optional | custom `company_type` | |
 | `referred_by` | text | on, optional | custom `referred_by` | |
-| `union_affiliation` | text | off | custom `union_affiliation` | candidate to retire |
-| `union_position` | text | off | custom `union_position` | candidate to retire |
+| `additional_information` | paragraph | on, optional | custom `additional_information` | |
+| `elo_title` | dropdown | **off** | custom `elo_title` | meaning unconfirmed with the client; switch on once the options are imported |
 | `certify` | checkbox | on, required | — | "I certify that the information I provided is accurate …" |
 
 Input names are prefixed `iapsnj_` (`iapsnj_department`, …). A dropdown or
 radio group with no options renders as a text box.
+
+**Dropdown options.** The option lists are not in git. On install / upgrade
+(data version 8) and from the *Fill empty dropdown options* button the plugin
+fills every empty dropdown / radio list, per field, from the first source that
+has anything: the choices of the ACF user field with the same name (the old
+onboarding form, when ACF is still active), then the distinct values already
+stored in the CRM custom field (most frequent first, `N/A`-style entries
+dropped, capped at 300), then the distinct values in the ACF-era user meta of
+the same name, then the built-in list (rank, marital status). Lists
+that already have options are never touched; edit them freely. Export the
+result with the option (`docs/not-in-git.md`) so production gets the same
+lists.
 
 **Behaviour**
 

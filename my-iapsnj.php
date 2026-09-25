@@ -3,7 +3,7 @@
  * Plugin Name:       My IAPSNJ
  * Plugin URI:        https://github.com/S-FX-com/MyIAPSNJ
  * Description:       Membership operations for the IAPSNJ website. FluentCRM is the single source of truth: the membership application is collected on the FluentCart checkout page, FluentCart payments set membership state (Paid-YYYY tags, member_type, paid_through), applications are tracked until they are paid, mailed checks are reconciled in batch, and WordPress user profiles are mirrored one way from the CRM. Includes the PMPro → FluentCRM migration toolkit.
- * Version:           4.2.1
+ * Version:           4.3.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Requires Plugins:  fluent-crm
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'MY_IAPSNJ_VERSION', '4.2.1' );
+define( 'MY_IAPSNJ_VERSION', '4.3.0' );
 define( 'MY_IAPSNJ_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'MY_IAPSNJ_URL',     plugin_dir_url( __FILE__ ) );
 define( 'MY_IAPSNJ_FILE',    __FILE__ );
@@ -203,7 +203,7 @@ final class My_IAPSNJ_Plugin {
      * below; it is independent of MY_IAPSNJ_VERSION so that ordinary releases
      * do not re-run migrations.
      */
-    const DATA_VERSION = 7;
+    const DATA_VERSION = 8;
 
     /**
      * Runs any migration steps this install has not seen yet.
@@ -344,6 +344,50 @@ final class My_IAPSNJ_Plugin {
                     }
                 }
                 My_IAPSNJ_Checkout_Fields::upgrade_config();
+            }
+
+            // ---- v8: the whole onboarding form moves into the checkout ------
+            // * New built-in fields (phones, union, marital, spouse, armed
+            //   service, employer, additional information) are appended, shown
+            //   by default; the union fields, hidden by the 4.1 seed, are shown.
+            // * Dropdowns with no options (Department, Rank, …) are filled from
+            //   the ACF field choices, the CRM data or the built-in list.
+            // * The CRM custom fields they write to are created if missing.
+            if ( $installed < 8 ) {
+                My_IAPSNJ_Checkout_Fields::add_missing_builtins();
+                $rows = get_option( My_IAPSNJ_Checkout_Fields::OPTION, [] );
+                if ( is_array( $rows ) ) {
+                    $changed = false;
+                    foreach ( [ 'union_affiliation', 'union_position' ] as $key ) {
+                        if ( isset( $rows[ $key ] ) && is_array( $rows[ $key ] ) && empty( $rows[ $key ]['enabled'] ) ) {
+                            $rows[ $key ]['enabled'] = true;
+                            $changed                 = true;
+                        }
+                    }
+                    if ( $changed ) {
+                        update_option( My_IAPSNJ_Checkout_Fields::OPTION, $rows );
+                    }
+                }
+                // FluentCRM's helpers load on plugins_loaded and ACF's PHP
+                // field groups register on init (acf/init), so both run once
+                // init has happened.
+                $finish = function () {
+                    try {
+                        My_IAPSNJ_Schema::ensure_custom_fields();
+                    } catch ( \Throwable $e ) {
+                        error_log( 'My IAPSNJ: could not create CRM custom fields during upgrade: ' . $e->getMessage() );
+                    }
+                    try {
+                        My_IAPSNJ_Checkout_Fields::import_options( true );
+                    } catch ( \Throwable $e ) {
+                        error_log( 'My IAPSNJ: could not import dropdown options during upgrade: ' . $e->getMessage() );
+                    }
+                };
+                if ( did_action( 'init' ) ) {
+                    $finish();
+                } else {
+                    add_action( 'init', $finish, 20 );
+                }
             }
 
             update_option( 'my_iapsnj_data_version', self::DATA_VERSION );

@@ -46,7 +46,7 @@ class My_IAPSNJ_Admin {
         add_filter( 'menu_order',        [ $this, 'reorder_admin_menu' ] );
 
         $ajax = [
-            'save_mappings', 'save_settings', 'save_checkout_fields', 'bulk_sync', 'search_users', 'sample_data',
+            'save_mappings', 'save_settings', 'save_checkout_fields', 'import_field_options', 'bulk_sync', 'search_users', 'sample_data',
             'search_notes', 'get_tags', 'assign_tag',
             'checks_list', 'checks_mark_paid', 'search_members', 'record_check',
             'save_products', 'apply_offline_labels', 'ensure_schema',
@@ -879,9 +879,10 @@ class My_IAPSNJ_Admin {
             <template id="fcrm-field-row-template"><?php $this->render_checkout_field_row( '__TEMPLATE__', [ 'label' => '', 'help' => '', 'type' => 'text', 'options' => [], 'crm' => '', 'crm_kind' => 'none', 'enabled' => true, 'required' => false, 'builtin' => false ], $targets, true ); ?></template>
             <p style="margin-top:10px">
                 <button type="button" id="fcrm-add-field" class="button">+ <?php esc_html_e( 'Add field', 'my-iapsnj' ); ?></button>
+                <button type="button" id="fcrm-import-field-options" class="button" title="<?php esc_attr_e( 'Fills every empty dropdown / radio list from the ACF field choices (the old onboarding form), else the values already stored in the CRM, else the built-in list. Lists you have filled in are left alone. Works on the saved configuration: save your other changes first, the page reloads.', 'my-iapsnj' ); ?>"><?php esc_html_e( 'Fill empty dropdown options', 'my-iapsnj' ); ?></button>
                 <button type="submit" class="button button-primary"><?php esc_html_e( 'Save application fields', 'my-iapsnj' ); ?></button>
             </p>
-            <p class="description"><?php esc_html_e( 'Tip: FluentCart\'s own "Agree to terms" checkbox (Settings → Checkout Fields → Legal) can replace the certification checkbox if you prefer a single legal line.', 'my-iapsnj' ); ?></p>
+            <p class="description"><?php esc_html_e( 'Dropdown options come from the ACF field choices of the old onboarding form when ACF is still active, otherwise from the values already stored in the CRM; edit the list freely. Tip: FluentCart\'s own "Agree to terms" checkbox (Settings → Checkout Fields → Legal) can replace the certification checkbox if you prefer a single legal line.', 'my-iapsnj' ); ?></p>
         </div>
         </form>
 
@@ -901,7 +902,11 @@ class My_IAPSNJ_Admin {
 
         <div class="fcrm-section">
             <h2><?php esc_html_e( 'CRM schema', 'my-iapsnj' ); ?></h2>
-            <p class="description"><?php esc_html_e( 'Creates any missing tags (Paid-YYYY, Payment-Pending-Check, Checkout-Abandoned, Honorary, Lifetime) and custom fields (member_type, paid_through, member_number, department, rank_level, join_date, legacy_pmpro_level, retirement_date, referred_by). Existing fields are never modified.', 'my-iapsnj' ); ?></p>
+            <p class="description"><?php echo esc_html( sprintf(
+                /* translators: %s: comma-separated custom field slugs */
+                __( 'Creates any missing tags (Paid-YYYY, Payment-Pending-Check, Checkout-Abandoned, Honorary, Lifetime) and custom fields (%s). Existing fields are never modified.', 'my-iapsnj' ),
+                implode( ', ', array_column( My_IAPSNJ_Schema::required_fields(), 'slug' ) )
+            ) ); ?></p>
             <p><label><?php esc_html_e( 'Paid-YYYY years', 'my-iapsnj' ); ?> <input type="text" id="fcrm-schema-years" value="<?php echo esc_attr( '2024-' . ( (int) wp_date( 'Y' ) + 5 ) ); ?>" class="small-text" style="width:110px"></label>
                <button id="fcrm-ensure-schema" class="button"><?php esc_html_e( 'Create missing tags & fields', 'my-iapsnj' ); ?></button></p>
             <div id="fcrm-schema-result"></div>
@@ -1120,6 +1125,42 @@ class My_IAPSNJ_Admin {
         $raw = isset( $_POST['fields'] ) && is_array( $_POST['fields'] ) ? wp_unslash( $_POST['fields'] ) : []; // phpcs:ignore
         My_IAPSNJ_Checkout_Fields::save_config( $raw );
         wp_send_json_success( [ 'count' => count( My_IAPSNJ_Checkout_Fields::enabled_fields() ) ] );
+    }
+
+    /**
+     * Fill empty dropdown / radio option lists from ACF choices, CRM values
+     * or the built-in lists (the saved configuration, not the unsaved form).
+     */
+    public function ajax_import_field_options(): void {
+        $this->ajax_guard();
+        try {
+            $report = My_IAPSNJ_Checkout_Fields::import_options( true );
+        } catch ( \Throwable $e ) {
+            wp_send_json_error( [ 'message' => $e->getMessage() ] );
+        }
+        $config  = My_IAPSNJ_Checkout_Fields::config();
+        $sources = [
+            'acf'      => __( 'ACF field choices', 'my-iapsnj' ),
+            'crm'      => __( 'values already in the CRM', 'my-iapsnj' ),
+            'usermeta' => __( 'values in the old WordPress profiles', 'my-iapsnj' ),
+            'builtin'  => __( 'built-in list', 'my-iapsnj' ),
+        ];
+        $lines = [];
+        foreach ( $report as $key => $r ) {
+            $lines[] = sprintf(
+                /* translators: 1: field label, 2: number of options, 3: where they came from */
+                __( '%1$s: %2$d options from %3$s', 'my-iapsnj' ),
+                (string) ( $config[ $key ]['label'] ?? $key ),
+                (int) $r['count'],
+                $sources[ $r['source'] ] ?? $r['source']
+            );
+        }
+        wp_send_json_success( [
+            'count'   => count( $report ),
+            'message' => $lines
+                ? implode( ' · ', $lines )
+                : __( 'Nothing to fill: every dropdown already has options, or no source (ACF choices, CRM values, built-in list) has any.', 'my-iapsnj' ),
+        ] );
     }
 
     public function ajax_bulk_sync(): void {

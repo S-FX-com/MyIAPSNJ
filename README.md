@@ -45,8 +45,10 @@ Documentation: [`docs/phase1-findings.md`](docs/phase1-findings.md) ·
   amount and links. Never on application submitted.
 * **Application inside the checkout** — the Join page is a set of buttons
   (one instant-checkout link per membership product). On the checkout page
-  the plugin adds the application fields (department, rank, retirement date,
-  date of birth, referred by, certification …), validates them server-side,
+  the plugin adds the application fields (the whole former onboarding form:
+  department, rank, retirement date, phones, union, date of birth, marital
+  status, spouse, armed service, employer, referred by, additional
+  information, certification), validates them server-side,
   stores them on the order and writes them to the CRM contact when the order
   is placed by check or paid. Logged-in members see them prefilled from the
   CRM (renewals). Sync & Settings has a small field builder: add fields, pick
@@ -94,7 +96,9 @@ migration if present.
    [latest release](https://github.com/S-FX-com/MyIAPSNJ/releases/latest).
 2. Plugins → Add New → Upload Plugin → Activate.
 3. My IAPSNJ → Sync & Settings → *Create missing tags & fields*, review the
-   application fields (dropdown options for Department and Rank), set the
+   application fields (the Department and Rank dropdown options are imported
+   from the ACF field choices or the existing CRM values; *Fill empty
+   dropdown options* re-runs that), set the
    renewal products and notification recipients, apply the "Pay by Check"
    label.
 4. My IAPSNJ → Membership Products → map the FluentCart products, then build
@@ -105,8 +109,11 @@ mappings, forces the mirror to CRM → WP, removes the PMPro options/cron and
 creates the applications table. Data-version 6 (4.1) removes the Fluent Forms
 settings, adds `cart_hash` / `fields` to the applications table and seeds the
 default checkout fields. Data-version 7 (4.2) converts product rows to *years
-covered* and the checkout fields to the builder format. Nothing in the CRM is
-changed by an upgrade.
+covered* and the checkout fields to the builder format. Data-version 8 (4.3)
+adds the remaining onboarding-form fields to the checkout, shows the union
+fields, fills empty dropdown option lists (ACF choices → CRM values →
+built-in list) and creates the CRM custom fields those answers are written to
+(existing fields are never modified).
 
 ## Admin screens (My IAPSNJ menu, `manage_options`)
 

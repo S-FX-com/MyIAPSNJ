@@ -31,16 +31,17 @@ Honorary is **never a product**: it is admin-assigned (tag + `member_type`).
 | `rank_level` | text/select-one | | Same. |
 | `join_date` | date | | Migrated from ACF `join_date`. |
 | `legacy_pmpro_level` | text | e.g. `3` or `3, 5` | Written by migration for members/orders on deleted PMPro levels (IDs 3, 5). Diagnostic only. |
-| `phone2` | text | | Alternate phone (keep — existed pre-4.0) |
-| `phone_work` | text | | Work phone |
+| `phone2` | text | | Alternate phone; checkout application (4.3.0). Existed pre-4.0; `crm-schema` creates it if missing. |
+| `phone_work` | text | | Work phone; checkout application. |
 | `retirement_date` | date | | Created by `crm-schema`; filled from the checkout application. |
-| `union_affiliation`, `union_position` | text | | |
-| `marital_status` | select-one | | |
-| `spouse_name` | text | | |
-| `armed_service` | checkbox | | |
-| `additional_information` | textarea | | |
+| `union_affiliation`, `union_position` | text | | Checkout application (shown by default since 4.3.0). |
+| `marital_status` | select-one | Single / Married / Divorced / Widowed / Separated | Checkout application. |
+| `spouse_name` | text | | Checkout application. |
+| `armed_service` | checkbox | `Yes` | Checkout application; stored as an array (`["Yes"]`) like every FluentCRM checkbox field. |
+| `additional_information` | textarea | | Checkout application. |
+| `company_name`, `company_title`, `company_type` | text | | Associate members' employer; checkout application. Created by `crm-schema` if missing. |
 | `referred_by` | text | | Created by `crm-schema`; filled from the checkout application. |
-| `elo_title` | select-one | | Confirm with client whether still used |
+| `elo_title` | text (select in ACF) | | Confirm with client whether still used; the checkout field exists but is hidden by default. |
 | `admin_notes` | textarea | **retire** → use FluentCRM Notes | Already searchable via Notes Search |
 
 Default FluentCRM fields used: `first_name`, `last_name`, `email`, `phone`,
@@ -50,7 +51,8 @@ Default FluentCRM fields used: `first_name`, `last_name`, `email`, `phone`,
 `department` and `rank_level` were mapped as *select* in the ACF era. Keep them
 `select-one` in FluentCRM only if the option list is maintained there; the
 checkout dropdown (My IAPSNJ → Sync & Settings → Application fields) is the
-real constraint (non-submittable placeholder, no "N/A").
+real constraint (non-submittable placeholder, no "N/A"). Its option lists are
+imported from the ACF choices / existing CRM values (`docs/checkout-fields.md`).
 
 ## The 32 ACF-era fields — decision per field
 
@@ -75,19 +77,20 @@ and populated it — the data is there; only the ACF side is dropped.
 | rank_level | ✔ | `rank_level` | |
 | work_phone | ✔ | `phone_work` | |
 | retirement_date | ✔ | `retirement_date` | |
-| union_affiliation / union_position | ✔ | same slugs | **confirm with client** — candidates to retire |
+| union_affiliation / union_position | ✔ | same slugs | on the checkout (client: "all of them", 2026-09-24) |
 | date_of_birth | ✔ | `date_of_birth` | |
-| marital_status / spouse_name | ✔ | same slugs | **confirm with client** — candidates to retire |
-| armed_service | ✔ | `armed_service` | |
-| additional_information | ✔ | `additional_information` | |
-| company_name / company_title / company_type | ✖ | — | Associate-member employer data; **retire unless the client uses it** (probably unused) |
+| marital_status / spouse_name | ✔ | same slugs | on the checkout |
+| armed_service | ✔ | `armed_service` | on the checkout |
+| additional_information | ✔ | `additional_information` | on the checkout |
+| company_name / company_title / company_type | ✔ | same slugs | Associate-member employer data; on the checkout |
 | admin_notes | ✖ | FluentCRM Notes | notes are first-class in the CRM |
-| referred_by | ✔ | `referred_by` | cheap to keep; useful for the join form |
-| elo_title | ✖ | — | **confirm** — almost certainly unused |
+| referred_by | ✔ | `referred_by` | on the checkout |
+| elo_title | ✔ (hidden) | `elo_title` | checkout field exists, off by default — **confirm** meaning with the client |
 
-Aggressive-retire list to put in front of the client (default: retire):
-`company_name`, `company_title`, `company_type`, `admin_notes`, `elo_title`,
-`union_affiliation`, `union_position`, `marital_status`, `spouse_name`.
+Retire decision (2026-09-24): the client wants every field of the old
+onboarding form on the checkout, so only `admin_notes` is retired. `elo_title`
+is kept but hidden until its meaning is confirmed. Any field can still be
+hidden from My IAPSNJ → Sync & Settings → Application fields.
 
 ## Profile mirror (CRM → WordPress user meta)
 

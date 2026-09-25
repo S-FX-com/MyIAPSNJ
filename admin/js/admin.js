@@ -407,6 +407,18 @@
             .always(function () { resetBtn($btn); });
     });
 
+    $('#fcrm-import-field-options').on('click', function () {
+        var $btn = $(this), $notice = $('#fcrm-settings-notice');
+        setBtn($btn, i18n.loading, true);
+        post('import_field_options', {})
+            .done(function (resp) {
+                showNotice($notice, resp.success ? resp.data.message : errMsg(resp), resp.success ? 'success' : 'error');
+                if (resp.success && resp.data.count > 0) { setTimeout(function () { window.location.href = window.location.pathname + window.location.search + '#application-fields'; window.location.reload(); }, 1500); }
+            })
+            .fail(function () { showNotice($notice, i18n.error, 'error'); })
+            .always(function () { resetBtn($btn); });
+    });
+
     $('#fcrm-apply-offline-labels').on('click', function () {
         var $btn = $(this), $notice = $('#fcrm-settings-notice');
         setBtn($btn, i18n.saving, true);

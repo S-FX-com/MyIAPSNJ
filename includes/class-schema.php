@@ -32,6 +32,20 @@ final class My_IAPSNJ_Schema {
     const FIELD_LEGACY_LEVEL   = 'legacy_pmpro_level';
     const FIELD_RETIREMENT_DATE = 'retirement_date';
     const FIELD_REFERRED_BY    = 'referred_by';
+    // Profile fields collected by the checkout application (ACF-era slugs,
+    // already populated in the CRM by the pre-4.0 sync for existing members).
+    const FIELD_PHONE_WORK     = 'phone_work';
+    const FIELD_PHONE2         = 'phone2';
+    const FIELD_UNION_AFFILIATION = 'union_affiliation';
+    const FIELD_UNION_POSITION = 'union_position';
+    const FIELD_MARITAL_STATUS = 'marital_status';
+    const FIELD_SPOUSE_NAME    = 'spouse_name';
+    const FIELD_ARMED_SERVICE  = 'armed_service';
+    const FIELD_ADDITIONAL_INFO = 'additional_information';
+    const FIELD_COMPANY_NAME   = 'company_name';
+    const FIELD_COMPANY_TITLE  = 'company_title';
+    const FIELD_COMPANY_TYPE   = 'company_type';
+    const FIELD_ELO_TITLE      = 'elo_title';
 
     // ---- member_type values (stored as displayed) ------------------------
     const TYPE_REGULAR   = 'Regular';
@@ -148,7 +162,151 @@ final class My_IAPSNJ_Schema {
                 'label' => 'Referred By',
                 'type'  => 'text',
             ],
+            [
+                'slug'  => self::FIELD_PHONE_WORK,
+                'label' => 'Work Phone',
+                'type'  => 'text',
+            ],
+            [
+                'slug'  => self::FIELD_PHONE2,
+                'label' => 'Alternate Phone',
+                'type'  => 'text',
+            ],
+            [
+                'slug'  => self::FIELD_UNION_AFFILIATION,
+                'label' => 'Union Affiliation',
+                'type'  => 'text',
+            ],
+            [
+                'slug'  => self::FIELD_UNION_POSITION,
+                'label' => 'Union Position',
+                'type'  => 'text',
+            ],
+            [
+                'slug'    => self::FIELD_MARITAL_STATUS,
+                'label'   => 'Marital Status',
+                'type'    => 'select-one',
+                'options' => self::marital_status_options(),
+            ],
+            [
+                'slug'  => self::FIELD_SPOUSE_NAME,
+                'label' => 'Spouse Name',
+                'type'  => 'text',
+            ],
+            [
+                'slug'    => self::FIELD_ARMED_SERVICE,
+                'label'   => 'Armed Service',
+                'type'    => 'checkbox',
+                'options' => [ 'Yes' ],
+            ],
+            [
+                'slug'  => self::FIELD_ADDITIONAL_INFO,
+                'label' => 'Additional Information',
+                'type'  => 'textarea',
+            ],
+            [
+                'slug'  => self::FIELD_COMPANY_NAME,
+                'label' => 'Company Name',
+                'type'  => 'text',
+            ],
+            [
+                'slug'  => self::FIELD_COMPANY_TITLE,
+                'label' => 'Company Title',
+                'type'  => 'text',
+            ],
+            [
+                'slug'  => self::FIELD_COMPANY_TYPE,
+                'label' => 'Company Type',
+                'type'  => 'text',
+            ],
+            [
+                'slug'  => self::FIELD_ELO_TITLE,
+                'label' => 'ELO Title',
+                'type'  => 'text',
+            ],
         ];
+    }
+
+    /**
+     * Marital status choices offered on the checkout and in the CRM field.
+     *
+     * @return string[]
+     */
+    public static function marital_status_options(): array {
+        return [ 'Single', 'Married', 'Divorced', 'Widowed', 'Separated' ];
+    }
+
+    /**
+     * Fallback rank list for the checkout dropdown when neither the ACF
+     * field nor the CRM data supplies one (see
+     * My_IAPSNJ_Checkout_Fields::discover_options()).
+     *
+     * @return string[]
+     */
+    public static function default_rank_options(): array {
+        return [
+            'Police Officer / Patrolman',
+            'Detective',
+            'Corporal',
+            'Sergeant',
+            'Lieutenant',
+            'Captain',
+            'Deputy Chief',
+            'Chief',
+            'Investigator',
+            'Sheriff\'s Officer',
+            'Undersheriff',
+            'Sheriff',
+            'Corrections Officer',
+            'State Trooper',
+            'Retired',
+            'Civilian',
+        ];
+    }
+
+    /**
+     * Type of a FluentCRM custom field by slug ('' when the field does not
+     * exist): text, textarea, number, date, select-one, select-multi, radio,
+     * checkbox …
+     */
+    public static function custom_field_type( string $slug ): string {
+        foreach ( (array) fluentcrm_get_option( 'contact_custom_fields', [] ) as $f ) {
+            if ( is_array( $f ) && ( $f['slug'] ?? '' ) === $slug ) {
+                return (string) ( $f['type'] ?? 'text' );
+            }
+        }
+        return '';
+    }
+
+    /**
+     * Create the custom fields the plugin depends on (no tags). Idempotent;
+     * existing fields are never modified.
+     *
+     * @return string[] slugs created
+     */
+    public static function ensure_custom_fields(): array {
+        $fields = fluentcrm_get_option( 'contact_custom_fields', [] );
+        if ( ! is_array( $fields ) ) {
+            $fields = [];
+        }
+        $have = [];
+        foreach ( $fields as $f ) {
+            if ( ! empty( $f['slug'] ) ) {
+                $have[ $f['slug'] ] = true;
+            }
+        }
+        $created = [];
+        foreach ( self::required_fields() as $def ) {
+            if ( isset( $have[ $def['slug'] ] ) ) {
+                continue;
+            }
+            $fields[]  = array_merge( [ 'group' => 'default' ], $def );
+            $created[] = $def['slug'];
+        }
+        if ( $created ) {
+            fluentcrm_update_option( 'contact_custom_fields', array_values( $fields ) );
+        }
+        return $created;
     }
 
     // -----------------------------------------------------------------------
@@ -189,28 +347,7 @@ final class My_IAPSNJ_Schema {
         self::$tag_cache = [];
 
         // Custom fields.
-        $fields = fluentcrm_get_option( 'contact_custom_fields', [] );
-        if ( ! is_array( $fields ) ) {
-            $fields = [];
-        }
-        $have = [];
-        foreach ( $fields as $f ) {
-            if ( ! empty( $f['slug'] ) ) {
-                $have[ $f['slug'] ] = true;
-            }
-        }
-        $added = false;
-        foreach ( self::required_fields() as $def ) {
-            if ( isset( $have[ $def['slug'] ] ) ) {
-                continue;
-            }
-            $fields[] = array_merge( [ 'group' => 'default' ], $def );
-            $report['fields_created'][] = $def['slug'];
-            $added = true;
-        }
-        if ( $added ) {
-            fluentcrm_update_option( 'contact_custom_fields', array_values( $fields ) );
-        }
+        $report['fields_created'] = self::ensure_custom_fields();
 
         return $report;
     }
