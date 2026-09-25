@@ -802,6 +802,28 @@ class My_IAPSNJ_Admin {
             </table>
         </div>
 
+        <div class="fcrm-section" id="roles">
+            <h2><?php esc_html_e( 'WordPress role per member type', 'my-iapsnj' ); ?></h2>
+            <p class="description"><?php esc_html_e( 'Applied by the mirror: on every CRM contact save, after each paid or check-placed order, on a full refund and by "Mirror all contacts → users". Only users whose current role is one of the roles chosen here (or Subscriber) are changed; administrators, editors and any other staff role are never touched. Leave a type on "— leave unchanged —" to skip it.', 'my-iapsnj' ); ?></p>
+            <table class="form-table">
+                <?php
+                $roles    = My_IAPSNJ_Engine::assignable_roles();
+                $role_map = My_IAPSNJ_Engine::role_map();
+                foreach ( My_IAPSNJ_Schema::member_types() as $type ) :
+                ?>
+                <tr><th><?php echo esc_html( $type ); ?></th><td>
+                    <select name="role_map[<?php echo esc_attr( $type ); ?>]">
+                        <option value=""><?php esc_html_e( '— leave unchanged —', 'my-iapsnj' ); ?></option>
+                        <?php foreach ( $roles as $slug => $name ) : ?>
+                            <option value="<?php echo esc_attr( $slug ); ?>" <?php selected( $role_map[ $type ] ?? '', $slug ); ?>><?php echo esc_html( $name . ' (' . $slug . ')' ); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </td></tr>
+                <?php endforeach; ?>
+            </table>
+            <p class="description"><?php esc_html_e( 'A new member\'s WordPress user is created as Subscriber and gets the mapped role in the same request. To create a dedicated role (e.g. "Member"), use any roles plugin, then pick it here. Lapsed members keep their role: gate the member area on paid_through / the Paid-YYYY tag, not on the role.', 'my-iapsnj' ); ?></p>
+        </div>
+
         <div class="fcrm-section" id="application">
             <h2><?php esc_html_e( 'Application on the checkout page', 'my-iapsnj' ); ?></h2>
             <p class="description"><?php esc_html_e( 'The membership application is collected on the FluentCart checkout page. Name, email, phone and billing address are FluentCart\'s own fields (FluentCart → Settings → Checkout Fields). The fields below are added by this plugin and written to the CRM contact when the order is placed by check or paid.', 'my-iapsnj' ); ?></p>
@@ -1099,6 +1121,18 @@ class My_IAPSNJ_Admin {
         }
         if ( array_key_exists( 'join_page_url', $post ) ) {
             $settings['join_page_url'] = esc_url_raw( (string) $post['join_page_url'] );
+        }
+        if ( array_key_exists( 'role_map', $post ) ) {
+            $allowed  = My_IAPSNJ_Engine::assignable_roles();
+            $role_map = [];
+            foreach ( (array) $post['role_map'] as $type => $role ) {
+                $type = sanitize_text_field( (string) $type );
+                $role = sanitize_key( (string) $role );
+                if ( in_array( $type, My_IAPSNJ_Schema::member_types(), true ) && $role !== '' && isset( $allowed[ $role ] ) ) {
+                    $role_map[ $type ] = $role;
+                }
+            }
+            $settings['role_map'] = $role_map;
         }
         if ( array_key_exists( 'renewal_cutover', $post ) ) {
             $settings['renewal_cutover'] = My_IAPSNJ_Dates::month_day( (string) $post['renewal_cutover'] );

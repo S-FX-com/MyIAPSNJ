@@ -67,7 +67,9 @@ Documentation: [`docs/phase1-findings.md`](docs/phase1-findings.md) ·
   deposit slip. **Record a check** for a member who never used the website.
 * **Reports** — applications awaiting payment, paid orders without an
   application, checks pending 30+ days, WordPress ↔ CRM orphans.
-* **Profile Mirror** — CRM → WordPress user meta, configurable field map.
+* **Profile Mirror** — CRM → WordPress user meta, configurable field map,
+  plus a WordPress role per member type (Sync & Settings; staff accounts
+  are never touched).
 * **Migration toolkit** — census, subscriber linking, address consolidation,
   Paid-YYYY backfill, Honorary/Lifetime from `pmpro_memberships_users`,
   member state, login verification, reconciliation, PMPro order CSV export.
@@ -127,7 +129,7 @@ if missing.
 | Membership Products | `my-iapsnj-products` | FluentCart variation → member type / years covered; checkout links |
 | Reports | `my-iapsnj-reports` | open applications, orphan orders, aging, WP↔CRM orphans |
 | Profile Mirror | `my-iapsnj-mapping` | CRM → WP field map with sample preview |
-| Sync & Settings | `my-iapsnj-sync` | mirror now, triggers, application fields, renewal products, notification, checkout, CRM schema |
+| Sync & Settings | `my-iapsnj-sync` | mirror now, triggers, role per member type, application fields, renewal products, notification, checkout, CRM schema |
 | Migration | `my-iapsnj-migration` | PMPro → CRM steps (shown while PMPro tables exist) |
 | Notes Search | `my-iapsnj-notes-search` | |
 

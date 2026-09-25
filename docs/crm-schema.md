@@ -111,6 +111,15 @@ check-placed order, so the WordPress profile (ACF meta) reflects the payment
 immediately. Extra ACF fields (e.g. a separate `member_type`) need no code:
 create the ACF field and add the row in Profile Mirror.
 
+**WordPress role** (4.5.0, Sync & Settings → *WordPress role per member
+type*): `member_type` → role slug, applied by the same mirror (contact save,
+paid / check-placed order, refund, bulk mirror). New users are created as
+Subscriber and get the mapped role in the same request. Guard rails: the
+administrator role is never assignable, and a user whose current roles
+include anything other than a mapped role or Subscriber (editors, staff) is
+never changed. Unmapped types are skipped. Lapsed members keep their role;
+member-area gating belongs on `paid_through` / `Paid-YYYY`, not the role.
+
 ## Products → membership state (FluentCart)
 
 Configured in My IAPSNJ → Membership Products (option `my_iapsnj_products`).
