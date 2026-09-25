@@ -428,6 +428,22 @@
             .always(function () { resetBtn($btn); });
     });
 
+    $('.fcrm-run-expiry').on('click', function () {
+        var $btn = $(this), dry = $btn.data('dry') === 1 || $btn.data('dry') === '1', $out = $('#fcrm-expiry-result').html('<p>' + i18n.loading + '</p>');
+        if (!dry && !window.confirm('Apply expirations now? Lapsed members lose the Member-Active tag and their role; members in good standing get them.')) { $out.empty(); return; }
+        setBtn($btn, i18n.loading, true);
+        post('run_expiry', { dry: dry ? 1 : 0 })
+            .done(function (resp) {
+                if (!resp.success) { $out.html('<p class="fcrm-error">' + escHtml(errMsg(resp)) + '</p>'); return; }
+                var d = resp.data, html = '<p>' + (d.dry ? 'Preview' : 'Applied') + ': ' + d.active + ' active, ' + d.expired + ' expired · to expire now: ' + d.to_expire + ', to activate: ' + d.to_activate
+                    + (d.dry ? '' : ' · done: ' + d.expired_now + ' expired, ' + d.activated + ' activated, ' + d.roles_changed + ' roles changed') + '</p>';
+                if (d.samples && d.samples.length) { html += '<ul style="margin-left:18px">' + d.samples.map(function (s) { return '<li>' + escHtml(s) + '</li>'; }).join('') + '</ul>'; }
+                $out.html(html);
+            })
+            .fail(function () { $out.html('<p class="fcrm-error">' + i18n.error + '</p>'); })
+            .always(function () { resetBtn($btn); });
+    });
+
     $('#fcrm-ensure-schema').on('click', function () {
         var $btn = $(this), $out = $('#fcrm-schema-result').html('<p>' + i18n.loading + '</p>');
         setBtn($btn, i18n.loading, true);

@@ -21,6 +21,10 @@ final class My_IAPSNJ_Schema {
     const TAG_ABANDONED        = 'checkout-abandoned';
     const TAG_HONORARY         = 'honorary';
     const TAG_LIFETIME         = 'lifetime';
+    // Status tag: present while the membership is in good standing (paid
+    // through today or later, or comped). Added on payment, removed by the
+    // daily expiry job. Paid-YYYY tags are history and are never removed.
+    const TAG_ACTIVE           = 'member-active';
 
     // ---- Custom fields (slug) --------------------------------------------
     const FIELD_MEMBER_TYPE    = 'member_type';
@@ -107,7 +111,28 @@ final class My_IAPSNJ_Schema {
             self::TAG_ABANDONED     => 'Checkout-Abandoned',
             self::TAG_HONORARY      => 'Honorary',
             self::TAG_LIFETIME      => 'Lifetime',
+            self::TAG_ACTIVE        => 'Member-Active',
         ];
+    }
+
+    /**
+     * Is a membership in good standing? Comped types always; otherwise
+     * paid_through (plus the grace period from Sync & Settings) must be today
+     * or later. '' / invalid paid_through = not active.
+     */
+    public static function is_active_state( string $type, string $paid_through ): bool {
+        if ( self::is_comped_type( $type ) ) {
+            return true;
+        }
+        $ymd = My_IAPSNJ_Dates::ymd( $paid_through );
+        if ( $ymd === '' ) {
+            return false;
+        }
+        $grace = (int) ( My_IAPSNJ_Plugin::settings()['expiry_grace_days'] ?? 0 );
+        if ( $grace > 0 ) {
+            $ymd = gmdate( 'Y-m-d', strtotime( $ymd . ' +' . $grace . ' days' ) );
+        }
+        return ! My_IAPSNJ_Dates::is_past( $ymd );
     }
 
     /**

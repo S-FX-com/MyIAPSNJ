@@ -13,6 +13,7 @@
  *   wp iapsnj verify-logins [--expected=<n>]
  *   wp iapsnj reconcile
  *   wp iapsnj crm-schema [--years=<from-to>]
+ *   wp iapsnj expire [--dry-run] [--limit=<n>]
  *   wp iapsnj offline-label --label=<text> [--instructions=<html>]
  *
  * Every migrate step supports --dry-run and prints a reviewable report; the
@@ -181,6 +182,32 @@ class My_IAPSNJ_CLI {
         WP_CLI::log( 'Tags created:   ' . ( $r['tags_created'] ? implode( ', ', $r['tags_created'] ) : '(none, all present)' ) );
         WP_CLI::log( 'Fields created: ' . ( $r['fields_created'] ? implode( ', ', $r['fields_created'] ) : '(none, all present)' ) );
         WP_CLI::success( 'CRM schema is complete.' );
+    }
+
+    /**
+     * Expire lapsed memberships (Member-Active tag + WordPress role) and
+     * activate members in good standing who lack them. The same job runs
+     * daily by WP-Cron.
+     *
+     * ## OPTIONS
+     *
+     * [--dry-run]
+     * : Report what would change without writing anything.
+     *
+     * [--limit=<n>]
+     * : Change at most n contacts.
+     */
+    public function expire( $args, $assoc ) {
+        $r = My_IAPSNJ_Membership::run_expirations( ! empty( $assoc['dry-run'] ), (int) ( $assoc['limit'] ?? 0 ) );
+        WP_CLI::log( sprintf( 'Active: %d · Expired: %d · To expire: %d · To activate: %d', $r['active'], $r['expired'], $r['to_expire'], $r['to_activate'] ) );
+        foreach ( $r['samples'] as $s ) {
+            WP_CLI::log( '  ' . $s );
+        }
+        if ( $r['dry'] ) {
+            WP_CLI::success( 'Dry run, nothing written.' );
+        } else {
+            WP_CLI::success( sprintf( 'Expired %d, activated %d, roles changed %d.', $r['expired_now'], $r['activated'], $r['roles_changed'] ) );
+        }
     }
 
     /**

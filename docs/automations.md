@@ -46,8 +46,19 @@ first step after the trigger, test with a Lifetime contact).
    number, and links to the CRM contact and the FluentCart order. Sent only
    when the payment is confirmed and the contact is a new member (application
    kind *join*, or first payment on record). Never on checkout started.
-8. Actions for extensions: `my_iapsnj/membership_paid`, `my_iapsnj/new_member`,
-   `my_iapsnj/membership_refunded`; filter `my_iapsnj/new_member_notification`.
+8. Add the status tag `Member-Active` and give the WordPress user the role
+   mapped to its member type (Sync & Settings); mirror the contact onto the
+   WordPress profile (ACF meta).
+9. Actions for extensions: `my_iapsnj/membership_paid`, `my_iapsnj/new_member`,
+   `my_iapsnj/membership_refunded`, `my_iapsnj/membership_expired`; filter
+   `my_iapsnj/new_member_notification`.
+
+**Daily expiry job** (WP-Cron `my_iapsnj_daily`, 00:30 site time; `wp iapsnj
+expire`; Sync & Settings → Expirations): every contact whose `paid_through`
+(+ grace days) is past loses `Member-Active` and drops to the "when expired"
+role; anyone in good standing without the tag gets it. `Paid-YYYY` stays as
+history. Build "membership expired" emails on **Tag Removed → Member-Active**
+(automation H below), never on Paid-YYYY.
 
 Timezone rule (audit P1-4): `paid_through` is a calendar date string and is
 rendered with `My_IAPSNJ_Dates::ymd_display()` (UTC round-trip) so 12/31 is
@@ -138,6 +149,17 @@ FluentCRM email instead, build: Trigger Tag Applied → `Paid-YYYY`, condition
 `{{contact.state}}`, `{{contact.postal_code}}`, `{{contact.custom.department}}`,
 `{{contact.email}}`, `{{contact.phone}}`. **Never** trigger on checkout
 started or `Checkout-Abandoned`.
+
+### H. Membership expired
+
+* Trigger: **Tag Removed → `Member-Active`** (the daily job removes it the
+  day after `paid_through`, i.e. Jan 1 for everyone who did not renew).
+* Exclusion condition (a comped contact never loses the tag, but keep the
+  block for safety). Optional Conditional: tag still does not include
+  `Member-Active` after a 1-day wait (a same-day payment re-adds it).
+* Email: "your membership has lapsed" with the renewal link
+  (`[iapsnj_renew_link]` page). The WordPress role has already been dropped by
+  the job, so any role-gated member content is closed at this point.
 
 ## Deliverability
 

@@ -3,7 +3,7 @@
  * Plugin Name:       My IAPSNJ
  * Plugin URI:        https://github.com/S-FX-com/MyIAPSNJ
  * Description:       Membership operations for the IAPSNJ website. FluentCRM is the single source of truth: the membership application is collected on the FluentCart checkout page, FluentCart payments set membership state (Paid-YYYY tags, member_type, paid_through), applications are tracked until they are paid, mailed checks are reconciled in batch, and WordPress user profiles are mirrored one way from the CRM. Includes the PMPro → FluentCRM migration toolkit.
- * Version:           4.5.0
+ * Version:           4.6.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Requires Plugins:  fluent-crm
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'MY_IAPSNJ_VERSION', '4.5.0' );
+define( 'MY_IAPSNJ_VERSION', '4.6.0' );
 define( 'MY_IAPSNJ_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'MY_IAPSNJ_URL',     plugin_dir_url( __FILE__ ) );
 define( 'MY_IAPSNJ_FILE',    __FILE__ );
@@ -92,6 +92,7 @@ final class My_IAPSNJ_Plugin {
         if ( My_IAPSNJ_Membership::is_available() ) {
             My_IAPSNJ_Membership::get_instance();
             My_IAPSNJ_Checkout_Fields::get_instance();
+            My_IAPSNJ_Membership::ensure_cron();
         }
 
         if ( defined( 'WP_CLI' ) && WP_CLI ) {
@@ -153,6 +154,7 @@ final class My_IAPSNJ_Plugin {
     public static function deactivate(): void {
         // Legacy PMPro expiry cron (pre-4.0). Data is preserved.
         wp_clear_scheduled_hook( 'my_iapsnj_pmp_expiry_cron' );
+        wp_clear_scheduled_hook( My_IAPSNJ_Membership::CRON_HOOK );
     }
 
     /**
@@ -168,6 +170,10 @@ final class My_IAPSNJ_Plugin {
             // missing = leave the user's role alone. Administrators and any
             // role not in this map are never changed.
             'role_map'                => [],
+            // Role an expired member drops to ('' = leave it); grace days
+            // after paid_through before a membership counts as expired.
+            'role_expired'            => 'subscriber',
+            'expiry_grace_days'       => 0,
             // Application on the checkout page.
             'application_heading'     => '',   // default: "Membership application"
             'application_intro'       => '',

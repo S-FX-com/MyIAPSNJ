@@ -17,6 +17,7 @@ in `includes/class-schema.php`.
 | `Checkout-Abandoned` | `checkout-abandoned` | email typed at the FluentCart checkout (`checkout/form_data_changed`) | `order_placed_offline`, `order_paid` | Checkout started, no payment — the follow-up list that did not exist before |
 | `Honorary` | `honorary` | migration (`migrate_comped`) / admin by hand | admin | Comped; **excluded from every dues automation** |
 | `Lifetime` | `lifetime` | migration (`migrate_comped`), Lifetime product paid | admin | Comped; **excluded from every dues automation** |
+| `Member-Active` | `member-active` | `order_paid` / `renewal_paid`, daily expiry job (`wp iapsnj expire`), Sync & Settings → *Apply now* | daily expiry job when `paid_through` (+ grace days) is past; full refund that leaves the contact lapsed | **Status**, not history: present while in good standing (or comped). Drives the WordPress role (Sync & Settings) and is the tag to key "membership expired" automations on (Tag Removed). |
 
 Honorary is **never a product**: it is admin-assigned (tag + `member_type`).
 
@@ -117,8 +118,26 @@ paid / check-placed order, refund, bulk mirror). New users are created as
 Subscriber and get the mapped role in the same request. Guard rails: the
 administrator role is never assignable, and a user whose current roles
 include anything other than a mapped role or Subscriber (editors, staff) is
-never changed. Unmapped types are skipped. Lapsed members keep their role;
-member-area gating belongs on `paid_through` / `Paid-YYYY`, not the role.
+never changed. Unmapped types are skipped.
+
+**Expiration** (4.6.0): a membership is *active* while `paid_through` plus
+the grace period (Sync & Settings, default 0 days) is today or later, or the
+type is Lifetime / Honorary. WP-Cron runs `My_IAPSNJ_Membership::run_expirations()`
+daily at 00:30 site time (`my_iapsnj_daily`; also `wp iapsnj expire` and
+Sync & Settings → Expirations → Preview / Apply now): lapsed contacts lose
+`Member-Active` and drop to the *when expired* role (default Subscriber);
+contacts in good standing that lack the tag (migrated members, manual CRM
+edits) get it and their mapped role. Staff roles are never touched. A
+payment reactivates immediately (`reconcile_contact()` runs inside
+`order_paid`, and after a full refund). `Paid-YYYY` tags are never removed.
+Action `my_iapsnj/membership_expired` fires per lapsed contact.
+
+Expiration dates: a 1-year payment before the cutover (default Oct 1) is
+paid through **Dec 31 of the payment year**; on/after it, Dec 31 of the next
+year; multi-year products add whole years. So every membership lapses on
+Jan 1 (the daily run of Jan 1 removes the tag / role for anyone without
+`Paid-{new year}`), which is exactly the January renewal cycle. See the known
+gap with subscription anniversary billing below.
 
 ## Products → membership state (FluentCart)
 

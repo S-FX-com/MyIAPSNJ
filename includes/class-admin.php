@@ -49,7 +49,7 @@ class My_IAPSNJ_Admin {
             'save_mappings', 'save_settings', 'save_checkout_fields', 'import_field_options', 'bulk_sync', 'search_users', 'sample_data',
             'search_notes', 'get_tags', 'assign_tag',
             'checks_list', 'checks_mark_paid', 'search_members', 'record_check',
-            'save_products', 'apply_offline_labels', 'ensure_schema',
+            'save_products', 'apply_offline_labels', 'ensure_schema', 'run_expiry',
             'migration_run', 'export_orders', 'download_export', 'report',
         ];
         foreach ( $ajax as $action ) {
@@ -820,8 +820,18 @@ class My_IAPSNJ_Admin {
                     </select>
                 </td></tr>
                 <?php endforeach; ?>
+                <tr><th><?php esc_html_e( 'When expired', 'my-iapsnj' ); ?></th><td>
+                    <select name="role_expired">
+                        <option value=""><?php esc_html_e( '— leave the role —', 'my-iapsnj' ); ?></option>
+                        <?php foreach ( $roles as $slug => $name ) : ?>
+                            <option value="<?php echo esc_attr( $slug ); ?>" <?php selected( (string) ( $settings['role_expired'] ?? '' ), $slug ); ?>><?php echo esc_html( $name . ' (' . $slug . ')' ); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <label style="margin-left:12px"><?php esc_html_e( 'Grace period', 'my-iapsnj' ); ?> <input type="number" name="expiry_grace_days" value="<?php echo (int) ( $settings['expiry_grace_days'] ?? 0 ); ?>" min="0" max="365" class="small-text"> <?php esc_html_e( 'days after paid_through', 'my-iapsnj' ); ?></label>
+                    <p class="description"><?php esc_html_e( 'A membership is active while paid_through (plus the grace period) is today or later, or the type is Lifetime / Honorary. The daily job (00:30 site time) removes the Member-Active tag and moves the user to this role when it lapses; a payment puts both back. Paid-YYYY tags are history and are never removed.', 'my-iapsnj' ); ?></p>
+                </td></tr>
             </table>
-            <p class="description"><?php esc_html_e( 'A new member\'s WordPress user is created as Subscriber and gets the mapped role in the same request. To create a dedicated role (e.g. "Member"), use any roles plugin, then pick it here. Lapsed members keep their role: gate the member area on paid_through / the Paid-YYYY tag, not on the role.', 'my-iapsnj' ); ?></p>
+            <p class="description"><?php esc_html_e( 'A new member\'s WordPress user is created as Subscriber and gets the mapped role in the same request. To create a dedicated role (e.g. "Member"), use any roles plugin, then pick it here.', 'my-iapsnj' ); ?></p>
         </div>
 
         <div class="fcrm-section" id="application">
@@ -920,6 +930,21 @@ class My_IAPSNJ_Admin {
                 <p><textarea id="fcrm-offline-instructions" class="large-text" rows="4"><?php echo esc_textarea( $offline['instructions'] !== '' ? $offline['instructions'] : "Mail your check payable to IAPSNJ to:\nIAPSNJ, P.O. Box ____, ____, NJ _____\nWrite your member number on the memo line. Your membership is activated when the check is deposited." ); ?></textarea></p>
                 <button id="fcrm-apply-offline-labels" class="button" <?php disabled( ! $offline['configured'] ); ?>><?php esc_html_e( 'Apply label & instructions', 'my-iapsnj' ); ?></button>
             <?php endif; ?>
+        </div>
+
+        <div class="fcrm-section" id="expiry">
+            <h2><?php esc_html_e( 'Expirations (Member-Active tag + role)', 'my-iapsnj' ); ?></h2>
+            <?php
+            $last_expiry = get_option( 'my_iapsnj_last_expiry_run', [] );
+            $next_expiry = My_IAPSNJ_Membership::is_available() ? wp_next_scheduled( My_IAPSNJ_Membership::CRON_HOOK ) : false;
+            ?>
+            <p class="description"><?php esc_html_e( 'Runs every day: contacts whose paid_through is past lose the Member-Active tag and drop to the "when expired" role; contacts in good standing without the tag (migrated members, manual CRM edits) get it and their role. Preview lists what would change; Apply does it now.', 'my-iapsnj' ); ?>
+                <?php if ( is_array( $last_expiry ) && ! empty( $last_expiry['at'] ) ) : ?><br><span class="fcrm-muted"><?php echo esc_html( sprintf( __( 'Last run: %1$s UTC — %2$d expired, %3$d activated, %4$d roles changed.', 'my-iapsnj' ), $last_expiry['at'], (int) ( $last_expiry['report']['expired_now'] ?? 0 ), (int) ( $last_expiry['report']['activated'] ?? 0 ), (int) ( $last_expiry['report']['roles_changed'] ?? 0 ) ) ); ?></span><?php endif; ?>
+                <?php if ( $next_expiry ) : ?><br><span class="fcrm-muted"><?php echo esc_html( sprintf( __( 'Next scheduled run: %s', 'my-iapsnj' ), wp_date( 'Y-m-d H:i', $next_expiry ) ) ); ?></span><?php endif; ?>
+            </p>
+            <p><button class="button fcrm-run-expiry" data-dry="1"><?php esc_html_e( 'Preview', 'my-iapsnj' ); ?></button>
+               <button class="button button-primary fcrm-run-expiry" data-dry="0"><?php esc_html_e( 'Apply now', 'my-iapsnj' ); ?></button></p>
+            <div id="fcrm-expiry-result"></div>
         </div>
 
         <div class="fcrm-section">
@@ -1134,6 +1159,13 @@ class My_IAPSNJ_Admin {
             }
             $settings['role_map'] = $role_map;
         }
+        if ( array_key_exists( 'role_expired', $post ) ) {
+            $role = sanitize_key( (string) $post['role_expired'] );
+            $settings['role_expired'] = ( $role !== '' && isset( My_IAPSNJ_Engine::assignable_roles()[ $role ] ) ) ? $role : '';
+        }
+        if ( array_key_exists( 'expiry_grace_days', $post ) ) {
+            $settings['expiry_grace_days'] = min( 365, max( 0, (int) $post['expiry_grace_days'] ) );
+        }
         if ( array_key_exists( 'renewal_cutover', $post ) ) {
             $settings['renewal_cutover'] = My_IAPSNJ_Dates::month_day( (string) $post['renewal_cutover'] );
         }
@@ -1333,6 +1365,19 @@ class My_IAPSNJ_Admin {
             wp_send_json_error( [ 'message' => $r->get_error_message() ] );
         }
         wp_send_json_success( [ 'message' => __( 'FluentCart offline method updated.', 'my-iapsnj' ) ] );
+    }
+
+    public function ajax_run_expiry(): void {
+        $this->ajax_guard();
+        if ( ! My_IAPSNJ_Membership::is_available() ) {
+            wp_send_json_error( [ 'message' => __( 'FluentCart is not active.', 'my-iapsnj' ) ] );
+        }
+        $dry = ! empty( $_POST['dry'] ); // phpcs:ignore
+        try {
+            wp_send_json_success( My_IAPSNJ_Membership::run_expirations( $dry ) );
+        } catch ( \Throwable $e ) {
+            wp_send_json_error( [ 'message' => $e->getMessage() ] );
+        }
     }
 
     public function ajax_ensure_schema(): void {

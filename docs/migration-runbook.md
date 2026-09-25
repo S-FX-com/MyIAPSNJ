@@ -77,6 +77,11 @@ wp iapsnj migrate migrate_comped $LM
 wp iapsnj migrate set_member_state --dry-run $LM --report=state-dry.json
 wp iapsnj migrate set_member_state $LM
 
+# 6b. Member-Active tag + WordPress role for everyone in good standing
+#     (pick the roles in Sync & Settings first; dry-run lists who changes)
+wp iapsnj expire --dry-run
+wp iapsnj expire
+
 # 7. Logins intact
 wp iapsnj verify-logins --expected=<baseline WP users>
 
@@ -189,6 +194,7 @@ address step's dry-run report must be kept.
 - [ ] `verify_logins`: 0 problems, count equals pre-cutover count
 - [ ] Every active PMPro member has a CRM contact with `member_type`
 - [ ] Honorary and Lifetime counts equal the census; `paid_through` null for all of them
+- [ ] `wp iapsnj expire --dry-run` reports 0 to expire / 0 to activate after the apply; `Member-Active` count = active + comped members; WP roles set (spot-check a Regular, a Lifetime, a lapsed member and an administrator — the admin unchanged)
 - [ ] `crm_tags.paid-2026` ≈ number of members who paid in 2026 (`census.orders_by_level_and_status` for 2026)
 - [ ] `addresses.crm_linked_contacts_with_address` ≥ `users_with_any_address_before`
 - [ ] Orphan levels 3 and 5 accounted for (`legacy_pmpro_level` count = census users)

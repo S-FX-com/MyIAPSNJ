@@ -224,13 +224,22 @@ class My_IAPSNJ_Engine {
     }
 
     /**
-     * Give the user the role mapped to the contact's member_type (Sync &
-     * Settings → WordPress role per member type).
+     * Role an expired member drops to (Sync & Settings; default subscriber).
+     */
+    public static function expired_role(): string {
+        $role = sanitize_key( (string) ( My_IAPSNJ_Plugin::settings()['role_expired'] ?? 'subscriber' ) );
+        return $role === 'administrator' ? '' : $role;
+    }
+
+    /**
+     * Give the user the role that matches the contact's membership state:
+     * the role mapped to its member_type while active (paid through today
+     * or later, or comped), the "expired" role once paid_through is past.
      *
-     * Only users whose current roles are all "managed" (a mapped role, or
-     * subscriber) are touched: an administrator, editor or any other staff
-     * account keeps its role whatever the CRM says. A contact whose
-     * member_type has no mapping is left alone.
+     * Only users whose current roles are all "managed" (a mapped role, the
+     * expired role, or subscriber) are touched: an administrator, editor or
+     * any other staff account keeps its role whatever the CRM says. A
+     * contact whose member_type has no mapping is left alone.
      *
      * @param array<string,mixed>|null $custom_fields pre-loaded contact custom fields
      * @return string the role set, '' when nothing changed
@@ -245,8 +254,14 @@ class My_IAPSNJ_Engine {
         }
         $type = $custom_fields[ My_IAPSNJ_Schema::FIELD_MEMBER_TYPE ] ?? '';
         $type = is_array( $type ) ? (string) reset( $type ) : (string) $type;
-        $role = $map[ $type ] ?? '';
-        if ( $type === '' || $role === '' || $role === 'administrator' || ! get_role( $role ) ) {
+        $pt   = $custom_fields[ My_IAPSNJ_Schema::FIELD_PAID_THROUGH ] ?? '';
+        $pt   = is_array( $pt ) ? (string) reset( $pt ) : (string) $pt;
+        if ( $type === '' || ! isset( $map[ $type ] ) ) {
+            return '';
+        }
+        $expired = self::expired_role();
+        $role    = My_IAPSNJ_Schema::is_active_state( $type, $pt ) ? $map[ $type ] : $expired;
+        if ( $role === '' || $role === 'administrator' || ! get_role( $role ) ) {
             return '';
         }
         $user = get_userdata( $user_id );
@@ -257,7 +272,7 @@ class My_IAPSNJ_Engine {
         if ( $current === [ $role ] ) {
             return '';
         }
-        $managed = array_unique( array_merge( array_values( $map ), [ 'subscriber' ] ) );
+        $managed = array_unique( array_filter( array_merge( array_values( $map ), [ 'subscriber', $expired ] ), 'strlen' ) );
         foreach ( $current as $r ) {
             if ( ! in_array( $r, $managed, true ) ) {
                 return ''; // staff account: never touched

@@ -66,7 +66,11 @@ class My_IAPSNJ_Membership {
         return self::$instance;
     }
 
+    /** Daily WP-Cron event: expire lapsed memberships (tag + role). */
+    const CRON_HOOK = 'my_iapsnj_daily';
+
     private function __construct() {
+        add_action( self::CRON_HOOK, [ $this, 'on_daily_cron' ] );
         add_action( 'fluent_cart/order_paid',            [ $this, 'on_order_paid' ], 10, 1 );
         // Store-billed renewals (manual / system invoices) fire renewal_paid;
         // gateway-billed renewals (Stripe auto-charge) only fire
@@ -421,6 +425,9 @@ class My_IAPSNJ_Membership {
         // ---- WordPress login -----------------------------------------------
         $user_id = $this->ensure_wp_user( $subscriber, $order );
 
+        // ---- Member-Active tag + WordPress role ---------------------------
+        self::reconcile_contact( $subscriber );
+
         // ---- Application ---------------------------------------------------
         $app = My_IAPSNJ_Applications::resolve_for_order( $order );
         if ( $app ) {
@@ -504,6 +511,197 @@ class My_IAPSNJ_Membership {
         }
 
         return $applied;
+    }
+
+    // -----------------------------------------------------------------------
+    // Membership state: Member-Active tag, WordPress role, daily expiry
+    // -----------------------------------------------------------------------
+
+    /**
+     * 'active' (comped, or paid through today or later), 'expired'
+     * (paid_through in the past or missing), '' (no member_type: not a member).
+     *
+     * @param array<string,mixed> $custom contact custom fields
+     */
+    public static function state_of( array $custom ): string {
+        $type = $custom[ My_IAPSNJ_Schema::FIELD_MEMBER_TYPE ] ?? '';
+        $type = is_array( $type ) ? (string) reset( $type ) : (string) $type;
+        if ( $type === '' ) {
+            return '';
+        }
+        $pt = $custom[ My_IAPSNJ_Schema::FIELD_PAID_THROUGH ] ?? '';
+        $pt = is_array( $pt ) ? (string) reset( $pt ) : (string) $pt;
+        return My_IAPSNJ_Schema::is_active_state( $type, $pt ) ? 'active' : 'expired';
+    }
+
+    /**
+     * Make the Member-Active tag and the WordPress role match the contact's
+     * state. Fires my_iapsnj/membership_expired when the tag comes off.
+     *
+     * @param array<string,mixed>|null $custom       pre-loaded custom fields
+     * @param string[]|null            $current_tags pre-loaded managed tag slugs
+     * @return array{state:string,tag:string,role:string} tag: 'added' | 'removed' | ''
+     */
+    public static function reconcile_contact( Subscriber $subscriber, ?array $custom = null, ?array $current_tags = null ): array {
+        if ( $custom === null ) {
+            $custom = $subscriber->custom_fields();
+        }
+        $state = self::state_of( $custom );
+        $out   = [ 'state' => $state, 'tag' => '', 'role' => '' ];
+        if ( $state === '' ) {
+            return $out;
+        }
+        $ids    = My_IAPSNJ_Schema::tag_ids( [ My_IAPSNJ_Schema::TAG_ACTIVE ] );
+        $tag_id = (int) ( $ids[ My_IAPSNJ_Schema::TAG_ACTIVE ] ?? 0 );
+        if ( $current_tags === null ) {
+            $current_tags = My_IAPSNJ_Schema::managed_tag_slugs( $subscriber );
+        }
+        $has = in_array( My_IAPSNJ_Schema::TAG_ACTIVE, $current_tags, true );
+        if ( $tag_id && $state === 'active' && ! $has ) {
+            $subscriber->attachTags( [ $tag_id ] );
+            $out['tag'] = 'added';
+        } elseif ( $tag_id && $state === 'expired' && $has ) {
+            $subscriber->detachTags( [ $tag_id ] );
+            $out['tag'] = 'removed';
+        }
+        if ( ! empty( $subscriber->user_id ) ) {
+            try {
+                $out['role'] = My_IAPSNJ_Engine::apply_role( $subscriber, (int) $subscriber->user_id, $custom );
+            } catch ( \Throwable $e ) {
+                error_log( 'My IAPSNJ: role update failed for contact #' . (int) $subscriber->id . ': ' . $e->getMessage() );
+            }
+        }
+        if ( $out['tag'] === 'removed' ) {
+            /**
+             * A membership lapsed: paid_through is past, Member-Active removed,
+             * role dropped.
+             *
+             * @param Subscriber $subscriber
+             * @param array      $custom custom fields at the time
+             */
+            do_action( 'my_iapsnj/membership_expired', $subscriber, $custom );
+        }
+        return $out;
+    }
+
+    /**
+     * Daily expiry / reconciliation: every contact with a member_type whose
+     * Member-Active tag disagrees with its state gets the tag added or
+     * removed and its WordPress role updated. Idempotent; safe to run any
+     * time (also the way migrated members get their tag and role).
+     *
+     * @param bool $dry   Report only.
+     * @param int  $limit Max contacts to change (0 = all).
+     * @return array{active:int,expired:int,to_activate:int,to_expire:int,activated:int,expired_now:int,roles_changed:int,samples:string[],dry:bool}
+     */
+    public static function run_expirations( bool $dry = false, int $limit = 0 ): array {
+        global $wpdb;
+        $report = [ 'active' => 0, 'expired' => 0, 'to_activate' => 0, 'to_expire' => 0, 'activated' => 0, 'expired_now' => 0, 'roles_changed' => 0, 'samples' => [], 'dry' => $dry ];
+
+        $meta = $wpdb->prefix . 'fc_subscriber_meta';
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT subscriber_id, `key`, value FROM {$meta} WHERE object_type = 'custom_field' AND `key` IN (%s, %s)", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+            My_IAPSNJ_Schema::FIELD_MEMBER_TYPE,
+            My_IAPSNJ_Schema::FIELD_PAID_THROUGH
+        ), ARRAY_A );
+        $contacts = [];
+        foreach ( (array) $rows as $r ) {
+            $value = maybe_unserialize( (string) $r['value'] );
+            $contacts[ (int) $r['subscriber_id'] ][ (string) $r['key'] ] = is_array( $value ) ? (string) reset( $value ) : (string) $value;
+        }
+
+        $ids    = My_IAPSNJ_Schema::tag_ids( [ My_IAPSNJ_Schema::TAG_ACTIVE ] );
+        $tag_id = (int) ( $ids[ My_IAPSNJ_Schema::TAG_ACTIVE ] ?? 0 );
+        $pivot  = $wpdb->prefix . 'fc_subscriber_pivot';
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $tagged = $tag_id ? array_map( 'intval', (array) $wpdb->get_col( $wpdb->prepare(
+            "SELECT subscriber_id FROM {$pivot} WHERE object_type = %s AND object_id = %d", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+            'FluentCrm\App\Models\Tag',
+            $tag_id
+        ) ) ) : [];
+        $tagged = array_flip( $tagged );
+
+        $work = [];
+        foreach ( $contacts as $sid => $custom ) {
+            $state = self::state_of( $custom );
+            if ( $state === '' ) {
+                continue;
+            }
+            $report[ $state ]++;
+            $has = isset( $tagged[ $sid ] );
+            if ( $state === 'active' && ! $has ) {
+                $report['to_activate']++;
+                $work[ $sid ] = [ $custom, [] ];
+            } elseif ( $state === 'expired' && $has ) {
+                $report['to_expire']++;
+                $work[ $sid ] = [ $custom, [ My_IAPSNJ_Schema::TAG_ACTIVE ] ];
+            }
+        }
+
+        $done = 0;
+        foreach ( $work as $sid => [ $custom, $tags ] ) {
+            if ( $limit > 0 && $done >= $limit ) {
+                break;
+            }
+            $subscriber = Subscriber::where( 'id', $sid )->first();
+            if ( ! $subscriber instanceof Subscriber ) {
+                continue;
+            }
+            if ( count( $report['samples'] ) < 50 ) {
+                $report['samples'][] = sprintf(
+                    '%s → %s (paid through %s)',
+                    (string) $subscriber->email,
+                    $tags ? 'expire' : 'activate',
+                    (string) ( $custom[ My_IAPSNJ_Schema::FIELD_PAID_THROUGH ] ?? '' ) !== '' ? My_IAPSNJ_Dates::ymd_display( $custom[ My_IAPSNJ_Schema::FIELD_PAID_THROUGH ] ) : 'n/a'
+                );
+            }
+            $done++;
+            if ( $dry ) {
+                continue;
+            }
+            try {
+                $r = self::reconcile_contact( $subscriber, $custom, $tags );
+            } catch ( \Throwable $e ) {
+                error_log( 'My IAPSNJ: expiry failed for contact #' . $sid . ': ' . $e->getMessage() );
+                continue;
+            }
+            if ( $r['tag'] === 'added' ) {
+                $report['activated']++;
+            } elseif ( $r['tag'] === 'removed' ) {
+                $report['expired_now']++;
+            }
+            if ( $r['role'] !== '' ) {
+                $report['roles_changed']++;
+            }
+        }
+        if ( ! $dry ) {
+            update_option( 'my_iapsnj_last_expiry_run', [ 'at' => My_IAPSNJ_Dates::now_utc(), 'report' => array_diff_key( $report, [ 'samples' => 1 ] ) ], false );
+        }
+        return $report;
+    }
+
+    public function on_daily_cron(): void {
+        try {
+            self::run_expirations( false );
+        } catch ( \Throwable $e ) {
+            error_log( 'My IAPSNJ: daily expiry run failed: ' . $e->getMessage() );
+        }
+    }
+
+    /**
+     * Schedule the daily run at 00:30 site time if it is not scheduled.
+     */
+    public static function ensure_cron(): void {
+        if ( wp_next_scheduled( self::CRON_HOOK ) ) {
+            return;
+        }
+        try {
+            $first = ( new \DateTime( 'tomorrow 00:30', wp_timezone() ) )->getTimestamp();
+        } catch ( \Throwable $e ) {
+            $first = time() + DAY_IN_SECONDS;
+        }
+        wp_schedule_event( $first, 'daily', self::CRON_HOOK );
     }
 
     /**
@@ -610,6 +808,7 @@ class My_IAPSNJ_Membership {
                 if ( $restore ) {
                     My_IAPSNJ_Schema::set_fields( $subscriber, $restore );
                 }
+                self::reconcile_contact( $subscriber );
                 self::mirror_to_wp( $subscriber );
             }
             My_IAPSNJ_Applications::mark_refunded_for_order( (int) $order->id );

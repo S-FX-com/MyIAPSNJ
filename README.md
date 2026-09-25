@@ -70,6 +70,10 @@ Documentation: [`docs/phase1-findings.md`](docs/phase1-findings.md) ·
 * **Profile Mirror** — CRM → WordPress user meta, configurable field map,
   plus a WordPress role per member type (Sync & Settings; staff accounts
   are never touched).
+* **Expirations** — status tag `Member-Active` and the role are given on
+  payment and taken away by a daily WP-Cron job once `paid_through` is past
+  (grace period configurable); `wp iapsnj expire` and a Preview / Apply
+  button in Sync & Settings. `Paid-YYYY` history is never removed.
 * **Migration toolkit** — census, subscriber linking, address consolidation,
   Paid-YYYY backfill, Honorary/Lifetime from `pmpro_memberships_users`,
   member state, login verification, reconciliation, PMPro order CSV export.
