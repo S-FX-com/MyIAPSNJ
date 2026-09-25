@@ -113,7 +113,10 @@ covered* and the checkout fields to the builder format. Data-version 8 (4.3)
 adds the remaining onboarding-form fields to the checkout, shows the union
 fields, fills empty dropdown option lists (ACF choices → CRM values →
 built-in list) and creates the CRM custom fields those answers are written to
-(existing fields are never modified).
+(existing fields are never modified). Data-version 9 (4.4) points 3.x-era
+Profile Mirror rows at `member_type` / `paid_through` and adds the
+membership rows (member status, expiration date, join date, member number)
+if missing.
 
 ## Admin screens (My IAPSNJ menu, `manage_options`)
 

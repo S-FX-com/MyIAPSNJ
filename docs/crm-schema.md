@@ -29,7 +29,7 @@ Honorary is **never a product**: it is admin-assigned (tag + `member_type`).
 | `member_number` | number | | Migrated from ACF `MemberNum` (already synced pre-4.0). Printed on the memo line of checks; shown in Pending Checks. |
 | `department` | text (or select-one, see below) | | Required on the checkout application (dropdown options set in My IAPSNJ → Sync & Settings). |
 | `rank_level` | text/select-one | | Same. |
-| `join_date` | date | | Migrated from ACF `join_date`. |
+| `join_date` | date | `Y-m-d` | Migrated from ACF `join_date`; for new members set to the payment date of their first paid order (4.4.0), never overwritten. |
 | `legacy_pmpro_level` | text | e.g. `3` or `3, 5` | Written by migration for members/orders on deleted PMPro levels (IDs 3, 5). Diagnostic only. |
 | `phone2` | text | | Alternate phone; checkout application (4.3.0). Existed pre-4.0; `crm-schema` creates it if missing. |
 | `phone_work` | text | | Work phone; checkout application. |
@@ -102,6 +102,14 @@ the existing member-area profile screen keeps rendering:
 `member_status ← member_type`, `expiration_date ← paid_through`, `join_date`,
 `primary_phone ← phone`, `address`, `address2`, `city`, `state`,
 `zip_code ← postal_code`, `department`, `rank_level`.
+
+Installs upgraded from 3.x carried mappings to the retired CRM slugs
+`member_status` / `expiration_date`; data version 9 (4.4.0) points them at
+`member_type` / `paid_through` and adds the membership rows if missing. The
+mirror runs on every CRM contact save **and** at the end of each paid /
+check-placed order, so the WordPress profile (ACF meta) reflects the payment
+immediately. Extra ACF fields (e.g. a separate `member_type`) need no code:
+create the ACF field and add the row in Profile Mirror.
 
 ## Products → membership state (FluentCart)
 

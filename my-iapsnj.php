@@ -3,7 +3,7 @@
  * Plugin Name:       My IAPSNJ
  * Plugin URI:        https://github.com/S-FX-com/MyIAPSNJ
  * Description:       Membership operations for the IAPSNJ website. FluentCRM is the single source of truth: the membership application is collected on the FluentCart checkout page, FluentCart payments set membership state (Paid-YYYY tags, member_type, paid_through), applications are tracked until they are paid, mailed checks are reconciled in batch, and WordPress user profiles are mirrored one way from the CRM. Includes the PMPro → FluentCRM migration toolkit.
- * Version:           4.3.0
+ * Version:           4.4.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Requires Plugins:  fluent-crm
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'MY_IAPSNJ_VERSION', '4.3.0' );
+define( 'MY_IAPSNJ_VERSION', '4.4.0' );
 define( 'MY_IAPSNJ_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'MY_IAPSNJ_URL',     plugin_dir_url( __FILE__ ) );
 define( 'MY_IAPSNJ_FILE',    __FILE__ );
@@ -203,7 +203,7 @@ final class My_IAPSNJ_Plugin {
      * below; it is independent of MY_IAPSNJ_VERSION so that ordinary releases
      * do not re-run migrations.
      */
-    const DATA_VERSION = 8;
+    const DATA_VERSION = 9;
 
     /**
      * Runs any migration steps this install has not seen yet.
@@ -387,6 +387,52 @@ final class My_IAPSNJ_Plugin {
                     $finish();
                 } else {
                     add_action( 'init', $finish, 20 );
+                }
+            }
+
+            // ---- v9: Profile Mirror follows the 4.x CRM slugs ---------------
+            // Installs upgraded from 3.x still map the ACF profile fields to
+            // the retired CRM fields member_status / expiration_date. Point
+            // them at member_type / paid_through and make sure the membership
+            // rows (member_status, expiration_date, join_date, MemberNum)
+            // exist, so a payment updates the WordPress profile too.
+            if ( $installed < 9 ) {
+                $mappings = get_option( 'my_iapsnj_field_mappings', [] );
+                if ( is_array( $mappings ) && $mappings ) {
+                    $retarget = [
+                        'member_status'   => [ My_IAPSNJ_Schema::FIELD_MEMBER_TYPE, 'Member Type (custom)' ],
+                        'expiration_date' => [ My_IAPSNJ_Schema::FIELD_PAID_THROUGH, 'Paid Through (custom)' ],
+                    ];
+                    foreach ( $mappings as $i => $m ) {
+                        if ( ! is_array( $m ) || ( $m['fcrm_field_source'] ?? '' ) !== 'custom' ) {
+                            continue;
+                        }
+                        $key = (string) ( $m['fcrm_field_key'] ?? '' );
+                        if ( isset( $retarget[ $key ] ) ) {
+                            $mappings[ $i ]['fcrm_field_key']   = $retarget[ $key ][0];
+                            $mappings[ $i ]['fcrm_field_label'] = $retarget[ $key ][1];
+                        }
+                    }
+                    // [ wp_key, wp_source, wp_label, fcrm_key, fcrm_source, fcrm_label, type ]
+                    $wanted = [
+                        [ 'member_status',   'acf', 'Member Type',                My_IAPSNJ_Schema::FIELD_MEMBER_TYPE,   'custom', 'Member Type (custom)',   'select' ],
+                        [ 'expiration_date', 'acf', 'Membership Expiration Date', My_IAPSNJ_Schema::FIELD_PAID_THROUGH,  'custom', 'Paid Through (custom)',  'date' ],
+                        [ 'join_date',       'acf', 'Join Date',                  My_IAPSNJ_Schema::FIELD_JOIN_DATE,     'custom', 'Join Date (custom)',     'date' ],
+                        [ 'MemberNum',       'acf', 'Member Number',              My_IAPSNJ_Schema::FIELD_MEMBER_NUMBER, 'custom', 'Member Number (custom)', 'number' ],
+                    ];
+                    foreach ( $wanted as $row ) {
+                        $present = false;
+                        foreach ( $mappings as $m ) {
+                            if ( is_array( $m ) && ( $m['wp_field_key'] ?? '' ) === $row[0] && ( $m['fcrm_field_key'] ?? '' ) === $row[3] ) {
+                                $present = true;
+                                break;
+                            }
+                        }
+                        if ( ! $present ) {
+                            $mappings[] = My_IAPSNJ_Field_Mapper::build_mapping( ...$row );
+                        }
+                    }
+                    update_option( 'my_iapsnj_field_mappings', array_values( $mappings ) );
                 }
             }
 
