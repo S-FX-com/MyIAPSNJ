@@ -825,9 +825,12 @@ final class My_IAPSNJ_Members {
         global $wpdb;
         $p          = $wpdb->prefix;
         $variations = array_map( 'intval', array_keys( My_IAPSNJ_Membership::products_config() ) );
-        $var_sql    = $variations
-            ? ' AND sub.variation_id IN (' . implode( ', ', $variations ) . ')'
-            : '';
+        if ( ! $variations || ! $emails ) {
+            // No membership product configured: any live subscription would
+            // be a merchandise or event one, never a membership.
+            return [];
+        }
+        $var_sql = ' AND sub.variation_id IN (' . implode( ', ', $variations ) . ')';
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
         $rows = $wpdb->get_results( $wpdb->prepare(
             "SELECT c.email, sub.status, sub.next_billing_date
