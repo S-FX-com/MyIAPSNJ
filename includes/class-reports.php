@@ -20,6 +20,15 @@ use FluentCrm\App\Models\Subscriber;
 
 class My_IAPSNJ_Reports {
 
+    /**
+     * Forget the cached Dashboard summary (called after settings, check and
+     * expiry changes). The summary is not cached yet; kept so callers need
+     * no change when it is.
+     */
+    public static function flush_summary(): void {
+        delete_transient( 'my_iapsnj_summary' );
+    }
+
     // -----------------------------------------------------------------------
     // Orphan check: WP ↔ CRM
     // -----------------------------------------------------------------------

@@ -29,6 +29,14 @@ defined( 'ABSPATH' ) || exit;
 
 class My_IAPSNJ_Field_Mapper {
 
+    /**
+     * Forget the cached list of WordPress profile fields (Profile Mirror →
+     * Refresh field list, and after mappings are saved).
+     */
+    public static function flush_field_cache(): void {
+        delete_transient( 'my_iapsnj_wp_field_keys' );
+    }
+
     // -----------------------------------------------------------------------
     // WordPress side
     // -----------------------------------------------------------------------
