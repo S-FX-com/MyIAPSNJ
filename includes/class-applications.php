@@ -48,11 +48,52 @@ class My_IAPSNJ_Applications {
         return $wpdb->prefix . 'my_iapsnj_applications';
     }
 
+    /**
+     * Per-request memo of table_exists(): every read path checks the table,
+     * and the pending-checks list used to run one SHOW TABLES per order.
+     *
+     * @var bool|null
+     */
+    private static $table_exists = null;
+
     public static function table_exists(): bool {
         global $wpdb;
-        $table = self::table();
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
-        return $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) === $table;
+        if ( self::$table_exists === null ) {
+            $table = self::table();
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+            self::$table_exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) === $table;
+        }
+        return self::$table_exists;
+    }
+
+    /**
+     * Newest application row per order, for a list of orders (one query).
+     *
+     * @param int[] $order_ids
+     * @return array<int,object> order id => row (same row get_by_order() returns)
+     */
+    public static function get_by_orders( array $order_ids ): array {
+        global $wpdb;
+        $order_ids = array_values( array_unique( array_filter( array_map( 'intval', $order_ids ), function ( $id ) {
+            return $id > 0;
+        } ) ) );
+        if ( ! $order_ids || ! self::table_exists() ) {
+            return [];
+        }
+        $placeholders = implode( ',', array_fill( 0, count( $order_ids ), '%d' ) );
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $rows = $wpdb->get_results( $wpdb->prepare(
+            'SELECT * FROM ' . self::table() . " WHERE order_id IN ({$placeholders}) ORDER BY id DESC",
+            ...$order_ids
+        ) );
+        $out = [];
+        foreach ( (array) $rows as $row ) {
+            $oid = (int) $row->order_id;
+            if ( ! isset( $out[ $oid ] ) ) {
+                $out[ $oid ] = $row;
+            }
+        }
+        return $out;
     }
 
     /**
@@ -92,6 +133,7 @@ class My_IAPSNJ_Applications {
         ) {$charset};";
 
         dbDelta( $sql );
+        self::$table_exists = null;
     }
 
     // -----------------------------------------------------------------------
