@@ -212,6 +212,9 @@ class My_IAPSNJ_Admin {
                 'formName'      => __( 'Name of the new checkout form:', 'my-iapsnj' ),
                 'confirmDuplicate'  => __( 'Duplicate the saved version of this form? Unsaved changes on this page are not copied.', 'my-iapsnj' ),
                 'confirmDeleteForm' => __( 'Delete the checkout form "%s"? This cannot be undone.', 'my-iapsnj' ),
+                'condIs'        => __( 'is', 'my-iapsnj' ),
+                'condTicked'    => __( 'is ticked', 'my-iapsnj' ),
+                'condAnswered'  => __( 'has an answer', 'my-iapsnj' ),
             ],
         ] );
     }
@@ -1011,7 +1014,7 @@ class My_IAPSNJ_Admin {
                     <th><?php esc_html_e( 'Used by', 'my-iapsnj' ); ?></th>
                     <th><?php esc_html_e( 'Fields shown', 'my-iapsnj' ); ?></th>
                     <th><?php esc_html_e( 'Required', 'my-iapsnj' ); ?></th>
-                    <th style="width:260px"></th>
+                    <th style="width:360px"></th>
                 </tr></thead>
                 <tbody>
                 <?php foreach ( $forms as $id => $form ) :
@@ -1021,6 +1024,7 @@ class My_IAPSNJ_Admin {
                     } );
                     $used_by  = My_IAPSNJ_Checkout_Fields::levels_for_form( $id );
                     $edit_url = admin_url( 'admin.php?page=my-iapsnj-checkout&form=' . rawurlencode( $id ) );
+                    $view_url = My_IAPSNJ_Checkout_Fields::preview_url( $id );
                 ?>
                     <tr data-form="<?php echo esc_attr( $id ); ?>">
                         <td><strong><a href="<?php echo esc_url( $edit_url ); ?>"><?php echo esc_html( $form['name'] ); ?></a></strong>
@@ -1032,6 +1036,7 @@ class My_IAPSNJ_Admin {
                         <td><?php echo (int) count( $required ); ?></td>
                         <td style="text-align:right">
                             <a class="button" href="<?php echo esc_url( $edit_url ); ?>"><?php esc_html_e( 'Edit', 'my-iapsnj' ); ?></a>
+                            <?php $this->render_view_checkout_button( $view_url ); ?>
                             <button type="button" class="button fcrm-form-duplicate" data-form="<?php echo esc_attr( $id ); ?>"><?php esc_html_e( 'Duplicate', 'my-iapsnj' ); ?></button>
                             <button type="button" class="button fcrm-form-delete" data-form="<?php echo esc_attr( $id ); ?>" data-name="<?php echo esc_attr( $form['name'] ); ?>" <?php disabled( $used_by || count( $forms ) < 2 ); ?> title="<?php echo esc_attr( $used_by ? __( 'In use by a membership level: assign another form first.', 'my-iapsnj' ) : '' ); ?>"><?php esc_html_e( 'Delete', 'my-iapsnj' ); ?></button>
                         </td>
@@ -1087,7 +1092,7 @@ class My_IAPSNJ_Admin {
 
         <div class="fcrm-section" id="application-fields">
             <h2><?php esc_html_e( 'Application fields', 'my-iapsnj' ); ?></h2>
-            <p class="description"><?php esc_html_e( 'Active fields are shown on the checkout page above the payment methods, in this order. Drag a row by its ☰ handle to reorder it, or drag it between Active and Inactive to show or hide it (▲▼ move one step). Use Section headings to break the form into groups (a heading with no active field under it is not shown). A hidden field is never required. Pick where each answer is stored in FluentCRM (an existing custom field, a contact field, a new custom field created on save, or nowhere). Dropdown / radio options: one per line. Blank answers never erase existing CRM data. Built-in fields can be hidden but not removed.', 'my-iapsnj' ); ?></p>
+            <p class="description"><?php esc_html_e( 'Active fields are shown on the checkout page above the payment methods, in this order. Drag a row by its ☰ handle to reorder it, or drag it between Active and Inactive to show or hide it (▲▼ move one step). Drag a field to the right under another field (or use ▶) to make it conditional: it is shown only when the field above it is ticked, answered, or has one of the answers you pick; ◀ or dragging left makes it always shown again. Use Section headings to break the form into groups (a heading with no active field under it is not shown). A hidden field is never required. Pick where each answer is stored in FluentCRM (an existing custom field, a contact field, a new custom field created on save, or nowhere). Dropdown / radio options: one per line. Blank answers never erase existing CRM data. Built-in fields can be hidden but not removed.', 'my-iapsnj' ); ?></p>
             <?php
             $targets  = My_IAPSNJ_Checkout_Fields::crm_targets();
             $active   = [];
@@ -1099,7 +1104,9 @@ class My_IAPSNJ_Admin {
                     $inactive[ $key ] = $def;
                 }
             }
-            $candidates = My_IAPSNJ_Checkout_Fields::crm_candidates( $form_id );
+            // All CRM fields; the ones a row already writes to start hidden and
+            // reappear as soon as no row writes to them (admin.js).
+            $candidates = My_IAPSNJ_Checkout_Fields::crm_candidates( $form_id, true );
             uasort( $candidates, function ( $a, $b ) {
                 return strcasecmp( (string) $a['label'], (string) $b['label'] );
             } );
@@ -1143,6 +1150,7 @@ class My_IAPSNJ_Admin {
             <p style="margin-top:10px">
                 <button type="button" id="fcrm-import-field-options" class="button" data-form="<?php echo esc_attr( $form_id ); ?>" title="<?php esc_attr_e( 'Fills every empty dropdown / radio list of this form from the ACF field choices (the old onboarding form), else the values already stored in the CRM, else the built-in list. Lists you have filled in are left alone. Works on the saved form: save your other changes first, the page reloads.', 'my-iapsnj' ); ?>"><?php esc_html_e( 'Fill empty dropdown options', 'my-iapsnj' ); ?></button>
                 <button type="button" class="button fcrm-form-duplicate" data-form="<?php echo esc_attr( $form_id ); ?>"><?php esc_html_e( 'Duplicate this form', 'my-iapsnj' ); ?></button>
+                <?php $this->render_view_checkout_button( My_IAPSNJ_Checkout_Fields::preview_url( $form_id ), __( 'View checkout (saved version)', 'my-iapsnj' ) ); ?>
                 <button type="submit" class="button button-primary"><?php esc_html_e( 'Save form', 'my-iapsnj' ); ?></button>
             </p>
             <p class="description"><?php esc_html_e( 'Dropdown options come from the ACF field choices of the old onboarding form when ACF is still active, otherwise from the values already stored in the CRM; edit the list freely. Tip: FluentCart\'s own "Agree to terms" checkbox (Settings → Checkout Fields → Legal) can replace the certification checkbox if you prefer a single legal line.', 'my-iapsnj' ); ?></p>
@@ -1150,6 +1158,20 @@ class My_IAPSNJ_Admin {
         </form>
         </div>
         <?php
+    }
+
+    /**
+     * "View checkout": the front-end checkout with a membership product in the
+     * cart, showing this form (administrators only), in a new tab. Disabled
+     * when no membership product is mapped.
+     */
+    private function render_view_checkout_button( string $url, string $label = '' ): void {
+        $label = $label !== '' ? $label : __( 'View checkout', 'my-iapsnj' );
+        if ( $url === '' ) {
+            echo '<button type="button" class="button" disabled title="' . esc_attr__( 'Map a membership product in Membership Products first.', 'my-iapsnj' ) . '">' . esc_html( $label ) . '</button>';
+            return;
+        }
+        echo '<a class="button fcrm-view-checkout" href="' . esc_url( $url ) . '" target="_blank" rel="noopener" title="' . esc_attr__( 'Opens the real checkout page in a new tab with a membership product in your cart, showing this form. Nothing is charged unless you place the order.', 'my-iapsnj' ) . '">' . esc_html( $label ) . ' <span class="dashicons dashicons-external" aria-hidden="true" style="font-size:14px;width:14px;height:14px;vertical-align:text-bottom"></span></a>';
     }
 
     /**
@@ -1199,16 +1221,20 @@ class My_IAPSNJ_Admin {
             unset( $types['section'] );
         }
         $has_options = in_array( $def['type'], [ 'select', 'radio' ], true );
-        $classes     = 'fcrm-field-row' . ( $enabled ? ' enabled' : '' ) . ( $section ? ' fcrm-field-section' : '' ) . ( $auto ? ' fcrm-field-auto' : '' );
+        $parent      = $enabled && ! $section ? (string) ( $def['parent'] ?? '' ) : '';
+        $classes     = 'fcrm-field-row' . ( $enabled ? ' enabled' : '' ) . ( $section ? ' fcrm-field-section' : '' ) . ( $auto ? ' fcrm-field-auto' : '' ) . ( $parent !== '' ? ' fcrm-field-child' : '' );
+        $used        = $auto && ! empty( $def['used'] );
 
-        echo '<tr class="' . esc_attr( $classes ) . '" data-key="' . esc_attr( $key ) . '">';
+        echo '<tr class="' . esc_attr( $classes . ( $used ? ' fcrm-field-crm-used' : '' ) ) . '" data-key="' . esc_attr( $key ) . '"' . ( $used ? ' style="display:none"' : '' ) . '>';
         echo '<td class="fcrm-field-move"><span class="fcrm-drag-handle dashicons dashicons-menu" title="' . esc_attr__( 'Drag to reorder, or drag between Active and Inactive', 'my-iapsnj' ) . '" aria-hidden="true"></span>';
         echo '<input type="hidden" name="' . esc_attr( $n ) . '[order]" value="' . esc_attr( (string) ( $is_template ? 99 : $position ) ) . '" class="fcrm-field-order">';
         echo '<input type="hidden" name="' . esc_attr( $n ) . '[key]" value="' . esc_attr( $is_template ? '' : $key ) . '">';
         if ( $auto ) {
             echo '<input type="hidden" name="' . esc_attr( $n ) . '[auto]" value="1">';
         }
-        echo '<span class="fcrm-field-arrows"><button type="button" class="button-link fcrm-field-up" title="' . esc_attr__( 'Move up', 'my-iapsnj' ) . '" aria-label="' . esc_attr__( 'Move up', 'my-iapsnj' ) . '">&#9650;</button><button type="button" class="button-link fcrm-field-down" title="' . esc_attr__( 'Move down', 'my-iapsnj' ) . '" aria-label="' . esc_attr__( 'Move down', 'my-iapsnj' ) . '">&#9660;</button></span></td>';
+        echo '<input type="hidden" name="' . esc_attr( $n ) . '[parent]" value="' . esc_attr( $parent ) . '" class="fcrm-field-parent">';
+        echo '<span class="fcrm-field-arrows"><button type="button" class="button-link fcrm-field-up" title="' . esc_attr__( 'Move up', 'my-iapsnj' ) . '" aria-label="' . esc_attr__( 'Move up', 'my-iapsnj' ) . '">&#9650;</button><button type="button" class="button-link fcrm-field-down" title="' . esc_attr__( 'Move down', 'my-iapsnj' ) . '" aria-label="' . esc_attr__( 'Move down', 'my-iapsnj' ) . '">&#9660;</button></span>';
+        echo '<span class="fcrm-field-arrows"><button type="button" class="button-link fcrm-field-indent" title="' . esc_attr__( 'Indent: show only depending on the field above', 'my-iapsnj' ) . '" aria-label="' . esc_attr__( 'Indent (conditional)', 'my-iapsnj' ) . '">&#9654;</button><button type="button" class="button-link fcrm-field-outdent" title="' . esc_attr__( 'Outdent: always shown', 'my-iapsnj' ) . '" aria-label="' . esc_attr__( 'Outdent', 'my-iapsnj' ) . '">&#9664;</button></span></td>';
         echo '<td style="text-align:center"><input type="checkbox" class="fcrm-field-enabled" name="' . esc_attr( $n ) . '[enabled]" value="1"' . checked( $enabled, true, false ) . '></td>';
         echo '<td style="text-align:center"><input type="checkbox" class="fcrm-field-required" name="' . esc_attr( $n ) . '[required]" value="1"' . checked( $enabled && ! $section && ! empty( $def['required'] ), true, false ) . disabled( ! $enabled || $section, true, false ) . '></td>';
         echo '<td><input type="text" name="' . esc_attr( $n ) . '[label]" value="' . esc_attr( (string) $def['label'] ) . '" class="regular-text fcrm-field-label" style="width:100%" placeholder="' . esc_attr( $section ? __( 'Section heading', 'my-iapsnj' ) : __( 'Label', 'my-iapsnj' ) ) . '" data-placeholder-field="' . esc_attr__( 'Label', 'my-iapsnj' ) . '" data-placeholder-section="' . esc_attr__( 'Section heading', 'my-iapsnj' ) . '">';
@@ -1219,6 +1245,12 @@ class My_IAPSNJ_Admin {
         } elseif ( $section && ! $is_template ) {
             echo '<br><small class="fcrm-muted">' . esc_html__( 'section heading', 'my-iapsnj' ) . '</small>';
         }
+        // Conditional display: filled in by admin.js from the parent row above.
+        echo '<div class="fcrm-field-condition"' . ( $parent !== '' ? '' : ' style="display:none"' ) . '>';
+        echo '<span class="fcrm-cond-arrow" aria-hidden="true">&#8627;</span> ' . esc_html__( 'Show only when', 'my-iapsnj' ) . ' <strong class="fcrm-cond-parent"></strong> <span class="fcrm-cond-rule"></span>';
+        echo '<select multiple class="fcrm-cond-values" name="' . esc_attr( $n ) . '[show_when]" size="4" data-selected="' . esc_attr( (string) wp_json_encode( array_values( (array) ( $def['show_when'] ?? [] ) ) ) ) . '" aria-label="' . esc_attr__( 'Answers that show this field', 'my-iapsnj' ) . '"></select>';
+        echo '<small class="fcrm-muted fcrm-cond-hint">' . esc_html__( 'Ctrl / ⌘-click for several; none selected = any answer.', 'my-iapsnj' ) . '</small>';
+        echo '</div>';
         echo '</td>';
         echo '<td><select name="' . esc_attr( $n ) . '[type]" class="fcrm-field-type"' . ( $builtin || $auto ? ' disabled' : '' ) . '>';
         foreach ( $types as $val => $label ) {
@@ -1415,6 +1447,19 @@ class My_IAPSNJ_Admin {
             wp_send_json_error( [ 'message' => __( 'That checkout form no longer exists.', 'my-iapsnj' ) ] );
         }
         $raw = isset( $post['fields'] ) && is_array( $post['fields'] ) ? $post['fields'] : [];
+        // Two rows writing one CRM field would overwrite each other's answer.
+        $dupes = My_IAPSNJ_Checkout_Fields::duplicate_targets( $raw );
+        if ( $dupes ) {
+            $lines = [];
+            foreach ( $dupes as $slug => $labels ) {
+                $lines[] = sprintf( '%1$s: %2$s', $slug, implode( ', ', $labels ) );
+            }
+            wp_send_json_error( [ 'message' => sprintf(
+                /* translators: %s: CRM field slug followed by the labels of the rows writing to it */
+                __( 'Not saved: several fields are stored in the same FluentCRM field (%s). Pick another "Stored in FluentCRM as" for all but one.', 'my-iapsnj' ),
+                implode( '; ', $lines )
+            ) ] );
+        }
         My_IAPSNJ_Checkout_Fields::save_config( $raw, $form_id );
         My_IAPSNJ_Checkout_Fields::save_form_meta(
             $form_id,
