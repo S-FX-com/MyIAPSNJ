@@ -20,15 +20,6 @@ use FluentCrm\App\Models\Subscriber;
 
 class My_IAPSNJ_Reports {
 
-    /**
-     * Forget the cached Dashboard summary (called after settings, check and
-     * expiry changes). The summary is not cached yet; kept so callers need
-     * no change when it is.
-     */
-    public static function flush_summary(): void {
-        delete_transient( 'my_iapsnj_summary' );
-    }
-
     // -----------------------------------------------------------------------
     // Orphan check: WP ↔ CRM
     // -----------------------------------------------------------------------
@@ -46,7 +37,7 @@ class My_IAPSNJ_Reports {
             'order'   => 'ASC',
             'fields'  => [ 'ID', 'user_email', 'display_name', 'user_login', 'user_registered' ],
         ] );
-        $total = (int) count_users()['total_users'];
+        $total = self::wp_user_count();
         if ( ! $users ) {
             return [ 'items' => [], 'has_more' => false, 'next_offset' => $offset, 'total_users' => $total ];
         }
@@ -236,11 +227,110 @@ class My_IAPSNJ_Reports {
     // Summary
     // -----------------------------------------------------------------------
 
+    /** Transient holding the dashboard summary. */
+    const SUMMARY_TRANSIENT = 'my_iapsnj_dashboard_summary';
+
+    /** How long the dashboard numbers may be served from the cache. */
+    const SUMMARY_TTL = 10 * MINUTE_IN_SECONDS;
+
+    /** @var bool True once flush_summary() ran and nothing re-cached since. */
+    private static $summary_flushed = false;
+
+    /**
+     * Drop the cached summary when membership or check state changes. Every
+     * hook is registered with 0 accepted args: the payload is not needed.
+     */
+    public static function register_hooks(): void {
+        $hooks = [
+            'my_iapsnj/membership_paid',
+            'my_iapsnj/membership_refunded',
+            'fluent_cart/order_paid',
+            'fluent_cart/order_placed_offline',
+            'fluent_cart/order_fully_refunded',
+            'fluent_cart/order_canceled',
+            'fluent_cart/order_status_changed',
+        ];
+        foreach ( $hooks as $hook ) {
+            add_action( $hook, [ __CLASS__, 'flush_summary' ], 10, 0 );
+        }
+    }
+
+    /**
+     * Forget the cached dashboard summary (next summary() call recomputes).
+     * Also called directly after mark-paid and record-check.
+     */
+    public static function flush_summary(): void {
+        if ( self::$summary_flushed ) {
+            return;
+        }
+        delete_transient( self::SUMMARY_TRANSIENT );
+        self::$summary_flushed = true;
+    }
+
+    /**
+     * Dashboard numbers, cached for SUMMARY_TTL (see flush_summary()).
+     */
     public static function summary(): array {
+        $cached = get_transient( self::SUMMARY_TRANSIENT );
+        if ( is_array( $cached ) && isset( $cached['wp_users'], $cached['applications'] ) ) {
+            return $cached;
+        }
+        $out = self::compute_summary();
+        set_transient( self::SUMMARY_TRANSIENT, $out, self::SUMMARY_TTL );
+        self::$summary_flushed = false;
+        return $out;
+    }
+
+    /**
+     * Same number as count_users()['total_users'] (users with a capabilities
+     * row on this site) without count_users()'s per-role LIKE scan.
+     */
+    private static function wp_user_count(): int {
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        return (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM {$wpdb->usermeta} INNER JOIN {$wpdb->users} ON user_id = ID WHERE meta_key = %s",
+            $wpdb->get_blog_prefix() . 'capabilities'
+        ) );
+    }
+
+    /**
+     * Count, total and aging count of the pending check orders in one
+     * aggregate query, with the filters of My_IAPSNJ_Checks::pending().
+     *
+     * @return array{count:int, cents:int, aging:int, currency:string}
+     */
+    private static function pending_totals( int $aging_days ): array {
+        global $wpdb;
+        $orders = $wpdb->prefix . 'fct_orders';
+        // An order is "aging" when Dates::days_since_utc( created_at ) >= $aging_days.
+        $cutoff = gmdate( 'Y-m-d H:i:s', time() - max( 0, $aging_days ) * DAY_IN_SECONDS );
+        $aged   = $aging_days <= 0
+            ? '1'
+            : $wpdb->prepare( "created_at > '0000-00-00 00:00:00' AND created_at <= %s", $cutoff );
+        $where  = $wpdb->prepare(
+            "payment_method = %s AND payment_status = 'pending' AND status NOT IN ('canceled', 'failed')",
+            My_IAPSNJ_Membership::OFFLINE_METHOD
+        );
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $row = $wpdb->get_row(
+            "SELECT COUNT(*) AS n, COALESCE(SUM(total_amount), 0) AS cents, COALESCE(SUM(CASE WHEN {$aged} THEN 1 ELSE 0 END), 0) AS aged,
+                    ( SELECT currency FROM `{$orders}` WHERE {$where} AND currency <> '' ORDER BY created_at ASC, id ASC LIMIT 1 ) AS currency
+             FROM `{$orders}` WHERE {$where}"
+        );
+        return [
+            'count'    => $row ? (int) $row->n : 0,
+            'cents'    => $row ? (int) $row->cents : 0,
+            'aging'    => $row ? (int) $row->aged : 0,
+            'currency' => $row && $row->currency !== null ? (string) $row->currency : '',
+        ];
+    }
+
+    private static function compute_summary(): array {
         global $wpdb;
 
         $out = [
-            'wp_users'          => (int) count_users()['total_users'],
+            'wp_users'          => self::wp_user_count(),
             'crm_contacts'      => (int) Subscriber::count(),
             'members_by_type'   => [],
             'paid_years'        => [],
@@ -279,19 +369,10 @@ class My_IAPSNJ_Reports {
         }
 
         if ( My_IAPSNJ_Checks::is_available() ) {
-            $pending = My_IAPSNJ_Checks::pending();
-            $cents   = 0;
-            $cur     = '';
-            $aging   = (int) ( My_IAPSNJ_Plugin::settings()['aging_days'] ?? 30 );
-            foreach ( $pending as $p ) {
-                $cents += (int) $p['total_cents'];
-                $cur    = $cur ?: $p['currency'];
-                if ( $p['age_days'] >= $aging ) {
-                    $out['aging_checks']++;
-                }
-            }
-            $out['pending_checks'] = count( $pending );
-            $out['pending_total']  = My_IAPSNJ_Membership::format_money( $cents, $cur );
+            $totals                = self::pending_totals( (int) ( My_IAPSNJ_Plugin::settings()['aging_days'] ?? 30 ) );
+            $out['aging_checks']   = $totals['aging'];
+            $out['pending_checks'] = $totals['count'];
+            $out['pending_total']  = My_IAPSNJ_Membership::format_money( $totals['cents'], $totals['currency'] );
         }
 
         $out['open_applications'] = (int) ( $out['applications'][ My_IAPSNJ_Applications::STATUS_PENDING ] ?? 0 )

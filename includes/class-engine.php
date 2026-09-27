@@ -133,7 +133,8 @@ class My_IAPSNJ_Engine {
         $this->syncing_to_wp = true;
         try {
             $user_id = (int) $subscriber->user_id;
-            if ( ! $user_id || ! get_userdata( $user_id ) ) {
+            $user    = $user_id ? get_userdata( $user_id ) : false;
+            if ( ! $user ) {
                 return;
             }
 
@@ -168,6 +169,16 @@ class My_IAPSNJ_Engine {
                 );
 
                 $this->set_wp_field_value( $user_id, $mapping, $formatted, $wp_user_data );
+            }
+
+            // Only fields that differ from the current WP_User go to
+            // wp_update_user(): an unchanged email or display name must not
+            // cost a full user UPDATE (and every profile_update listener) per
+            // contact on each bulk mirror.
+            foreach ( $wp_user_data as $key => $value ) {
+                if ( is_scalar( $value ) && isset( $user->{ $key } ) && (string) $user->{ $key } === (string) $value ) {
+                    unset( $wp_user_data[ $key ] );
+                }
             }
 
             if ( ! empty( $wp_user_data ) ) {
@@ -435,7 +446,10 @@ class My_IAPSNJ_Engine {
                 return $this->format_select( $value, $mapping );
 
             case 'number':
-                return is_numeric( $value ) ? (float) $value : $value;
+                // A string, exactly as a float is stored in user meta ('1001'),
+                // so update_user_meta() recognises an unchanged value instead
+                // of rewriting it (its comparison is strict: '1001' !== 1001.0).
+                return is_numeric( $value ) ? (string) (float) $value : $value;
 
             case 'email':
                 return sanitize_email( (string) $value );

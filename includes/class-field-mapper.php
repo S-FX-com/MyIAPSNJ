@@ -29,12 +29,32 @@ defined( 'ABSPATH' ) || exit;
 
 class My_IAPSNJ_Field_Mapper {
 
+    /** Transient caching the discovered user_meta keys (12 h). */
+    const META_KEYS_TRANSIENT = 'my_iapsnj_fm_meta_keys';
+
+    /** Transient caching the ACF user field list (12 h). */
+    const ACF_FIELDS_TRANSIENT = 'my_iapsnj_fm_acf_fields';
+
+    /** How long field discovery is cached. */
+    const FIELD_CACHE_TTL = 12 * HOUR_IN_SECONDS;
+
     /**
-     * Forget the cached list of WordPress profile fields (Profile Mirror →
-     * Refresh field list, and after mappings are saved).
+     * Forget the cached field discovery (user_meta key scan and ACF field
+     * list). Call when mappings are saved and from "Refresh field list".
      */
     public static function flush_field_cache(): void {
-        delete_transient( 'my_iapsnj_wp_field_keys' );
+        delete_transient( self::META_KEYS_TRANSIENT );
+        delete_transient( self::ACF_FIELDS_TRANSIENT );
+    }
+
+    /**
+     * Optional: drop the cached ACF field list when an ACF field group is
+     * saved, trashed or deleted, so a new ACF user field shows up at once.
+     */
+    public static function register_hooks(): void {
+        foreach ( [ 'acf/update_field_group', 'acf/trash_field_group', 'acf/delete_field_group' ] as $hook ) {
+            add_action( $hook, [ __CLASS__, 'flush_field_cache' ], 10, 0 );
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -111,7 +131,20 @@ class My_IAPSNJ_Field_Mapper {
         return $fields;
     }
 
+    /**
+     * ACF user fields, cached for FIELD_CACHE_TTL.
+     */
     private function get_acf_user_fields(): array {
+        $cached = get_transient( self::ACF_FIELDS_TRANSIENT );
+        if ( is_array( $cached ) ) {
+            return $cached;
+        }
+        $result = $this->discover_acf_user_fields();
+        set_transient( self::ACF_FIELDS_TRANSIENT, $result, self::FIELD_CACHE_TTL );
+        return $result;
+    }
+
+    private function discover_acf_user_fields(): array {
         $result = [];
         $groups = acf_get_field_groups( [ 'user_form' => 'all' ] );
         foreach ( $groups as $group ) {
@@ -161,8 +194,23 @@ class My_IAPSNJ_Field_Mapper {
     /**
      * Distinct user_meta keys, excluding WordPress internals, ACF reference
      * keys and PMPro billing history (which is never a mirror target).
+     * Cached for FIELD_CACHE_TTL (see flush_field_cache()).
      */
     private function get_db_user_meta_keys(): array {
+        $cached = get_transient( self::META_KEYS_TRANSIENT );
+        if ( is_array( $cached ) ) {
+            return $cached;
+        }
+        $keys = $this->discover_db_user_meta_keys();
+        set_transient( self::META_KEYS_TRANSIENT, $keys, self::FIELD_CACHE_TTL );
+        return $keys;
+    }
+
+    /**
+     * The uncached scan behind get_db_user_meta_keys(): a full-table
+     * DISTINCT over usermeta, which is why its result is cached.
+     */
+    private function discover_db_user_meta_keys(): array {
         global $wpdb;
 
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery
