@@ -559,7 +559,7 @@ class My_IAPSNJ_Checkout_Fields {
         $settings = get_option( 'my_iapsnj_settings', [] );
         $settings = is_array( $settings ) ? $settings : [];
         $form     = [
-            'name'    => __( 'Membership application', 'my-iapsnj' ),
+            'name'    => __( 'Membership Application', 'my-iapsnj' ),
             'heading' => sanitize_text_field( (string) ( $settings['application_heading'] ?? '' ) ),
             'intro'   => sanitize_text_field( (string) ( $settings['application_intro'] ?? '' ) ),
             'fields'  => $rows,
@@ -1564,7 +1564,7 @@ class My_IAPSNJ_Checkout_Fields {
                 $form['name']
             ) ) . '</p>';
         }
-        echo '<h3 class="fct-section-title my-iapsnj-application-title">' . esc_html( $heading !== '' ? $heading : __( 'Membership application', 'my-iapsnj' ) ) . '</h3>';
+        echo '<h3 class="fct-section-title my-iapsnj-application-title">' . esc_html( $heading !== '' ? $heading : __( 'Membership Application', 'my-iapsnj' ) ) . '</h3>';
         if ( $intro !== '' ) {
             echo '<p class="my-iapsnj-application-intro">' . esc_html( $intro ) . '</p>';
         }
