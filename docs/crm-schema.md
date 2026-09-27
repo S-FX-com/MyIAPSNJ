@@ -14,9 +14,10 @@ in `includes/class-schema.php`.
 |---|---|---|---|---|
 | `Paid-2024` … `Paid-2031` (one per year, ongoing) | `paid-YYYY` | migration (`backfill_year_tags`), FluentCart `order_paid` | full refund of the order that added it | Year-by-year payment history, queryable |
 | `Payment-Pending-Check` | `payment-pending-check` | `order_placed_offline` (check chosen at checkout) | `order_paid` | Treasurer follow-up; Pending Checks screen |
-| `Checkout-Abandoned` | `checkout-abandoned` | Fluent Forms submission (join/renewal) | `order_placed_offline`, `order_paid` | Complete application, no payment — the follow-up list that did not exist before |
+| `Checkout-Abandoned` | `checkout-abandoned` | email typed at the FluentCart checkout (`checkout/form_data_changed`) | `order_placed_offline`, `order_paid` | Checkout started, no payment — the follow-up list that did not exist before |
 | `Honorary` | `honorary` | migration (`migrate_comped`) / admin by hand | admin | Comped; **excluded from every dues automation** |
 | `Lifetime` | `lifetime` | migration (`migrate_comped`), Lifetime product paid | admin | Comped; **excluded from every dues automation** |
+| `Member-Active` | `member-active` | `order_paid` / `renewal_paid`, daily expiry job (`wp iapsnj expire`), Sync & Settings → *Apply now* | daily expiry job when `paid_through` (+ grace days) is past; full refund that leaves the contact lapsed | **Status**, not history: present while in good standing (or comped). Drives the WordPress role (Sync & Settings) and is the tag to key "membership expired" automations on (Tag Removed). |
 
 Honorary is **never a product**: it is admin-assigned (tag + `member_type`).
 
@@ -27,20 +28,21 @@ Honorary is **never a product**: it is admin-assigned (tag + `member_type`).
 | `member_type` | select-one | `Regular` / `Associate` / `Lifetime` / `Honorary` | **Mandatory.** The exclusion condition for dues campaigns is `member_type` is none of `Lifetime`, `Honorary`. A purchase never lowers the type. |
 | `paid_through` | date (Y-m-d) | e.g. `2027-12-31` | Set from the product (fixed calendar-year date), only ever extended (`max`). **Null for Lifetime and Honorary** — the plugin deletes the value; never a far-future date. |
 | `member_number` | number | | Migrated from ACF `MemberNum` (already synced pre-4.0). Printed on the memo line of checks; shown in Pending Checks. |
-| `department` | text (or select-one, see below) | | Required for Regular on the join form. |
-| `rank_level` | text/select-one | | |
-| `join_date` | date | | Migrated from ACF `join_date`. |
+| `department` | text (or select-one, see below) | | Required on the checkout application (dropdown options set in My IAPSNJ → Sync & Settings). |
+| `rank_level` | text/select-one | | Same. |
+| `join_date` | date | `Y-m-d` | Migrated from ACF `join_date`; for new members set to the payment date of their first paid order (4.4.0), never overwritten. |
 | `legacy_pmpro_level` | text | e.g. `3` or `3, 5` | Written by migration for members/orders on deleted PMPro levels (IDs 3, 5). Diagnostic only. |
-| `phone2` | text | | Alternate phone (keep — existed pre-4.0) |
-| `phone_work` | text | | Work phone |
-| `retirement_date` | date | | |
-| `union_affiliation`, `union_position` | text | | |
-| `marital_status` | select-one | | |
-| `spouse_name` | text | | |
-| `armed_service` | checkbox | | |
-| `additional_information` | textarea | | |
-| `referred_by` | text | | |
-| `elo_title` | select-one | | Confirm with client whether still used |
+| `phone2` | text | | Alternate phone; checkout application (4.3.0). Existed pre-4.0; `crm-schema` creates it if missing. |
+| `phone_work` | text | | Work phone; checkout application. |
+| `retirement_date` | date | | Created by `crm-schema`; filled from the checkout application. |
+| `union_affiliation`, `union_position` | text | | Checkout application (shown by default since 4.3.0). |
+| `marital_status` | select-one | Single / Married / Divorced / Widowed / Separated | Checkout application. |
+| `spouse_name` | text | | Checkout application. |
+| `armed_service` | checkbox | `Yes` | Checkout application; stored as an array (`["Yes"]`) like every FluentCRM checkbox field. |
+| `additional_information` | textarea | | Checkout application. |
+| `company_name`, `company_title`, `company_type` | text | | Associate members' employer; checkout application. Created by `crm-schema` if missing. |
+| `referred_by` | text | | Created by `crm-schema`; filled from the checkout application. |
+| `elo_title` | text (select in ACF) | | Confirm with client whether still used; the checkout field exists but is hidden by default. |
 | `admin_notes` | textarea | **retire** → use FluentCRM Notes | Already searchable via Notes Search |
 
 Default FluentCRM fields used: `first_name`, `last_name`, `email`, `phone`,
@@ -49,8 +51,9 @@ Default FluentCRM fields used: `first_name`, `last_name`, `email`, `phone`,
 
 `department` and `rank_level` were mapped as *select* in the ACF era. Keep them
 `select-one` in FluentCRM only if the option list is maintained there; the
-join form's own dropdown is the real constraint (non-submittable placeholder,
-no "N/A").
+checkout dropdown (My IAPSNJ → Checkout Builder) is the
+real constraint (non-submittable placeholder, no "N/A"). Its option lists are
+imported from the ACF choices / existing CRM values (`docs/checkout-fields.md`).
 
 ## The 32 ACF-era fields — decision per field
 
@@ -75,19 +78,20 @@ and populated it — the data is there; only the ACF side is dropped.
 | rank_level | ✔ | `rank_level` | |
 | work_phone | ✔ | `phone_work` | |
 | retirement_date | ✔ | `retirement_date` | |
-| union_affiliation / union_position | ✔ | same slugs | **confirm with client** — candidates to retire |
+| union_affiliation / union_position | ✔ | same slugs | on the checkout (client: "all of them", 2026-09-24) |
 | date_of_birth | ✔ | `date_of_birth` | |
-| marital_status / spouse_name | ✔ | same slugs | **confirm with client** — candidates to retire |
-| armed_service | ✔ | `armed_service` | |
-| additional_information | ✔ | `additional_information` | |
-| company_name / company_title / company_type | ✖ | — | Associate-member employer data; **retire unless the client uses it** (probably unused) |
+| marital_status / spouse_name | ✔ | same slugs | on the checkout |
+| armed_service | ✔ | `armed_service` | on the checkout |
+| additional_information | ✔ | `additional_information` | on the checkout |
+| company_name / company_title / company_type | ✔ | same slugs | Associate-member employer data; on the checkout |
 | admin_notes | ✖ | FluentCRM Notes | notes are first-class in the CRM |
-| referred_by | ✔ | `referred_by` | cheap to keep; useful for the join form |
-| elo_title | ✖ | — | **confirm** — almost certainly unused |
+| referred_by | ✔ | `referred_by` | on the checkout |
+| elo_title | ✔ (hidden) | `elo_title` | checkout field exists, off by default — **confirm** meaning with the client |
 
-Aggressive-retire list to put in front of the client (default: retire):
-`company_name`, `company_title`, `company_type`, `admin_notes`, `elo_title`,
-`union_affiliation`, `union_position`, `marital_status`, `spouse_name`.
+Retire decision (2026-09-24): the client wants every field of the old
+onboarding form on the checkout, so only `admin_notes` is retired. `elo_title`
+is kept but hidden until its meaning is confirmed. Any field can still be
+hidden from My IAPSNJ → Checkout Builder.
 
 ## Profile mirror (CRM → WordPress user meta)
 
@@ -100,23 +104,80 @@ the existing member-area profile screen keeps rendering:
 `primary_phone ← phone`, `address`, `address2`, `city`, `state`,
 `zip_code ← postal_code`, `department`, `rank_level`.
 
+Installs upgraded from 3.x carried mappings to the retired CRM slugs
+`member_status` / `expiration_date`; data version 9 (4.4.0) points them at
+`member_type` / `paid_through` and adds the membership rows if missing. The
+mirror runs on every CRM contact save **and** at the end of each paid /
+check-placed order, so the WordPress profile (ACF meta) reflects the payment
+immediately. Extra ACF fields (e.g. a separate `member_type`) need no code:
+create the ACF field and add the row in Profile Mirror.
+
+**WordPress role** (4.5.0, Sync & Settings → *WordPress role per member
+type*): `member_type` → role slug, applied by the same mirror (contact save,
+paid / check-placed order, refund, bulk mirror). New users are created as
+Subscriber and get the mapped role in the same request. Guard rails: the
+administrator role is never assignable, and a user whose current roles
+include anything other than a mapped role or Subscriber (editors, staff) is
+never changed. Unmapped types are skipped.
+
+**Expiration** (4.6.0): a membership is *active* while `paid_through` plus
+the grace period (Sync & Settings, default 0 days) is today or later, or the
+type is Lifetime / Honorary. WP-Cron runs `My_IAPSNJ_Membership::run_expirations()`
+daily at 00:30 site time (`my_iapsnj_daily`; also `wp iapsnj expire` and
+Sync & Settings → Expirations → Preview / Apply now): lapsed contacts lose
+`Member-Active` and drop to the *when expired* role (default Subscriber);
+contacts in good standing that lack the tag (migrated members, manual CRM
+edits) get it and their mapped role. Staff roles are never touched. A
+payment reactivates immediately (`reconcile_contact()` runs inside
+`order_paid`, and after a full refund). `Paid-YYYY` tags are never removed.
+Action `my_iapsnj/membership_expired` fires per lapsed contact.
+
+Expiration dates: a 1-year payment before the cutover (default Oct 1) is
+paid through **Dec 31 of the payment year**; on/after it, Dec 31 of the next
+year; multi-year products add whole years. So every membership lapses on
+Jan 1 (the daily run of Jan 1 removes the tag / role for anyone without
+`Paid-{new year}`), which is exactly the January renewal cycle. See the known
+gap with subscription anniversary billing below.
+
 ## Products → membership state (FluentCart)
 
 Configured in My IAPSNJ → Membership Products (option `my_iapsnj_products`).
-All one-time purchases; no subscriptions.
+Products carry **no year**: a product says which member type it grants and
+how many years one payment covers. Annual products are FluentCart yearly
+subscriptions (auto-renew); Lifetime and Multi-Year are one-time.
 
-| Product | Price | member_type | Sets paid_through | Paid-YYYY tags | Availability |
-|---|---|---|---|---|---|
-| Regular Member 2027 | $30 | Regular | 2027-12-31 | 2027 | ongoing |
-| Associate Member 2027 | $50 | Associate | 2027-12-31 | 2027 | ongoing |
-| Lifetime Member | $300 | Lifetime | null | — (tag `Lifetime`) | ongoing |
-| Multi-Year 2027–2031 | $120 | Regular | 2031-12-31 | 2027, 2028, 2029, 2030, 2031 | ongoing |
-| 2026 Catch-Up + 2027 | $45 | Regular | 2027-12-31 | 2026, 2027 | Oct–Dec 2026 only (FluentCart product visibility / schedule) |
+| Product | Price | member_type | Years covered | Billing |
+|---|---|---|---|---|
+| Regular Membership | $30 | Regular | 1 | yearly subscription |
+| Associate Membership | $50 | Associate | 1 | yearly subscription |
+| Lifetime Membership | $300 | Lifetime | — | one-time |
+| Multi-Year Membership | $120 | Regular | 5 | one-time |
 
-Rules applied on `order_paid`:
+**Term rule** (`My_IAPSNJ_Dates::membership_term`, cutover in Sync & Settings,
+default `10-01`): the payment date decides the term, not the product.
 
-* `paid_through` = max(existing, product) — never shortened.
+| Paid on | 1-year product | 5-year product |
+|---|---|---|
+| 2026-09-24 | through 2026-12-31, `Paid-2026` | through 2030-12-31, `Paid-2026…2030` |
+| 2026-10-01 or later | through 2027-12-31, `Paid-2027` | through 2031-12-31, `Paid-2027…2031` |
+
+For checks the deposit date is the payment date. Subscription renewal orders
+(type `renewal`, hook `fluent_cart/renewal_paid`) go through the same rule on
+their own payment date. The former "Catch-Up" product is unnecessary: a
+payment before the cutover simply buys the current year.
+
+Rules applied on `order_paid` / `renewal_paid`:
+
+* `paid_through` = max(existing, computed) — never shortened.
 * `member_type` = the higher of existing and product (Honorary/Lifetime stay).
 * Lifetime → `paid_through` deleted, `Lifetime` tag added.
 * `Payment-Pending-Check` and `Checkout-Abandoned` removed.
 * Full refund reverses only what that order added (snapshot on the order).
+
+**Known gap with subscriptions:** FluentCart charges the renewal on the
+purchase anniversary. A member who joins on March 1 is paid through Dec 31 and
+charged again on March 1 of the next year, so on paper `paid_through` is past
+from Jan 1 to Mar 1 while the subscription is active. Only Oct–Dec joiners line
+up with Dec 31. Decision pending with the client: treat an active subscription
+as in good standing, move the next billing date to Jan 1 in FluentCart, or use
+one-time products with the January renewal campaign.

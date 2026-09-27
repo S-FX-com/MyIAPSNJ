@@ -2,8 +2,8 @@
 /**
  * Plugin Name:       My IAPSNJ
  * Plugin URI:        https://github.com/S-FX-com/MyIAPSNJ
- * Description:       Membership operations for the IAPSNJ website. FluentCRM is the single source of truth: FluentCart payments set membership state (Paid-YYYY tags, member_type, paid_through), Fluent Forms applications are tracked until they are paid, mailed checks are reconciled in batch, and WordPress user profiles are mirrored one way from the CRM. Includes the PMPro → FluentCRM migration toolkit.
- * Version:           4.0.0
+ * Description:       Membership operations for the IAPSNJ website. FluentCRM is the single source of truth: the membership application is collected on the FluentCart checkout page, FluentCart payments set membership state (Paid-YYYY tags, member_type, paid_through), applications are tracked until they are paid, mailed checks are reconciled in batch, and WordPress user profiles are mirrored one way from the CRM. Includes the PMPro → FluentCRM migration toolkit.
+ * Version:           4.7.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Requires Plugins:  fluent-crm
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'MY_IAPSNJ_VERSION', '4.0.0' );
+define( 'MY_IAPSNJ_VERSION', '4.7.0' );
 define( 'MY_IAPSNJ_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'MY_IAPSNJ_URL',     plugin_dir_url( __FILE__ ) );
 define( 'MY_IAPSNJ_FILE',    __FILE__ );
@@ -86,15 +86,13 @@ final class My_IAPSNJ_Plugin {
         My_IAPSNJ_Admin::get_instance();
         My_IAPSNJ_REST_API::get_instance();
 
-        // FluentCart → membership state. Boots only when FluentCart is active;
-        // the admin screens explain what is missing otherwise.
+        // FluentCart → membership state, and the application fields on the
+        // checkout page. Boots only when FluentCart is active; the admin
+        // screens explain what is missing otherwise.
         if ( My_IAPSNJ_Membership::is_available() ) {
             My_IAPSNJ_Membership::get_instance();
-        }
-
-        // Fluent Forms → application tracking.
-        if ( My_IAPSNJ_Applications::is_available() ) {
-            My_IAPSNJ_Applications::get_instance();
+            My_IAPSNJ_Checkout_Fields::get_instance();
+            My_IAPSNJ_Membership::ensure_cron();
         }
 
         if ( defined( 'WP_CLI' ) && WP_CLI ) {
@@ -144,8 +142,10 @@ final class My_IAPSNJ_Plugin {
             My_IAPSNJ_Field_Mapper::seed_default_mappings();
         }
 
-        // Applications table (Fluent Forms submissions awaiting payment).
+        // Applications table (checkouts awaiting payment) and the default
+        // application fields shown on the checkout page.
         My_IAPSNJ_Applications::create_table();
+        My_IAPSNJ_Checkout_Fields::seed_defaults();
 
         // Bring existing installs up to the current data version.
         self::maybe_upgrade();
@@ -154,6 +154,7 @@ final class My_IAPSNJ_Plugin {
     public static function deactivate(): void {
         // Legacy PMPro expiry cron (pre-4.0). Data is preserved.
         wp_clear_scheduled_hook( 'my_iapsnj_pmp_expiry_cron' );
+        wp_clear_scheduled_hook( My_IAPSNJ_Membership::CRON_HOOK );
     }
 
     /**
@@ -165,10 +166,21 @@ final class My_IAPSNJ_Plugin {
             'sync_on_fcrm_update'     => true,
             'link_on_user_register'   => true,
             'sync_on_user_delete'     => true,
-            // Fluent Forms.
-            'join_form_id'            => 0,
-            'renewal_form_id'         => 0,
-            'form_email_field'        => 'email',
+            // WordPress role per member_type (Regular => 'member' …); '' or
+            // missing = leave the user's role alone. Administrators and any
+            // role not in this map are never changed.
+            'role_map'                => [],
+            // Role an expired member drops to ('' = leave it); grace days
+            // after paid_through before a membership counts as expired.
+            'role_expired'            => 'subscriber',
+            'expiry_grace_days'       => 0,
+            // Join / renewal (the application fields, heading and intro
+            // live in the Checkout Builder: my_iapsnj_checkout_forms).
+            'join_page_url'           => '',   // page with the membership buttons
+            'renewal_variation_regular'   => 0, // FluentCart variation a Regular member renews with
+            'renewal_variation_associate' => 0,
+            // Membership term rule: paid on/after this MM-DD buys the following year.
+            'renewal_cutover'         => '10-01',
             // Notifications.
             'notify_new_member'       => true,
             'notify_emails'           => get_option( 'admin_email' ),
@@ -200,7 +212,7 @@ final class My_IAPSNJ_Plugin {
      * below; it is independent of MY_IAPSNJ_VERSION so that ordinary releases
      * do not re-run migrations.
      */
-    const DATA_VERSION = 5;
+    const DATA_VERSION = 10;
 
     /**
      * Runs any migration steps this install has not seen yet.
@@ -299,6 +311,141 @@ final class My_IAPSNJ_Plugin {
                 }
 
                 My_IAPSNJ_Applications::create_table();
+            }
+
+            // ---- v6: the application moves into the FluentCart checkout -----
+            // * Fluent Forms settings are gone (form ids, field names).
+            // * Applications table gains cart_hash + fields (dbDelta adds them).
+            // * Default checkout application fields are seeded.
+            if ( $installed < 6 ) {
+                $settings = get_option( 'my_iapsnj_settings', [] );
+                if ( is_array( $settings ) ) {
+                    unset(
+                        $settings['join_form_id'],
+                        $settings['renewal_form_id'],
+                        $settings['form_email_field'],
+                        $settings['form_product_field']
+                    );
+                    update_option( 'my_iapsnj_settings', array_merge( self::default_settings(), $settings ) );
+                }
+                My_IAPSNJ_Applications::create_table();
+                My_IAPSNJ_Checkout_Fields::seed_defaults();
+            }
+
+            // ---- v7: term from the payment date; admin-defined checkout fields
+            // * Products: fixed paid_through + years list → duration (years covered).
+            // * Checkout fields option: per-key overrides → ordered field list.
+            if ( $installed < 7 ) {
+                $raw = get_option( My_IAPSNJ_Membership::OPTION_PRODUCTS, [] );
+                if ( is_array( $raw ) ) {
+                    $changed = false;
+                    foreach ( $raw as $vid => $cfg ) {
+                        if ( ! is_array( $cfg ) || isset( $cfg['duration'] ) ) {
+                            continue;
+                        }
+                        $years = array_filter( array_map( 'intval', (array) ( $cfg['years'] ?? [] ) ) );
+                        $raw[ $vid ]['duration'] = max( 1, count( $years ) );
+                        unset( $raw[ $vid ]['paid_through'], $raw[ $vid ]['years'] );
+                        $changed = true;
+                    }
+                    if ( $changed ) {
+                        update_option( My_IAPSNJ_Membership::OPTION_PRODUCTS, $raw );
+                    }
+                }
+                My_IAPSNJ_Checkout_Fields::upgrade_config();
+            }
+
+            // ---- v8: the whole onboarding form moves into the checkout ------
+            // * New built-in fields (phones, union, marital, spouse, armed
+            //   service, employer, additional information) are appended, shown
+            //   by default; the union fields, hidden by the 4.1 seed, are shown.
+            // * Dropdowns with no options (Department, Rank, …) are filled from
+            //   the ACF field choices, the CRM data or the built-in list.
+            // * The CRM custom fields they write to are created if missing.
+            if ( $installed < 8 ) {
+                My_IAPSNJ_Checkout_Fields::add_missing_builtins();
+                My_IAPSNJ_Checkout_Fields::enable_fields( [ 'union_affiliation', 'union_position' ] );
+                // FluentCRM's helpers load on plugins_loaded and ACF's PHP
+                // field groups register on init (acf/init), so both run once
+                // init has happened.
+                $finish = function () {
+                    try {
+                        My_IAPSNJ_Schema::ensure_custom_fields();
+                    } catch ( \Throwable $e ) {
+                        error_log( 'My IAPSNJ: could not create CRM custom fields during upgrade: ' . $e->getMessage() );
+                    }
+                    try {
+                        My_IAPSNJ_Checkout_Fields::import_options( true );
+                    } catch ( \Throwable $e ) {
+                        error_log( 'My IAPSNJ: could not import dropdown options during upgrade: ' . $e->getMessage() );
+                    }
+                };
+                if ( did_action( 'init' ) ) {
+                    $finish();
+                } else {
+                    add_action( 'init', $finish, 20 );
+                }
+            }
+
+            // ---- v9: Profile Mirror follows the 4.x CRM slugs ---------------
+            // Installs upgraded from 3.x still map the ACF profile fields to
+            // the retired CRM fields member_status / expiration_date. Point
+            // them at member_type / paid_through and make sure the membership
+            // rows (member_status, expiration_date, join_date, MemberNum)
+            // exist, so a payment updates the WordPress profile too.
+            if ( $installed < 9 ) {
+                $mappings = get_option( 'my_iapsnj_field_mappings', [] );
+                if ( is_array( $mappings ) && $mappings ) {
+                    $retarget = [
+                        'member_status'   => [ My_IAPSNJ_Schema::FIELD_MEMBER_TYPE, 'Member Type (custom)' ],
+                        'expiration_date' => [ My_IAPSNJ_Schema::FIELD_PAID_THROUGH, 'Paid Through (custom)' ],
+                    ];
+                    foreach ( $mappings as $i => $m ) {
+                        if ( ! is_array( $m ) || ( $m['fcrm_field_source'] ?? '' ) !== 'custom' ) {
+                            continue;
+                        }
+                        $key = (string) ( $m['fcrm_field_key'] ?? '' );
+                        if ( isset( $retarget[ $key ] ) ) {
+                            $mappings[ $i ]['fcrm_field_key']   = $retarget[ $key ][0];
+                            $mappings[ $i ]['fcrm_field_label'] = $retarget[ $key ][1];
+                        }
+                    }
+                    // [ wp_key, wp_source, wp_label, fcrm_key, fcrm_source, fcrm_label, type ]
+                    $wanted = [
+                        [ 'member_status',   'acf', 'Member Type',                My_IAPSNJ_Schema::FIELD_MEMBER_TYPE,   'custom', 'Member Type (custom)',   'select' ],
+                        [ 'expiration_date', 'acf', 'Membership Expiration Date', My_IAPSNJ_Schema::FIELD_PAID_THROUGH,  'custom', 'Paid Through (custom)',  'date' ],
+                        [ 'join_date',       'acf', 'Join Date',                  My_IAPSNJ_Schema::FIELD_JOIN_DATE,     'custom', 'Join Date (custom)',     'date' ],
+                        [ 'MemberNum',       'acf', 'Member Number',              My_IAPSNJ_Schema::FIELD_MEMBER_NUMBER, 'custom', 'Member Number (custom)', 'number' ],
+                    ];
+                    foreach ( $wanted as $row ) {
+                        $present = false;
+                        foreach ( $mappings as $m ) {
+                            if ( is_array( $m ) && ( $m['wp_field_key'] ?? '' ) === $row[0] && ( $m['fcrm_field_key'] ?? '' ) === $row[3] ) {
+                                $present = true;
+                                break;
+                            }
+                        }
+                        if ( ! $present ) {
+                            $mappings[] = My_IAPSNJ_Field_Mapper::build_mapping( ...$row );
+                        }
+                    }
+                    update_option( 'my_iapsnj_field_mappings', array_values( $mappings ) );
+                }
+            }
+
+            // ---- v10: Checkout Builder — several forms, one per level -------
+            // The single field list (my_iapsnj_checkout_fields) and the
+            // application heading / intro settings become the form
+            // "Membership application", used by Regular (incl. Lifetime) and
+            // Associate, so the checkout looks the same until an admin
+            // changes it. The old option is left in place for a rollback.
+            if ( $installed < 10 ) {
+                My_IAPSNJ_Checkout_Fields::seed_defaults();
+                $settings = get_option( 'my_iapsnj_settings', [] );
+                if ( is_array( $settings ) && ( array_key_exists( 'application_heading', $settings ) || array_key_exists( 'application_intro', $settings ) ) ) {
+                    unset( $settings['application_heading'], $settings['application_intro'] );
+                    update_option( 'my_iapsnj_settings', $settings );
+                }
             }
 
             update_option( 'my_iapsnj_data_version', self::DATA_VERSION );

@@ -339,12 +339,164 @@
             .always(function () { resetBtn($btn); });
     });
 
+    // ---- Application fields builder -------------------------------------------
+
+    var $fieldRows = $('#fcrm-fields-rows');
+    var fieldRowTemplate = document.getElementById('fcrm-field-row-template');
+
+    function renumberFieldRows() {
+        $fieldRows.find('tr.fcrm-field-row').each(function (i) {
+            $(this).find('.fcrm-field-order').val(i + 1);
+        });
+    }
+
+    function toggleFieldOptions($row) {
+        var type = $row.find('.fcrm-field-type').val();
+        var has = type === 'select' || type === 'radio';
+        $row.find('.fcrm-field-options').toggle(has);
+        $row.find('.fcrm-field-no-options').toggle(!has);
+    }
+
+    $('#fcrm-add-field').on('click', function () {
+        if (!fieldRowTemplate) { return; }
+        var clone = document.importNode(fieldRowTemplate.content, true);
+        var newId = 'new_' + Math.random().toString(36).substr(2, 8);
+        var $row  = $(clone).find('tr');
+        $row.attr('data-key', newId);
+        $row.find('input, select, textarea').each(function () {
+            if ($(this).attr('name')) { $(this).attr('name', $(this).attr('name').replace('__TEMPLATE__', newId)); }
+        });
+        $fieldRows.append($row);
+        renumberFieldRows();
+        toggleFieldOptions($row);
+        $row.find('input[name$="[label]"]').focus();
+    });
+
+    $fieldRows.on('click', '.fcrm-field-remove', function () {
+        $(this).closest('tr').remove();
+        renumberFieldRows();
+    }).on('click', '.fcrm-field-up', function () {
+        var $tr = $(this).closest('tr'), $prev = $tr.prev('tr');
+        if ($prev.length) { $prev.before($tr); renumberFieldRows(); }
+    }).on('click', '.fcrm-field-down', function () {
+        var $tr = $(this).closest('tr'), $next = $tr.next('tr');
+        if ($next.length) { $next.after($tr); renumberFieldRows(); }
+    }).on('change', '.fcrm-field-type', function () {
+        toggleFieldOptions($(this).closest('tr'));
+    });
+
+    $('#fcrm-checkout-fields-form').on('change', 'input[name$="[enabled]"]', function () {
+        $(this).closest('tr').toggleClass('enabled', $(this).is(':checked'));
+    }).on('submit', function (e) {
+        e.preventDefault();
+        var $btn = $(this).find('[type="submit"]'), $notice = $('#fcrm-settings-notice'), data = {};
+        renumberFieldRows();
+        $(this).find('input, select, textarea').each(function () {
+            var name = $(this).attr('name');
+            if (!name) { return; }
+            if ($(this).is(':checkbox')) { if ($(this).is(':checked')) { data[name] = 1; } }
+            else { data[name] = $(this).val(); } // disabled selects (built-in type) are sent too: jQuery reads them
+        });
+        setBtn($btn, i18n.saving, true);
+        $.post(ajaxUrl, $.extend({ action: 'my_iapsnj_save_checkout_fields', nonce: nonce }, data))
+            .done(function (resp) {
+                showNotice($notice, resp.success ? i18n.saved + ' ' + resp.data.count + ' application field(s) shown on this form.' : errMsg(resp), resp.success ? 'success' : 'error');
+                if (resp.success) { setTimeout(function () { window.location.href = window.location.pathname + window.location.search + '#application-fields'; window.location.reload(); }, 1200); }
+            })
+            .fail(function () { showNotice($notice, i18n.error, 'error'); })
+            .always(function () { resetBtn($btn); });
+    });
+
+    $('#fcrm-import-field-options').on('click', function () {
+        var $btn = $(this), $notice = $('#fcrm-settings-notice');
+        setBtn($btn, i18n.loading, true);
+        post('import_field_options', { form: $btn.data('form') || '' })
+            .done(function (resp) {
+                showNotice($notice, resp.success ? resp.data.message : errMsg(resp), resp.success ? 'success' : 'error');
+                if (resp.success && resp.data.count > 0) { setTimeout(function () { window.location.href = window.location.pathname + window.location.search + '#application-fields'; window.location.reload(); }, 1500); }
+            })
+            .fail(function () { showNotice($notice, i18n.error, 'error'); })
+            .always(function () { resetBtn($btn); });
+    });
+
+    // ---- Checkout Builder: forms and level assignment -------------------------
+
+    $('#fcrm-checkout-assign-form').on('submit', function (e) {
+        e.preventDefault();
+        var $btn = $(this).find('[type="submit"]'), $notice = $('#fcrm-settings-notice'), data = {};
+        $(this).find('select').each(function () { data[$(this).attr('name')] = $(this).val(); });
+        setBtn($btn, i18n.saving, true);
+        post('checkout_forms_assign', data)
+            .done(function (resp) {
+                showNotice($notice, resp.success ? i18n.saved : errMsg(resp), resp.success ? 'success' : 'error');
+                if (resp.success) { setTimeout(function () { window.location.reload(); }, 800); }
+            })
+            .fail(function () { showNotice($notice, i18n.error, 'error'); })
+            .always(function () { resetBtn($btn); });
+    });
+
+    $('#fcrm-form-create').on('click', function () {
+        var name = window.prompt(i18n.formName, '');
+        if (name === null) { return; }
+        var $btn = $(this), $notice = $('#fcrm-settings-notice');
+        setBtn($btn, i18n.saving, true);
+        post('checkout_form_create', { name: name })
+            .done(function (resp) {
+                if (resp.success) { window.location.href = resp.data.url; return; }
+                showNotice($notice, errMsg(resp), 'error');
+            })
+            .fail(function () { showNotice($notice, i18n.error, 'error'); })
+            .always(function () { resetBtn($btn); });
+    });
+
+    $(document).on('click', '.fcrm-form-duplicate', function () {
+        var $btn = $(this), $notice = $('#fcrm-settings-notice');
+        if ($('#fcrm-checkout-fields-form').length && !window.confirm(i18n.confirmDuplicate)) { return; }
+        setBtn($btn, i18n.saving, true);
+        post('checkout_form_duplicate', { form: $btn.data('form') })
+            .done(function (resp) {
+                if (resp.success) { window.location.href = resp.data.url; return; }
+                showNotice($notice, errMsg(resp), 'error');
+            })
+            .fail(function () { showNotice($notice, i18n.error, 'error'); })
+            .always(function () { resetBtn($btn); });
+    });
+
+    $(document).on('click', '.fcrm-form-delete', function () {
+        var $btn = $(this), $notice = $('#fcrm-settings-notice');
+        if (!window.confirm(i18n.confirmDeleteForm.replace('%s', $btn.data('name')))) { return; }
+        setBtn($btn, i18n.saving, true);
+        post('checkout_form_delete', { form: $btn.data('form') })
+            .done(function (resp) {
+                if (resp.success) { $btn.closest('tr').remove(); window.location.reload(); return; }
+                showNotice($notice, errMsg(resp), 'error');
+            })
+            .fail(function () { showNotice($notice, i18n.error, 'error'); })
+            .always(function () { resetBtn($btn); });
+    });
+
     $('#fcrm-apply-offline-labels').on('click', function () {
         var $btn = $(this), $notice = $('#fcrm-settings-notice');
         setBtn($btn, i18n.saving, true);
         post('apply_offline_labels', { label: $('#fcrm-offline-label').val(), instructions: $('#fcrm-offline-instructions').val() })
             .done(function (resp) { showNotice($notice, resp.success ? resp.data.message : errMsg(resp), resp.success ? 'success' : 'error'); })
             .fail(function () { showNotice($notice, i18n.error, 'error'); })
+            .always(function () { resetBtn($btn); });
+    });
+
+    $('.fcrm-run-expiry').on('click', function () {
+        var $btn = $(this), dry = $btn.data('dry') === 1 || $btn.data('dry') === '1', $out = $('#fcrm-expiry-result').html('<p>' + i18n.loading + '</p>');
+        if (!dry && !window.confirm('Apply expirations now? Lapsed members lose the Member-Active tag and their role; members in good standing get them.')) { $out.empty(); return; }
+        setBtn($btn, i18n.loading, true);
+        post('run_expiry', { dry: dry ? 1 : 0 })
+            .done(function (resp) {
+                if (!resp.success) { $out.html('<p class="fcrm-error">' + escHtml(errMsg(resp)) + '</p>'); return; }
+                var d = resp.data, html = '<p>' + (d.dry ? 'Preview' : 'Applied') + ': ' + d.active + ' active, ' + d.expired + ' expired · to expire now: ' + d.to_expire + ', to activate: ' + d.to_activate
+                    + (d.dry ? '' : ' · done: ' + d.expired_now + ' expired, ' + d.activated + ' activated, ' + d.roles_changed + ' roles changed') + '</p>';
+                if (d.samples && d.samples.length) { html += '<ul style="margin-left:18px">' + d.samples.map(function (s) { return '<li>' + escHtml(s) + '</li>'; }).join('') + '</ul>'; }
+                $out.html(html);
+            })
+            .fail(function () { $out.html('<p class="fcrm-error">' + i18n.error + '</p>'); })
             .always(function () { resetBtn($btn); });
     });
 
@@ -366,10 +518,10 @@
     // =========================================================================
 
     $('#fcrm-products-form').on('change', 'select[name$="[member_type]"]', function () {
-        var $date = $(this).closest('tr').find('input[type="date"]');
+        var $duration = $(this).closest('tr').find('input[name$="[duration]"]');
         var lifetime = $(this).val() === 'Lifetime';
-        $date.prop('disabled', lifetime);
-        if (lifetime) { $date.val(''); }
+        $duration.prop('disabled', lifetime);
+        if (!lifetime && !$duration.val()) { $duration.val(1); }
     }).on('change', 'input[type="checkbox"]', function () {
         $(this).closest('tr').toggleClass('enabled', $(this).is(':checked'));
     }).on('submit', function (e) {
@@ -435,7 +587,7 @@
                 '<td>' + r.age_days + 'd</td>' +
                 '<td>' + (r.crm_url ? link(r.crm_url, r.customer_name || r.email) : escHtml(r.customer_name || r.email)) + '<br><small class="fcrm-muted">' + escHtml(r.email) + '</small></td>' +
                 '<td>' + escHtml(r.member_number || '—') + '</td>' +
-                '<td>' + escHtml((r.items || []).join('; ')) + '</td>' +
+                '<td>' + escHtml((r.items || []).join('; ')) + ((r.application || []).length ? '<br><small class="fcrm-muted">' + escHtml(r.application.join(' · ')) + '</small>' : '') + '</td>' +
                 '<td class="fcrm-num">' + escHtml(r.total) + '</td>' +
                 '<td><input type="text" class="fcrm-check-number small-text" placeholder="#" style="width:90px"></td>' +
                 '<td class="fcrm-row-result"></td></tr>';
@@ -551,14 +703,15 @@
 
     var reportColumns = {
         'open-applications': [
-            { key: 'date', label: 'Submitted' },
+            { key: 'date', label: 'Started' },
             { key: 'age_days', label: 'Age', render: function (r) { return r.age_days + 'd'; } },
-            { key: 'kind', label: 'Form' },
+            { key: 'kind', label: 'Kind' },
             { key: 'status', label: 'Status' },
             { key: 'name', label: 'Name', render: function (r) { return r.crm_url ? link(r.crm_url, r.name || r.email) : escHtml(r.name || r.email); } },
             { key: 'email', label: 'Email' },
-            { key: 'order_id', label: 'Order', render: function (r) { return r.order_id ? '#' + r.order_id : '—'; } },
-            { key: 'entry_url', label: 'Entry', render: function (r) { return r.entry_url ? link(r.entry_url, 'view') : ''; } }
+            { key: 'product', label: 'Product' },
+            { key: 'application', label: 'Application', render: function (r) { return escHtml((r.application || []).join(' · ') || '—'); } },
+            { key: 'order_id', label: 'Order', render: function (r) { return r.order_id ? link(r.order_url, '#' + r.order_id) : '—'; } }
         ],
         'orders-without-application': [
             { key: 'order_id', label: 'Order', render: function (r) { return link(r.admin_url, '#' + r.order_id); } },
