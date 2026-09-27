@@ -421,6 +421,40 @@
         renumberFieldRows();
     });
 
+    // Drag and drop (jquery-ui-sortable, bundled with WordPress): reorder by
+    // the handle; dropping into Active shows a field, into Inactive hides it.
+    if ($.fn.sortable && $fieldRows.length && $inactiveRows.length) {
+        $('#fcrm-fields-rows, #fcrm-fields-inactive').sortable({
+            items: '> tr.fcrm-field-row',
+            handle: '.fcrm-drag-handle',
+            connectWith: '#fcrm-fields-rows, #fcrm-fields-inactive',
+            axis: 'y',
+            cursor: 'grabbing',
+            tolerance: 'pointer',
+            placeholder: 'fcrm-sort-placeholder',
+            forcePlaceholderSize: true,
+            // Table rows lose their column widths once lifted out of the table.
+            helper: function (e, $tr) {
+                var $helper = $tr.clone();
+                $helper.children().each(function (i) { $(this).width($tr.children().eq(i).width()); });
+                $helper.find('select').each(function (i) { $(this).val($tr.find('select').eq(i).val()); });
+                return $helper.addClass('fcrm-sort-helper');
+            },
+            start: function (e, ui) {
+                ui.placeholder.html('<td colspan="9"></td>').height(ui.item.outerHeight());
+            },
+            stop: function (e, ui) {
+                var $row  = ui.item;
+                var shown = $row.closest('#fcrm-fields-rows').length > 0;
+                $row.find('.fcrm-field-enabled').prop('checked', shown);
+                syncFieldRow($row);
+                // Keep the "no active fields" line last.
+                $fieldRows.append($fieldRows.find('tr.fcrm-fields-empty'));
+                renumberFieldRows();
+            }
+        });
+    }
+
     $('#fcrm-checkout-fields-form').on('submit', function (e) {
         e.preventDefault();
         var $btn = $(this).find('[type="submit"]'), $notice = $('#fcrm-settings-notice'), data = {};
