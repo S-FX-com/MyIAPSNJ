@@ -400,7 +400,7 @@
         setBtn($btn, i18n.saving, true);
         $.post(ajaxUrl, $.extend({ action: 'my_iapsnj_save_checkout_fields', nonce: nonce }, data))
             .done(function (resp) {
-                showNotice($notice, resp.success ? i18n.saved + ' ' + resp.data.count + ' application field(s) shown at checkout.' : errMsg(resp), resp.success ? 'success' : 'error');
+                showNotice($notice, resp.success ? i18n.saved + ' ' + resp.data.count + ' application field(s) shown on this form.' : errMsg(resp), resp.success ? 'success' : 'error');
                 if (resp.success) { setTimeout(function () { window.location.href = window.location.pathname + window.location.search + '#application-fields'; window.location.reload(); }, 1200); }
             })
             .fail(function () { showNotice($notice, i18n.error, 'error'); })
@@ -410,10 +410,66 @@
     $('#fcrm-import-field-options').on('click', function () {
         var $btn = $(this), $notice = $('#fcrm-settings-notice');
         setBtn($btn, i18n.loading, true);
-        post('import_field_options', {})
+        post('import_field_options', { form: $btn.data('form') || '' })
             .done(function (resp) {
                 showNotice($notice, resp.success ? resp.data.message : errMsg(resp), resp.success ? 'success' : 'error');
                 if (resp.success && resp.data.count > 0) { setTimeout(function () { window.location.href = window.location.pathname + window.location.search + '#application-fields'; window.location.reload(); }, 1500); }
+            })
+            .fail(function () { showNotice($notice, i18n.error, 'error'); })
+            .always(function () { resetBtn($btn); });
+    });
+
+    // ---- Checkout Builder: forms and level assignment -------------------------
+
+    $('#fcrm-checkout-assign-form').on('submit', function (e) {
+        e.preventDefault();
+        var $btn = $(this).find('[type="submit"]'), $notice = $('#fcrm-settings-notice'), data = {};
+        $(this).find('select').each(function () { data[$(this).attr('name')] = $(this).val(); });
+        setBtn($btn, i18n.saving, true);
+        post('checkout_forms_assign', data)
+            .done(function (resp) {
+                showNotice($notice, resp.success ? i18n.saved : errMsg(resp), resp.success ? 'success' : 'error');
+                if (resp.success) { setTimeout(function () { window.location.reload(); }, 800); }
+            })
+            .fail(function () { showNotice($notice, i18n.error, 'error'); })
+            .always(function () { resetBtn($btn); });
+    });
+
+    $('#fcrm-form-create').on('click', function () {
+        var name = window.prompt(i18n.formName, '');
+        if (name === null) { return; }
+        var $btn = $(this), $notice = $('#fcrm-settings-notice');
+        setBtn($btn, i18n.saving, true);
+        post('checkout_form_create', { name: name })
+            .done(function (resp) {
+                if (resp.success) { window.location.href = resp.data.url; return; }
+                showNotice($notice, errMsg(resp), 'error');
+            })
+            .fail(function () { showNotice($notice, i18n.error, 'error'); })
+            .always(function () { resetBtn($btn); });
+    });
+
+    $(document).on('click', '.fcrm-form-duplicate', function () {
+        var $btn = $(this), $notice = $('#fcrm-settings-notice');
+        if ($('#fcrm-checkout-fields-form').length && !window.confirm(i18n.confirmDuplicate)) { return; }
+        setBtn($btn, i18n.saving, true);
+        post('checkout_form_duplicate', { form: $btn.data('form') })
+            .done(function (resp) {
+                if (resp.success) { window.location.href = resp.data.url; return; }
+                showNotice($notice, errMsg(resp), 'error');
+            })
+            .fail(function () { showNotice($notice, i18n.error, 'error'); })
+            .always(function () { resetBtn($btn); });
+    });
+
+    $(document).on('click', '.fcrm-form-delete', function () {
+        var $btn = $(this), $notice = $('#fcrm-settings-notice');
+        if (!window.confirm(i18n.confirmDeleteForm.replace('%s', $btn.data('name')))) { return; }
+        setBtn($btn, i18n.saving, true);
+        post('checkout_form_delete', { form: $btn.data('form') })
+            .done(function (resp) {
+                if (resp.success) { $btn.closest('tr').remove(); window.location.reload(); return; }
+                showNotice($notice, errMsg(resp), 'error');
             })
             .fail(function () { showNotice($notice, i18n.error, 'error'); })
             .always(function () { resetBtn($btn); });

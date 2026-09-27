@@ -51,10 +51,14 @@ Documentation: [`docs/phase1-findings.md`](docs/phase1-findings.md) ·
   information, certification), validates them server-side,
   stores them on the order and writes them to the CRM contact when the order
   is placed by check or paid. Logged-in members see them prefilled from the
-  CRM (renewals). Sync & Settings has a small field builder: add fields, pick
-  the type and where the answer is stored in FluentCRM (existing custom
-  field, contact field, or a new custom field created on save). No Fluent
-  Forms.
+  CRM (renewals). The **Checkout Builder** holds one or more checkout forms
+  (duplicate a form to start a variant) and says which form each membership
+  level uses: Regular (Lifetime uses the Regular form) and Associate. In a
+  form: add fields, pick the type and where the answer is stored in FluentCRM
+  (existing custom field, contact field, or a new custom field created on
+  save). A cart without a membership product (events, merchandise) shows no
+  application fields and checks out with FluentCart's own fields only. No
+  Fluent Forms.
 * **Application tracking** — as soon as an email is typed at checkout the
   contact exists and is tagged `Checkout-Abandoned`, and an application row
   (join or renewal, decided from the contact's Paid history) is opened. The
@@ -122,7 +126,10 @@ built-in list) and creates the CRM custom fields those answers are written to
 (existing fields are never modified). Data-version 9 (4.4) points 3.x-era
 Profile Mirror rows at `member_type` / `paid_through` and adds the
 membership rows (member status, expiration date, join date, member number)
-if missing.
+if missing. Data-version 10 (4.7) moves the checkout field list and the
+application heading / intro into the Checkout Builder as the form
+"Membership application", used by both levels (the checkout looks the same
+until the forms are changed).
 
 ## Admin screens (My IAPSNJ menu, `manage_options`)
 
@@ -133,7 +140,8 @@ if missing.
 | Membership Products | `my-iapsnj-products` | FluentCart variation → member type / years covered; checkout links |
 | Reports | `my-iapsnj-reports` | open applications, orphan orders, aging, WP↔CRM orphans |
 | Profile Mirror | `my-iapsnj-mapping` | CRM → WP field map with sample preview |
-| Sync & Settings | `my-iapsnj-sync` | mirror now, triggers, role per member type, application fields, renewal products, notification, checkout, CRM schema |
+| Sync & Settings | `my-iapsnj-sync` | mirror now, triggers, role per member type, join page / renewal products, notification, checkout, CRM schema |
+| Checkout Builder | `my-iapsnj-checkout` | checkout forms (create, edit, duplicate, delete) and the form used by each membership level |
 | Migration | `my-iapsnj-migration` | PMPro → CRM steps (shown while PMPro tables exist) |
 | Notes Search | `my-iapsnj-notes-search` | |
 
@@ -192,11 +200,12 @@ FluentCart hooks consumed: `fluent_cart/order_paid`, `fluent_cart/renewal_paid`,
 
 ## Data
 
-Options: `my_iapsnj_settings`, `my_iapsnj_products`, `my_iapsnj_checkout_fields`,
+Options: `my_iapsnj_settings`, `my_iapsnj_products`, `my_iapsnj_checkout_forms`
+(`my_iapsnj_checkout_fields` is the ≤ 4.6 list, kept for a rollback),
 `my_iapsnj_field_mappings`, `my_iapsnj_last_bulk_sync`,
 `my_iapsnj_data_version`. Table: `{prefix}my_iapsnj_applications`. User meta:
 `_my_iapsnj_subscriber_id`. FluentCart order meta: `_my_iapsnj_application`,
-`_my_iapsnj_application_applied`, `_my_iapsnj_applied`, `_my_iapsnj_snapshot`,
+`_my_iapsnj_application_applied`, `_my_iapsnj_checkout_form`, `_my_iapsnj_applied`, `_my_iapsnj_snapshot`,
 `_my_iapsnj_source`, `_my_iapsnj_check_number`, `_my_iapsnj_deposit_date`,
 `_my_iapsnj_pending_check`, `_my_iapsnj_refunded`, `_my_iapsnj_notified`.
 Deactivation deletes nothing.
@@ -208,7 +217,7 @@ my-iapsnj.php                     Bootstrap, activation, data migrations
 includes/class-schema.php         CRM tags/fields/member types + ensure_crm_schema()
 includes/class-dates.php          Timezone-safe date helpers (P1-4)
 includes/class-membership.php     FluentCart → CRM membership state, notification
-includes/class-checkout-fields.php Application fields on the FluentCart checkout, renewal link
+includes/class-checkout-fields.php Checkout Builder forms on the FluentCart checkout, renewal link
 includes/class-applications.php   Applications table (checkout → paid)
 includes/class-checks.php         Pending checks, batch mark paid, record a check
 includes/class-reports.php        Orphans, aging, summary

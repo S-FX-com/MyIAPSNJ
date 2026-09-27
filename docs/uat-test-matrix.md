@@ -24,6 +24,8 @@ email is blocked — verify emails in the mail log / catcher. Tick every row.
 | 15 | Timezone | Member with `paid_through=2027-12-31`; view notification, dashboard, CRM | | | Every render says Dec 31, 2027 | |
 | 16 | Profile mirror | Edit address in FluentCRM | | | WP user meta updated (Profile Mirror preview shows in sync) | |
 | 17 | User delete | Delete a test WP user | | Contact kept, `user_id` cleared | | |
+| 18 | Form per level | Checkout Builder: duplicate the form, edit the copy, assign it to Associate; open a Regular, a Lifetime and an Associate checkout | Order note names the checkout form used | Answers written to the fields of that form | Regular + Lifetime show the Regular form, Associate the copy (heading, fields, required marks) | |
+| 19 | Plain store checkout | Buy an event registration or merchandise product only (not in Membership Products) | Order completes with FluentCart's fields only | No `Checkout-Abandoned`, no application fields written | No application section on the checkout; no application row | |
 
 ## Client UAT (acceptance gate)
 

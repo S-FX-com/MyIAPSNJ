@@ -3,7 +3,7 @@
  * Plugin Name:       My IAPSNJ
  * Plugin URI:        https://github.com/S-FX-com/MyIAPSNJ
  * Description:       Membership operations for the IAPSNJ website. FluentCRM is the single source of truth: the membership application is collected on the FluentCart checkout page, FluentCart payments set membership state (Paid-YYYY tags, member_type, paid_through), applications are tracked until they are paid, mailed checks are reconciled in batch, and WordPress user profiles are mirrored one way from the CRM. Includes the PMPro → FluentCRM migration toolkit.
- * Version:           4.6.0
+ * Version:           4.7.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Requires Plugins:  fluent-crm
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'MY_IAPSNJ_VERSION', '4.6.0' );
+define( 'MY_IAPSNJ_VERSION', '4.7.0' );
 define( 'MY_IAPSNJ_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'MY_IAPSNJ_URL',     plugin_dir_url( __FILE__ ) );
 define( 'MY_IAPSNJ_FILE',    __FILE__ );
@@ -174,9 +174,8 @@ final class My_IAPSNJ_Plugin {
             // after paid_through before a membership counts as expired.
             'role_expired'            => 'subscriber',
             'expiry_grace_days'       => 0,
-            // Application on the checkout page.
-            'application_heading'     => '',   // default: "Membership application"
-            'application_intro'       => '',
+            // Join / renewal (the application fields, heading and intro
+            // live in the Checkout Builder: my_iapsnj_checkout_forms).
             'join_page_url'           => '',   // page with the membership buttons
             'renewal_variation_regular'   => 0, // FluentCart variation a Regular member renews with
             'renewal_variation_associate' => 0,
@@ -213,7 +212,7 @@ final class My_IAPSNJ_Plugin {
      * below; it is independent of MY_IAPSNJ_VERSION so that ordinary releases
      * do not re-run migrations.
      */
-    const DATA_VERSION = 9;
+    const DATA_VERSION = 10;
 
     /**
      * Runs any migration steps this install has not seen yet.
@@ -365,19 +364,7 @@ final class My_IAPSNJ_Plugin {
             // * The CRM custom fields they write to are created if missing.
             if ( $installed < 8 ) {
                 My_IAPSNJ_Checkout_Fields::add_missing_builtins();
-                $rows = get_option( My_IAPSNJ_Checkout_Fields::OPTION, [] );
-                if ( is_array( $rows ) ) {
-                    $changed = false;
-                    foreach ( [ 'union_affiliation', 'union_position' ] as $key ) {
-                        if ( isset( $rows[ $key ] ) && is_array( $rows[ $key ] ) && empty( $rows[ $key ]['enabled'] ) ) {
-                            $rows[ $key ]['enabled'] = true;
-                            $changed                 = true;
-                        }
-                    }
-                    if ( $changed ) {
-                        update_option( My_IAPSNJ_Checkout_Fields::OPTION, $rows );
-                    }
-                }
+                My_IAPSNJ_Checkout_Fields::enable_fields( [ 'union_affiliation', 'union_position' ] );
                 // FluentCRM's helpers load on plugins_loaded and ACF's PHP
                 // field groups register on init (acf/init), so both run once
                 // init has happened.
@@ -443,6 +430,21 @@ final class My_IAPSNJ_Plugin {
                         }
                     }
                     update_option( 'my_iapsnj_field_mappings', array_values( $mappings ) );
+                }
+            }
+
+            // ---- v10: Checkout Builder — several forms, one per level -------
+            // The single field list (my_iapsnj_checkout_fields) and the
+            // application heading / intro settings become the form
+            // "Membership application", used by Regular (incl. Lifetime) and
+            // Associate, so the checkout looks the same until an admin
+            // changes it. The old option is left in place for a rollback.
+            if ( $installed < 10 ) {
+                My_IAPSNJ_Checkout_Fields::seed_defaults();
+                $settings = get_option( 'my_iapsnj_settings', [] );
+                if ( is_array( $settings ) && ( array_key_exists( 'application_heading', $settings ) || array_key_exists( 'application_intro', $settings ) ) ) {
+                    unset( $settings['application_heading'], $settings['application_intro'] );
+                    update_option( 'my_iapsnj_settings', $settings );
                 }
             }
 

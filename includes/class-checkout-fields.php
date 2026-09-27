@@ -8,11 +8,20 @@
  * FluentCart's own name / email / phone / billing-address fields plus the
  * application fields this class injects.
  *
- * The field list is defined by the admin in Sync & Settings → Application
- * fields: built-in fields (department, rank …) can be toggled, required,
- * relabelled and given options; new fields can be added with a type, options
- * and a FluentCRM target (an existing custom field, the contact's date of
- * birth, a brand-new custom field created on save, or "not stored").
+ * The fields are defined by the admin in My IAPSNJ → Checkout Builder. There
+ * can be several checkout forms (a form can be duplicated); each membership
+ * level uses one of them: Regular (Lifetime is a Regular membership without
+ * an expiry, so it uses the Regular form) and Associate. In a form, built-in
+ * fields (department, rank …) can be toggled, required, relabelled and given
+ * options; new fields can be added with a type, options and a FluentCRM
+ * target (an existing custom field, the contact's date of birth, a brand-new
+ * custom field created on save, or "not stored").
+ *
+ * Which form a checkout shows is decided by the cart: the highest member
+ * type among the cart's products configured in Membership Products. A cart
+ * without a membership product (event registration, merchandise) shows no
+ * application fields and none are validated, so FluentCart works as a plain
+ * store for those.
  *
  * Hooks (FluentCart 1.6.x, dev.fluentcart.com):
  *
@@ -40,8 +49,11 @@ class My_IAPSNJ_Checkout_Fields {
     /** @var self|null */
     private static ?self $instance = null;
 
-    const OPTION       = 'my_iapsnj_checkout_fields';
+    const OPTION       = 'my_iapsnj_checkout_fields';       // ≤ 4.6 single field list; read by the v10 migration only
+    const OPTION_FORMS = 'my_iapsnj_checkout_forms';        // ['forms' => id => form, 'assign' => level => id]
+    const DEFAULT_FORM = 'default';
     const META_FIELDS  = '_my_iapsnj_application';          // order meta: key => value
+    const META_FORM    = '_my_iapsnj_checkout_form';        // order meta: checkout form id
     const META_APPLIED = '_my_iapsnj_application_applied';  // order meta: UTC datetime
     const PREFIX       = 'iapsnj_';                          // input name prefix
     const NEW_TARGET   = '__new__';                          // "create a CRM custom field" picker value
@@ -61,8 +73,11 @@ class My_IAPSNJ_Checkout_Fields {
     /** @var bool The fields were printed on this request. */
     private bool $rendered = false;
 
-    /** @var array<string,array>|null per-request cache */
-    private static ?array $config_cache = null;
+    /** @var array<string,array<string,array>> per-request cache: form id => parsed fields */
+    private static array $config_cache = [];
+
+    /** @var array|null per-request cache of the forms option */
+    private static ?array $store_cache = null;
 
     public static function get_instance(): self {
         if ( null === self::$instance ) {
@@ -106,7 +121,7 @@ class My_IAPSNJ_Checkout_Fields {
      *
      * Dropdown option lists are empty here on purpose: they are filled by
      * import_options() (ACF choices → existing CRM values → built-in list)
-     * on install / upgrade and from the Application fields screen.
+     * on install / upgrade and from the Checkout Builder.
      *
      * @return array<string,array>
      */
@@ -329,61 +344,90 @@ class My_IAPSNJ_Checkout_Fields {
      * has none (or of every one, when $only_empty is false) from
      * discover_options(). Saves the configuration. Idempotent.
      *
+     * @param string $form_id one form, or '' for every form
      * @return array<string,array{source:string,count:int}> key => what was imported (only fields that changed)
      */
-    public static function import_options( bool $only_empty = true ): array {
-        $saved = get_option( self::OPTION, [] );
-        if ( ! is_array( $saved ) || ! $saved ) {
-            self::seed_defaults();
-            $saved = get_option( self::OPTION, [] );
-        }
-        $report  = [];
-        $changed = false;
-        foreach ( self::config() as $key => $def ) {
-            if ( ! in_array( $def['type'], [ 'select', 'radio' ], true ) ) {
-                continue;
+    public static function import_options( bool $only_empty = true, string $form_id = '' ): array {
+        $store  = self::store();
+        $ids    = $form_id !== '' && isset( $store['forms'][ $form_id ] ) ? [ $form_id ] : array_keys( $store['forms'] );
+        $report = [];
+        $found_cache = [];
+        foreach ( $ids as $id ) {
+            $saved   = (array) ( $store['forms'][ $id ]['fields'] ?? [] );
+            $changed = false;
+            foreach ( self::config( $id ) as $key => $def ) {
+                if ( ! in_array( $def['type'], [ 'select', 'radio' ], true ) ) {
+                    continue;
+                }
+                if ( $only_empty && ! empty( $def['options'] ) ) {
+                    continue;
+                }
+                $crm_slug  = $def['crm_kind'] === 'custom' ? (string) $def['crm'] : '';
+                $cache_key = $key . '|' . $crm_slug;
+                if ( ! isset( $found_cache[ $cache_key ] ) ) {
+                    $found_cache[ $cache_key ] = self::discover_options( $key, $crm_slug );
+                }
+                $found = $found_cache[ $cache_key ];
+                if ( ! $found['options'] || $found['options'] === (array) $def['options'] ) {
+                    continue;
+                }
+                if ( ! isset( $saved[ $key ] ) || ! is_array( $saved[ $key ] ) ) {
+                    unset( $def['builtin'] );
+                    $saved[ $key ] = array_merge( [ 'key' => $key ], $def );
+                }
+                $saved[ $key ]['options'] = $found['options'];
+                $report[ $key ]           = [ 'source' => $found['source'], 'count' => count( $found['options'] ) ];
+                $changed                  = true;
             }
-            if ( $only_empty && ! empty( $def['options'] ) ) {
-                continue;
+            if ( $changed ) {
+                $store['forms'][ $id ]['fields'] = $saved;
+                self::save_store( $store );
             }
-            $found = self::discover_options( $key, $def['crm_kind'] === 'custom' ? (string) $def['crm'] : '' );
-            if ( ! $found['options'] || $found['options'] === (array) $def['options'] ) {
-                continue;
-            }
-            if ( ! isset( $saved[ $key ] ) || ! is_array( $saved[ $key ] ) ) {
-                unset( $def['builtin'] );
-                $saved[ $key ] = array_merge( [ 'key' => $key ], $def );
-            }
-            $saved[ $key ]['options'] = $found['options'];
-            $report[ $key ]           = [ 'source' => $found['source'], 'count' => count( $found['options'] ) ];
-            $changed                  = true;
-        }
-        if ( $changed ) {
-            update_option( self::OPTION, $saved );
-            self::$config_cache = null;
         }
         return $report;
     }
 
     /**
-     * Append built-in fields that a saved configuration does not know yet,
-     * with their default visibility (a new release adding fields shows them
-     * without an admin having to switch each one on). Existing rows are not
-     * touched. Idempotent.
+     * Append built-in fields that a saved form does not know yet, with their
+     * default visibility (a new release adding fields shows them without an
+     * admin having to switch each one on), in every form. Existing rows are
+     * not touched. Idempotent.
      *
-     * @return string[] keys added
+     * @return string[] keys added (to any form)
      */
     public static function add_missing_builtins(): array {
-        $saved = get_option( self::OPTION, [] );
-        if ( ! is_array( $saved ) || ! $saved ) {
-            self::seed_defaults();
-            return [];
+        $store = self::store();
+        $added = [];
+        foreach ( $store['forms'] as $id => $form ) {
+            $rows = self::rows_with_missing_builtins( (array) ( $form['fields'] ?? [] ), $keys );
+            if ( $keys ) {
+                $store['forms'][ $id ]['fields'] = $rows;
+                $added = array_merge( $added, $keys );
+            }
+        }
+        if ( $added ) {
+            self::save_store( $store );
+        }
+        return array_values( array_unique( $added ) );
+    }
+
+    /**
+     * $saved plus the built-ins it lacks, slotted before a trailing
+     * certification checkbox.
+     *
+     * @param array<string|int,array> $saved
+     * @param string[]|null           $added set to the keys added
+     * @return array<string|int,array>
+     */
+    private static function rows_with_missing_builtins( array $saved, ?array &$added = null ): array {
+        $added = [];
+        if ( ! $saved ) {
+            return $saved;
         }
         $have = [];
         foreach ( $saved as $k => $row ) {
             $have[ sanitize_key( (string) ( is_array( $row ) && isset( $row['key'] ) ? $row['key'] : $k ) ) ] = true;
         }
-        $added = [];
         $rows  = [];
         // Keep the saved order; slot new built-ins before the certification
         // checkbox when it is the last row, otherwise append.
@@ -408,31 +452,365 @@ class My_IAPSNJ_Checkout_Fields {
         if ( $certify ) {
             $rows[ $certify[0] ] = $certify[1];
         }
-        if ( $added ) {
-            update_option( self::OPTION, $rows );
-            self::$config_cache = null;
-        }
-        return $added;
+        return $rows;
     }
 
     // -----------------------------------------------------------------------
-    // Configuration (ordered field list)
+    // Checkout forms and level assignment
     // -----------------------------------------------------------------------
 
     /**
-     * The configured fields in display order: key => definition
-     * (label, help, type, options, crm, crm_kind, enabled, required, builtin).
+     * Membership levels a checkout form is assigned to: member type => label.
+     * Lifetime is a Regular membership without an expiry and Honorary is
+     * never sold, so both use the Regular form.
+     *
+     * @return array<string,string>
+     */
+    public static function levels(): array {
+        return [
+            My_IAPSNJ_Schema::TYPE_REGULAR   => __( 'Regular Membership (Police Officer) — also Lifetime', 'my-iapsnj' ),
+            My_IAPSNJ_Schema::TYPE_ASSOCIATE => __( 'Associate Membership (Business Owner / Friend)', 'my-iapsnj' ),
+        ];
+    }
+
+    /**
+     * The level keys without labels (safe before translations load).
+     *
+     * @return string[]
+     */
+    public static function level_keys(): array {
+        return [ My_IAPSNJ_Schema::TYPE_REGULAR, My_IAPSNJ_Schema::TYPE_ASSOCIATE ];
+    }
+
+    /**
+     * The level whose form a member type uses ('' when none).
+     */
+    public static function level_for_member_type( string $type ): string {
+        if ( $type === '' || ! in_array( $type, My_IAPSNJ_Schema::member_types(), true ) ) {
+            return '';
+        }
+        return $type === My_IAPSNJ_Schema::TYPE_ASSOCIATE ? My_IAPSNJ_Schema::TYPE_ASSOCIATE : My_IAPSNJ_Schema::TYPE_REGULAR;
+    }
+
+    /**
+     * The forms option, normalised: ['forms' => id => [name, heading, intro,
+     * fields], 'assign' => level => id]. Never empty: before the option is
+     * saved it is built from the ≤ 4.6 field list (or the built-in fields).
+     */
+    public static function store(): array {
+        if ( self::$store_cache !== null ) {
+            return self::$store_cache;
+        }
+        $raw = get_option( self::OPTION_FORMS, false );
+        if ( ! is_array( $raw ) || empty( $raw['forms'] ) || ! is_array( $raw['forms'] ) ) {
+            $raw = self::initial_store();
+        }
+        $forms = [];
+        foreach ( $raw['forms'] as $id => $form ) {
+            $id = sanitize_key( (string) $id );
+            if ( $id === '' || ! is_array( $form ) ) {
+                continue;
+            }
+            $forms[ $id ] = [
+                'name'    => (string) ( $form['name'] ?? '' ) !== '' ? (string) $form['name'] : $id,
+                'heading' => (string) ( $form['heading'] ?? '' ),
+                'intro'   => (string) ( $form['intro'] ?? '' ),
+                'fields'  => is_array( $form['fields'] ?? null ) ? $form['fields'] : [],
+            ];
+        }
+        if ( ! $forms ) {
+            $forms = self::initial_store()['forms'];
+        }
+        $first  = (string) array_key_first( $forms );
+        $assign = [];
+        foreach ( self::level_keys() as $level ) {
+            $id               = sanitize_key( (string) ( $raw['assign'][ $level ] ?? '' ) );
+            $assign[ $level ] = isset( $forms[ $id ] ) ? $id : $first;
+        }
+        self::$store_cache = [ 'forms' => $forms, 'assign' => $assign ];
+        return self::$store_cache;
+    }
+
+    private static function save_store( array $store ): void {
+        update_option( self::OPTION_FORMS, [
+            'forms'  => $store['forms'],
+            'assign' => $store['assign'],
+        ], false );
+        self::$store_cache  = null;
+        self::$config_cache = [];
+    }
+
+    /**
+     * The first forms option: one form holding the ≤ 4.6 field list and the
+     * heading / intro from the settings, used by every level. A fresh
+     * install gets the built-in fields.
+     */
+    private static function initial_store(): array {
+        $legacy = get_option( self::OPTION, [] );
+        $rows   = is_array( $legacy ) && $legacy
+            ? self::rows_from_config( self::parse_rows( $legacy ) )
+            : self::rows_from_config( self::parse_rows( [] ) );
+        $settings = get_option( 'my_iapsnj_settings', [] );
+        $settings = is_array( $settings ) ? $settings : [];
+        $form     = [
+            'name'    => __( 'Membership application', 'my-iapsnj' ),
+            'heading' => sanitize_text_field( (string) ( $settings['application_heading'] ?? '' ) ),
+            'intro'   => sanitize_text_field( (string) ( $settings['application_intro'] ?? '' ) ),
+            'fields'  => $rows,
+        ];
+        $assign = [];
+        foreach ( self::level_keys() as $level ) {
+            $assign[ $level ] = self::DEFAULT_FORM;
+        }
+        return [ 'forms' => [ self::DEFAULT_FORM => $form ], 'assign' => $assign ];
+    }
+
+    /**
+     * id => [name, heading, intro] (no fields), in admin order.
+     *
+     * @return array<string,array{name:string,heading:string,intro:string}>
+     */
+    public static function forms(): array {
+        $out = [];
+        foreach ( self::store()['forms'] as $id => $form ) {
+            $out[ $id ] = [
+                'name'    => $form['name'],
+                'heading' => $form['heading'],
+                'intro'   => $form['intro'],
+            ];
+        }
+        return $out;
+    }
+
+    public static function form_exists( string $form_id ): bool {
+        return $form_id !== '' && isset( self::store()['forms'][ $form_id ] );
+    }
+
+    /**
+     * level => form id (every level has one).
+     *
+     * @return array<string,string>
+     */
+    public static function assignments(): array {
+        return self::store()['assign'];
+    }
+
+    /**
+     * Levels that use a form.
+     *
+     * @return string[]
+     */
+    public static function levels_for_form( string $form_id ): array {
+        return array_keys( array_filter( self::assignments(), function ( $id ) use ( $form_id ) {
+            return $id === $form_id;
+        } ) );
+    }
+
+    /**
+     * The form edited / shown when no form is named: the Regular form.
+     */
+    public static function default_form_id(): string {
+        $assign = self::assignments();
+        return (string) ( $assign[ My_IAPSNJ_Schema::TYPE_REGULAR ] ?? array_key_first( self::store()['forms'] ) );
+    }
+
+    private static function resolve_form_id( string $form_id ): string {
+        return self::form_exists( $form_id ) ? $form_id : self::default_form_id();
+    }
+
+    /**
+     * @param array<string,string> $assign level => form id; unknown levels / forms are ignored
+     */
+    public static function save_assignments( array $assign ): void {
+        $store = self::store();
+        foreach ( self::level_keys() as $level ) {
+            $id = sanitize_key( (string) ( $assign[ $level ] ?? '' ) );
+            if ( isset( $store['forms'][ $id ] ) ) {
+                $store['assign'][ $level ] = $id;
+            }
+        }
+        self::save_store( $store );
+    }
+
+    /**
+     * Name, section heading and intro of a form.
+     */
+    public static function save_form_meta( string $form_id, string $name, string $heading, string $intro ): void {
+        $store = self::store();
+        if ( ! isset( $store['forms'][ $form_id ] ) ) {
+            return;
+        }
+        $name = sanitize_text_field( $name );
+        $store['forms'][ $form_id ]['name']    = $name !== '' ? $name : $store['forms'][ $form_id ]['name'];
+        $store['forms'][ $form_id ]['heading'] = sanitize_text_field( $heading );
+        $store['forms'][ $form_id ]['intro']   = sanitize_text_field( $intro );
+        self::save_store( $store );
+    }
+
+    /**
+     * Create a form: a copy of $source_id (fields, heading, intro) or, with
+     * no source, the built-in fields with their default visibility. Returns
+     * the new form id.
+     */
+    public static function create_form( string $name, string $source_id = '' ): string {
+        $store = self::store();
+        $name  = sanitize_text_field( $name );
+        if ( $source_id !== '' && isset( $store['forms'][ $source_id ] ) ) {
+            $form         = $store['forms'][ $source_id ];
+            $form['name'] = $name !== '' ? $name : sprintf( /* translators: form name */ __( '%s (copy)', 'my-iapsnj' ), $form['name'] );
+        } else {
+            $form = [
+                'name'    => $name !== '' ? $name : __( 'New checkout form', 'my-iapsnj' ),
+                'heading' => '',
+                'intro'   => '',
+                'fields'  => self::rows_from_config( self::parse_rows( [] ) ),
+            ];
+        }
+        $base = sanitize_key( str_replace( ' ', '_', strtolower( remove_accents( $form['name'] ) ) ) );
+        $base = substr( $base !== '' ? $base : 'form', 0, 30 );
+        $id   = $base;
+        $n    = 2;
+        while ( isset( $store['forms'][ $id ] ) ) {
+            $id = $base . '_' . $n++;
+        }
+        $store['forms'][ $id ] = $form;
+        self::save_store( $store );
+        return $id;
+    }
+
+    public static function duplicate_form( string $form_id ): string {
+        return self::form_exists( $form_id ) ? self::create_form( '', $form_id ) : '';
+    }
+
+    /**
+     * Delete a form that no level uses (and never the last one).
+     *
+     * @return true|WP_Error
+     */
+    public static function delete_form( string $form_id ) {
+        $store = self::store();
+        if ( ! isset( $store['forms'][ $form_id ] ) ) {
+            return new WP_Error( 'not_found', __( 'That checkout form no longer exists.', 'my-iapsnj' ) );
+        }
+        if ( count( $store['forms'] ) < 2 ) {
+            return new WP_Error( 'last_form', __( 'The last checkout form cannot be deleted.', 'my-iapsnj' ) );
+        }
+        if ( self::levels_for_form( $form_id ) ) {
+            return new WP_Error( 'in_use', __( 'This form is used by a membership level. Assign another form to that level first.', 'my-iapsnj' ) );
+        }
+        unset( $store['forms'][ $form_id ] );
+        self::save_store( $store );
+        return true;
+    }
+
+    // -----------------------------------------------------------------------
+    // Which form a checkout / order uses
+    // -----------------------------------------------------------------------
+
+    /**
+     * Highest member type among variations configured in Membership
+     * Products ('' when none is a membership). Same ranking as
+     * My_IAPSNJ_Membership::plan_for_order().
+     *
+     * @param int[] $variation_ids
+     */
+    public static function member_type_for_variations( array $variation_ids ): string {
+        $config = My_IAPSNJ_Membership::products_config();
+        $type   = '';
+        foreach ( $variation_ids as $vid ) {
+            $cfg = $config[ (int) $vid ] ?? null;
+            if ( $cfg && My_IAPSNJ_Schema::member_type_rank( (string) $cfg['member_type'] ) > My_IAPSNJ_Schema::member_type_rank( $type ) ) {
+                $type = (string) $cfg['member_type'];
+            }
+        }
+        return $type;
+    }
+
+    public static function form_for_member_type( string $type ): string {
+        $level = self::level_for_member_type( $type );
+        return $level === '' ? '' : (string) ( self::assignments()[ $level ] ?? '' );
+    }
+
+    /**
+     * The checkout form for a cart; '' when the cart holds no membership
+     * product (or cannot be read), i.e. no application fields.
+     *
+     * @param object|null $cart FluentCart Cart
+     */
+    public static function form_for_cart( $cart ): string {
+        $vids = self::cart_variation_ids( $cart );
+        if ( ! $vids ) {
+            return '';
+        }
+        return self::form_for_member_type( self::member_type_for_variations( $vids ) );
+    }
+
+    /**
+     * The checkout form an order was placed with: the id stored on the order,
+     * else the form of the membership it buys, else ''.
+     *
+     * @param object $order FluentCart Order
+     */
+    public static function form_for_order( $order ): string {
+        if ( ! is_object( $order ) ) {
+            return '';
+        }
+        try {
+            $stored = sanitize_key( (string) $order->getMeta( self::META_FORM ) );
+            if ( self::form_exists( $stored ) ) {
+                return $stored;
+            }
+            $plan = My_IAPSNJ_Membership::plan_for_order( $order );
+            return $plan ? self::form_for_member_type( (string) $plan['member_type'] ) : '';
+        } catch ( \Throwable $e ) {
+            return '';
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Configuration (ordered field list of one form)
+    // -----------------------------------------------------------------------
+
+    /**
+     * A form's fields in display order: key => definition (label, help,
+     * type, options, crm, crm_kind, enabled, required, builtin).
+     *
+     * @param string $form_id '' or unknown → the default (Regular) form
+     * @return array<string,array>
+     */
+    public static function config( string $form_id = '' ): array {
+        $form_id = self::resolve_form_id( $form_id );
+        if ( isset( self::$config_cache[ $form_id ] ) ) {
+            return self::$config_cache[ $form_id ];
+        }
+        $rows = (array) ( self::store()['forms'][ $form_id ]['fields'] ?? [] );
+        self::$config_cache[ $form_id ] = self::parse_rows( $rows );
+        return self::$config_cache[ $form_id ];
+    }
+
+    /**
+     * Field definitions for reading stored values: the form's own, then any
+     * key only another form defines (the form was edited after the order).
      *
      * @return array<string,array>
      */
-    public static function config(): array {
-        if ( self::$config_cache !== null ) {
-            return self::$config_cache;
+    public static function field_defs( string $form_id = '' ): array {
+        $defs = self::config( $form_id );
+        foreach ( array_keys( self::store()['forms'] ) as $id ) {
+            $defs += self::config( $id );
         }
-        $saved = get_option( self::OPTION, [] );
-        if ( ! is_array( $saved ) ) {
-            $saved = [];
-        }
+        return $defs;
+    }
+
+    /**
+     * Saved rows → field definitions (reads the 4.1 per-key override shape
+     * and the full-row shape); built-ins missing from $saved are kept,
+     * disabled (or with their defaults when $saved is empty).
+     *
+     * @param array<string|int,mixed> $saved
+     * @return array<string,array>
+     */
+    private static function parse_rows( array $saved ): array {
         $builtins = self::definitions();
         $out      = [];
 
@@ -497,15 +875,30 @@ class My_IAPSNJ_Checkout_Fields {
         }
 
         // Fresh install (nothing saved): built-in order and defaults.
-        self::$config_cache = $out;
         return $out;
     }
 
     /**
+     * Parsed definitions → the saved row shape (key first, no 'builtin').
+     *
+     * @param array<string,array> $config
      * @return array<string,array>
      */
-    public static function enabled_fields(): array {
-        return array_filter( self::config(), function ( $def ) {
+    private static function rows_from_config( array $config ): array {
+        $rows = [];
+        foreach ( $config as $key => $def ) {
+            unset( $def['builtin'] );
+            $rows[ $key ] = array_merge( [ 'key' => $key ], $def );
+        }
+        return $rows;
+    }
+
+    /**
+     * @param string $form_id '' → the default (Regular) form
+     * @return array<string,array>
+     */
+    public static function enabled_fields( string $form_id = '' ): array {
+        return array_filter( self::config( $form_id ), function ( $def ) {
             return ! empty( $def['enabled'] );
         } );
     }
@@ -547,13 +940,15 @@ class My_IAPSNJ_Checkout_Fields {
     }
 
     /**
-     * Persist the admin configuration.
+     * Persist the field list of one form.
      *
      * @param array<string|int,array> $rows Posted rows: ['key','label','help','type','options'(string|array),'crm_target','enabled','required','order']
+     * @param string                  $form_id '' → the default (Regular) form
      */
-    public static function save_config( array $rows ): void {
+    public static function save_config( array $rows, string $form_id = '' ): void {
+        $form_id  = self::resolve_form_id( $form_id );
         $builtins = self::definitions();
-        $existing = self::config();
+        $existing = self::field_defs( $form_id );
         $ordered  = [];
         $position = 0;
         foreach ( $rows as $row_id => $row ) {
@@ -641,8 +1036,9 @@ class My_IAPSNJ_Checkout_Fields {
                 'required' => ! empty( $row['required'] ),
             ];
         }
-        update_option( self::OPTION, $clean );
-        self::$config_cache = null;
+        $store = self::store();
+        $store['forms'][ $form_id ]['fields'] = $clean;
+        self::save_store( $store );
     }
 
     /**
@@ -690,36 +1086,52 @@ class My_IAPSNJ_Checkout_Fields {
     }
 
     /**
-     * Seed the option on first install (idempotent).
+     * Save the forms option if it does not exist yet (idempotent). An
+     * install upgraded from ≤ 4.6 gets one form holding its field list and
+     * the heading / intro from the settings, used by every level.
      */
     public static function seed_defaults(): void {
-        if ( get_option( self::OPTION ) === false ) {
-            $seed = [];
-            foreach ( self::definitions() as $key => $def ) {
-                $seed[ $key ] = array_merge( [ 'key' => $key ], $def );
-            }
-            add_option( self::OPTION, $seed );
+        if ( get_option( self::OPTION_FORMS ) === false ) {
+            self::$store_cache = null;
+            add_option( self::OPTION_FORMS, self::initial_store(), '', false );
+            self::$store_cache  = null;
+            self::$config_cache = [];
         }
     }
 
     /**
-     * Data migration (v7): rewrite the 4.1.0 per-key override format as the
-     * ordered full-row format. Safe to run repeatedly.
+     * Data migration (v7): rewrite every form's rows in the ordered full-row
+     * format (the 4.1.0 per-key override shape is read by parse_rows()).
+     * Safe to run repeatedly.
      */
     public static function upgrade_config(): void {
-        $saved = get_option( self::OPTION, [] );
-        if ( ! is_array( $saved ) || ! $saved ) {
-            self::seed_defaults();
-            return;
+        self::seed_defaults();
+        $store = self::store();
+        foreach ( array_keys( $store['forms'] ) as $id ) {
+            $store['forms'][ $id ]['fields'] = self::rows_from_config( self::parse_rows( (array) $store['forms'][ $id ]['fields'] ) );
         }
-        self::$config_cache = null;
-        $rows = [];
-        foreach ( self::config() as $key => $def ) {
-            unset( $def['builtin'] );
-            $rows[ $key ] = array_merge( [ 'key' => $key ], $def );
+        self::save_store( $store );
+    }
+
+    /**
+     * Switch built-in fields on in every form (data migration v8).
+     *
+     * @param string[] $keys
+     */
+    public static function enable_fields( array $keys ): void {
+        $store   = self::store();
+        $changed = false;
+        foreach ( $store['forms'] as $id => $form ) {
+            foreach ( $keys as $key ) {
+                if ( isset( $form['fields'][ $key ] ) && is_array( $form['fields'][ $key ] ) && empty( $form['fields'][ $key ]['enabled'] ) ) {
+                    $store['forms'][ $id ]['fields'][ $key ]['enabled'] = true;
+                    $changed = true;
+                }
+            }
         }
-        update_option( self::OPTION, $rows );
-        self::$config_cache = null;
+        if ( $changed ) {
+            self::save_store( $store );
+        }
     }
 
     public static function input_name( string $key ): string {
@@ -753,13 +1165,14 @@ class My_IAPSNJ_Checkout_Fields {
     }
 
     /**
-     * Enabled-field values found in a request payload: key => value (non-empty only).
+     * A form's enabled-field values found in a request payload: key => value
+     * (non-empty only).
      *
      * @return array<string,string>
      */
-    public static function collect( array $request ): array {
+    public static function collect( array $request, string $form_id = '' ): array {
         $out = [];
-        foreach ( self::enabled_fields() as $key => $def ) {
+        foreach ( self::enabled_fields( $form_id ) as $key => $def ) {
             $value = self::sanitize_value( $def, $request[ self::input_name( $key ) ] ?? null );
             if ( $value !== '' ) {
                 $out[ $key ] = $value;
@@ -776,16 +1189,17 @@ class My_IAPSNJ_Checkout_Fields {
      */
     public static function summary_for_order( $order ): array {
         $values = My_IAPSNJ_Membership::meta_array( $order, self::META_FIELDS );
-        return is_array( $values ) ? self::summary( $values ) : [];
+        return is_array( $values ) ? self::summary( $values, self::form_for_order( $order ) ) : [];
     }
 
     /**
      * @param array<string,string> $values
+     * @param string               $form_id the form the values were collected with ('' = any)
      * @return array<string,string>
      */
-    public static function summary( array $values ): array {
+    public static function summary( array $values, string $form_id = '' ): array {
         $out    = [];
-        $config = self::config();
+        $config = self::field_defs( $form_id );
         foreach ( $values as $key => $value ) {
             if ( ! isset( $config[ $key ] ) || $value === '' ) {
                 continue;
@@ -812,19 +1226,24 @@ class My_IAPSNJ_Checkout_Fields {
      * @param mixed $args FluentCart passes its view context; ['cart'] when available.
      */
     public function render( $args = [] ): void {
-        $fields = self::enabled_fields();
+        $args    = is_array( $args ) ? $args : [];
+        $form_id = self::form_for_cart( $args['cart'] ?? null );
+        if ( $form_id === '' ) {
+            return; // no membership product in the cart: a plain store checkout
+        }
+        $fields = self::enabled_fields( $form_id );
         if ( ! $fields ) {
             return;
         }
         $this->rendered = true;
         wp_enqueue_style( 'my-iapsnj-checkout', MY_IAPSNJ_URL . 'public/css/checkout-fields.css', [], MY_IAPSNJ_VERSION );
 
-        $values   = $this->prefill_values( is_array( $args ) ? $args : [] );
-        $settings = My_IAPSNJ_Plugin::settings();
-        $heading  = (string) ( $settings['application_heading'] ?? '' );
-        $intro    = (string) ( $settings['application_intro'] ?? '' );
+        $values  = $this->prefill_values( $args, $form_id );
+        $form    = self::forms()[ $form_id ];
+        $heading = $form['heading'];
+        $intro   = $form['intro'];
 
-        echo '<div class="fct-checkout-section my-iapsnj-application" id="my-iapsnj-application">';
+        echo '<div class="fct-checkout-section my-iapsnj-application" id="my-iapsnj-application" data-my-iapsnj-form="' . esc_attr( $form_id ) . '">';
         echo '<h3 class="fct-section-title my-iapsnj-application-title">' . esc_html( $heading !== '' ? $heading : __( 'Membership application', 'my-iapsnj' ) ) . '</h3>';
         if ( $intro !== '' ) {
             echo '<p class="my-iapsnj-application-intro">' . esc_html( $intro ) . '</p>';
@@ -1043,9 +1462,9 @@ class My_IAPSNJ_Checkout_Fields {
      *
      * @return array<string,string>
      */
-    private function prefill_values( array $args ): array {
+    private function prefill_values( array $args, string $form_id ): array {
         $values = [];
-        $config = self::enabled_fields();
+        $config = self::enabled_fields( $form_id );
 
         try {
             $subscriber = self::current_contact( $args['cart'] ?? null );
@@ -1132,8 +1551,12 @@ class My_IAPSNJ_Checkout_Fields {
         if ( self::$suppress ) {
             return $errors;
         }
+        $form_id = self::form_for_cart( is_array( $args ) ? ( $args['cart'] ?? null ) : null );
+        if ( $form_id === '' ) {
+            return $errors; // no membership product: nothing of ours to require
+        }
         $data = is_array( $args ) && isset( $args['data'] ) && is_array( $args['data'] ) ? $args['data'] : [];
-        foreach ( self::enabled_fields() as $key => $def ) {
+        foreach ( self::enabled_fields( $form_id ) as $key => $def ) {
             $name  = self::input_name( $key );
             $value = self::sanitize_value( $def, $data[ $name ] ?? null );
             $label = $def['type'] === 'checkbox' ? __( 'Certification', 'my-iapsnj' ) : $def['label'];
@@ -1181,9 +1604,14 @@ class My_IAPSNJ_Checkout_Fields {
                     $request = array_merge( $args[ $k ], $request );
                 }
             }
-            // The answers are kept on the order whatever the product mapping
-            // says, so a mapping mistake never loses what the member typed.
-            $values = self::collect( $request );
+            // The form is the one the checkout page showed (decided by the
+            // cart); a cart without a membership product has none.
+            $form_id = self::form_for_cart( $cart );
+            if ( $form_id === '' ) {
+                return;
+            }
+            $values = self::collect( $request, $form_id );
+            $order->updateMeta( self::META_FORM, $form_id );
             if ( $values ) {
                 $order->updateMeta( self::META_FIELDS, $values );
                 $order->deleteMeta( self::META_APPLIED );
@@ -1219,12 +1647,14 @@ class My_IAPSNJ_Checkout_Fields {
 
             if ( method_exists( $order, 'addLog' ) ) {
                 $lines = [];
-                foreach ( self::summary( $values ) as $label => $value ) {
+                foreach ( self::summary( $values, $form_id ) as $label => $value ) {
                     $lines[] = $label . ': ' . $value;
                 }
                 $order->addLog(
                     'My IAPSNJ: application received',
-                    ( $app ? sprintf( 'Application #%d (%s). ', (int) $app->id, (string) $app->kind ) : '' ) . ( $lines ? implode( ' · ', $lines ) : 'No application fields submitted.' ),
+                    ( $app ? sprintf( 'Application #%d (%s). ', (int) $app->id, (string) $app->kind ) : '' )
+                        . sprintf( 'Checkout form: %s. ', self::forms()[ $form_id ]['name'] )
+                        . ( $lines ? implode( ' · ', $lines ) : 'No application fields submitted.' ),
                     'info',
                     'My IAPSNJ'
                 );
@@ -1305,24 +1735,13 @@ class My_IAPSNJ_Checkout_Fields {
     }
 
     /**
-     * Does the cart hold a configured membership product? Lenient when the
-     * item layout cannot be read: the store sells memberships only.
+     * Does the cart hold a product configured in Membership Products? False
+     * when the item layout cannot be read: the store also sells events and
+     * merchandise, which must never be treated as an application.
      */
     public static function cart_has_membership( $cart ): bool {
         $vids = self::cart_variation_ids( $cart );
-        if ( $vids === null ) {
-            return true;
-        }
-        if ( ! $vids ) {
-            return false;
-        }
-        $config = My_IAPSNJ_Membership::products_config();
-        foreach ( $vids as $vid ) {
-            if ( isset( $config[ $vid ] ) ) {
-                return true;
-            }
-        }
-        return false;
+        return $vids ? self::member_type_for_variations( $vids ) !== '' : false;
     }
 
     /**
@@ -1387,7 +1806,7 @@ class My_IAPSNJ_Checkout_Fields {
         }
         $custom   = [];
         $defaults = [];
-        foreach ( self::config() as $key => $def ) {
+        foreach ( self::field_defs( self::form_for_order( $order ) ) as $key => $def ) {
             $value = isset( $values[ $key ] ) ? self::sanitize_value( $def, $values[ $key ] ) : '';
             if ( $value === '' || $def['crm'] === '' ) {
                 continue;

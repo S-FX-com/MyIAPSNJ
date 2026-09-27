@@ -38,9 +38,46 @@ billing address (all required except line 2), no shipping (digital). Turn on
 *User account creation = automatic*, guest checkout off. Optional: FluentCart's
 *Agree to terms* checkbox.
 
+Keep FluentCart's own fields light enough for a plain store checkout: they
+are store-wide (FluentCart has no per-product checkout fields), so an event
+registration or a T-shirt asks for exactly the same FluentCart fields as a
+membership. Shipping address and methods appear only when the cart holds a
+*physical* product.
+
 **My IAPSNJ fields**, rendered above the payment methods
-(`fluent_cart/before_payment_methods`) and defined in **Sync & Settings →
-Application fields**. The screen is a small field builder: order, show,
+(`fluent_cart/before_payment_methods`) and defined in **My IAPSNJ → Checkout
+Builder**.
+
+### Checkout Builder: forms and levels
+
+* The builder holds one or more **checkout forms**. Each form has a name
+  (admin only), the section heading and intro shown above its fields, and
+  its own field list. Forms can be created (with the built-in fields),
+  edited, **duplicated** (fields, heading, intro) and deleted (not while a
+  level uses it, and never the last one).
+* **Form per level.** IAPSNJ has two levels, each assigned one form:
+  **Regular Membership (Police Officer)** and **Associate Membership
+  (Business Owner / Friend)**. Lifetime is a Regular membership without an
+  expiry, so a Lifetime product uses the Regular form; Honorary is never
+  sold. Renewals use the same form as joining (prefilled from the CRM).
+* **Which form a checkout shows** comes from the cart: the highest member
+  type among the cart's products configured in **Membership Products**
+  (same ranking as the payment: Regular < Associate < Lifetime). A cart with
+  no membership product — event registration, merchandise, any product not
+  mapped there — shows **no application fields and validates none**, so
+  FluentCart works as an ordinary shop for those. Map every membership
+  product, or its checkout has no application.
+* The form id is stored on the order (`_my_iapsnj_checkout_form`), so the
+  answers are labelled and written to the CRM with that form's definitions
+  even after the forms change (keys only another form defines are still
+  read).
+* Upgrade (data version 10, 4.7): the single field list and the heading /
+  intro settings become the form **Membership application**, used by both
+  levels, so nothing changes on the checkout until an admin edits the forms.
+  To give Associates their own form: Duplicate → rename → hide
+  Department / Rank, require Employer → assign it to Associate.
+
+Each form's field list is a small builder: order, show,
 required, label, type (text, paragraph, dropdown, radio, date, checkbox),
 options, help text, and *Stored in FluentCRM as* — an existing custom field,
 a contact field (date of birth, prefix), **a new custom field created on
@@ -118,10 +155,11 @@ lists.
   application fields. Only empty fields are filled; what the member typed in
   this session wins. Typed values survive FluentCart's client-side re-renders
   (sessionStorage, cleared on the receipt page).
-* The answers are stored on the order even when none of its items is mapped
-  in Membership Products; the order then gets a warning note "product not
-  mapped" and, on payment, "membership not applied". The Dashboard flags
-  mapped variation ids that no longer exist in FluentCart (products recreated).
+* Only carts with a product mapped in Membership Products get an
+  application (see *Checkout Builder* above); a membership product that is
+  not mapped checks out like any other product and, on payment, the order
+  gets the note "membership not applied". The Dashboard flags mapped
+  variation ids that no longer exist in FluentCart (products recreated).
 * Record a Check (admin) never renders, validates or records an application.
 
 ## 3. Renewal
@@ -145,6 +183,12 @@ does not fire and the Welcome automation is skipped (Paid history exists).
 
 - [ ] Join page button → checkout with the right product preselected
 - [ ] Application section visible above the payment methods; required marks
+- [ ] Regular / Lifetime product shows the Regular form, Associate product
+      the Associate form (heading, fields, required marks per form)
+- [ ] Event or merchandise product alone → no application section; order
+      goes through with FluentCart's fields only
+- [ ] Duplicate a form → copy opens in the editor; deleting a form in use is
+      refused
 - [ ] Submit with Department empty → inline error, order not created
 - [ ] Pay → order note "application received"; contact has `department`,
       `rank_level` …; `Paid-YYYY`, `member_type`, `paid_through`; Reports →

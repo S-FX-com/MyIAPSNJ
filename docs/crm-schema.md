@@ -51,7 +51,7 @@ Default FluentCRM fields used: `first_name`, `last_name`, `email`, `phone`,
 
 `department` and `rank_level` were mapped as *select* in the ACF era. Keep them
 `select-one` in FluentCRM only if the option list is maintained there; the
-checkout dropdown (My IAPSNJ → Sync & Settings → Application fields) is the
+checkout dropdown (My IAPSNJ → Checkout Builder) is the
 real constraint (non-submittable placeholder, no "N/A"). Its option lists are
 imported from the ACF choices / existing CRM values (`docs/checkout-fields.md`).
 
@@ -91,7 +91,7 @@ and populated it — the data is there; only the ACF side is dropped.
 Retire decision (2026-09-24): the client wants every field of the old
 onboarding form on the checkout, so only `admin_notes` is retired. `elo_title`
 is kept but hidden until its meaning is confirmed. Any field can still be
-hidden from My IAPSNJ → Sync & Settings → Application fields.
+hidden from My IAPSNJ → Checkout Builder.
 
 ## Profile mirror (CRM → WordPress user meta)
 

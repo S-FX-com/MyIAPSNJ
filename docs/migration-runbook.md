@@ -122,7 +122,7 @@ Two options; **re-clone is simpler and safer**:
    `docs/not-in-git.md`): FluentCart products/settings, FluentCRM automations
    and custom fields, the Join page, My IAPSNJ options
    (`wp option get my_iapsnj_settings`, `my_iapsnj_products`,
-   `my_iapsnj_checkout_fields`, `my_iapsnj_field_mappings`).
+   `my_iapsnj_checkout_forms`, `my_iapsnj_field_mappings`).
 2. Re-clone production → staging (DB + uploads). Re-apply the email block.
 3. Re-import the configuration; re-run **all** Phase 3 steps (idempotent).
 4. Re-run UAT smoke (one join, one renewal, one check).
