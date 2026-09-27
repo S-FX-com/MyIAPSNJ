@@ -166,7 +166,7 @@ final class My_IAPSNJ_Members {
      *
      * @return array{rows: array<int,array>, total: int}
      */
-    public static function query( string $state, array $args ): array {
+    public static function query( string $state, array $args = [] ): array {
         $state = self::norm_state( $state );
         $a     = self::normalize_args( $state, $args );
         $total = self::count_rows( $state, $a );
@@ -220,7 +220,7 @@ final class My_IAPSNJ_Members {
                 echo '<input type="hidden" name="' . esc_attr( $key ) . '" value="' . esc_attr( $a[ $key ] ) . '" />';
             }
         }
-        $table->search_box( __( 'Search members', 'my-iapsnj' ), 'my-iapsnj-member-search' );
+        $table->search_box( esc_html__( 'Search members', 'my-iapsnj' ), 'my-iapsnj-member-search' );
         $table->display();
         echo '</form>';
     }
@@ -359,7 +359,7 @@ final class My_IAPSNJ_Members {
         return $wpdb->prepare(
             "SELECT subscriber_id,
                     MAX(CASE WHEN `key` = %s THEN `value` END) AS member_type,
-                    MAX(CASE WHEN `key` = %s THEN `value` END) AS paid_through
+                    MAX(CASE WHEN `key` = %s THEN TRIM(REPLACE(REPLACE(REPLACE(`value`, CHAR(9), ' '), CHAR(10), ' '), CHAR(13), ' ')) END) AS paid_through
              FROM {$t['meta']}
              WHERE object_type = 'custom_field' AND `key` IN (%s, %s)
              GROUP BY subscriber_id",
@@ -1000,7 +1000,7 @@ final class My_IAPSNJ_Members {
         $help   = [
             self::CHECK_BAD_DATE      => __( 'Listed as lapsed here; the daily expiry job may read the date differently. Correct the date on the contact.', 'my-iapsnj' ),
             self::CHECK_TAG_NO_TYPE   => __( 'Not a member, so the daily job never removes the tag (for example a manual tag).', 'my-iapsnj' ),
-            self::CHECK_LAPSED_TAGGED => __( 'The next daily expiry run (or Apply now) removes the tag.', 'my-iapsnj' ),
+            self::CHECK_LAPSED_TAGGED => __( 'The next daily expiry run (or Apply now) removes the tag, except where the date is not YYYY-MM-DD (see that check): fix the date first.', 'my-iapsnj' ),
             self::CHECK_COMPED_TAG    => __( 'Membership state follows member_type only: set member_type to Honorary / Lifetime if the member is comped.', 'my-iapsnj' ),
         ];
         echo '<div class="notice notice-warning inline"><p><strong>' . esc_html__( 'Data checks', 'my-iapsnj' ) . '</strong></p><ul>';

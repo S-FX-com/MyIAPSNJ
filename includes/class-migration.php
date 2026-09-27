@@ -154,8 +154,9 @@ class My_IAPSNJ_Migration {
 
     /**
      * Are all three PMPro tables present? The admin menu asks on every
-     * wp-admin page, so the answer is memoised per request and cached for
-     * 12 hours; the migration itself re-checks (flush_tables_cache()).
+     * wp-admin page, so the answer is memoised per request and cached (12
+     * hours when present, 10 minutes when not, so tables imported later show
+     * up soon); the migration itself re-checks (flush_tables_cache()).
      */
     public static function tables_exist(): bool {
         if ( self::$tables_exist !== null ) {
@@ -167,7 +168,7 @@ class My_IAPSNJ_Migration {
             return self::$tables_exist;
         }
         self::$tables_exist = self::detect_tables();
-        set_transient( self::TABLES_TRANSIENT, self::$tables_exist ? 'yes' : 'no', 12 * HOUR_IN_SECONDS );
+        set_transient( self::TABLES_TRANSIENT, self::$tables_exist ? 'yes' : 'no', self::$tables_exist ? 12 * HOUR_IN_SECONDS : 10 * MINUTE_IN_SECONDS );
         return self::$tables_exist;
     }
 

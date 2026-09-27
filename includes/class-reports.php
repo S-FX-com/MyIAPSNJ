@@ -233,12 +233,12 @@ class My_IAPSNJ_Reports {
     /** How long the dashboard numbers may be served from the cache. */
     const SUMMARY_TTL = 10 * MINUTE_IN_SECONDS;
 
-    /** @var bool True once flush_summary() ran and nothing re-cached since. */
-    private static $summary_flushed = false;
-
     /**
      * Drop the cached summary when membership or check state changes. Every
      * hook is registered with 0 accepted args: the payload is not needed.
+     * Late priority, so the flush runs after the membership handlers have
+     * written the CRM (a Dashboard load in between would otherwise cache
+     * half-updated numbers).
      */
     public static function register_hooks(): void {
         $hooks = [
@@ -251,7 +251,7 @@ class My_IAPSNJ_Reports {
             'fluent_cart/order_status_changed',
         ];
         foreach ( $hooks as $hook ) {
-            add_action( $hook, [ __CLASS__, 'flush_summary' ], 10, 0 );
+            add_action( $hook, [ __CLASS__, 'flush_summary' ], 999, 0 );
         }
     }
 
@@ -260,11 +260,7 @@ class My_IAPSNJ_Reports {
      * Also called directly after mark-paid and record-check.
      */
     public static function flush_summary(): void {
-        if ( self::$summary_flushed ) {
-            return;
-        }
         delete_transient( self::SUMMARY_TRANSIENT );
-        self::$summary_flushed = true;
     }
 
     /**
@@ -277,7 +273,6 @@ class My_IAPSNJ_Reports {
         }
         $out = self::compute_summary();
         set_transient( self::SUMMARY_TRANSIENT, $out, self::SUMMARY_TTL );
-        self::$summary_flushed = false;
         return $out;
     }
 
