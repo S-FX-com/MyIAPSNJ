@@ -40,21 +40,21 @@ first step after the trigger, test with a Lifetime contact).
    password), link contact ↔ user ↔ FluentCart customer.
 6. Resolve and close the application row opened at checkout.
 7. **New member admin notification** (Sebbie's request, Billy's certificate
-   trigger): plain-text email to *Sync & Settings → Recipients* containing
+   trigger): plain-text email to *Settings → Configurations → Recipients* containing
    name, member type, paid-through, product, payment method + amount, order
    number, **email, phone, full mailing address, department**, rank, member
    number, and links to the CRM contact and the FluentCart order. Sent only
    when the payment is confirmed and the contact is a new member (application
    kind *join*, or first payment on record). Never on checkout started.
 8. Add the status tag `Member-Active` and give the WordPress user the role
-   mapped to its member type (Sync & Settings); mirror the contact onto the
+   mapped to its member type (Settings → Profile Sync); mirror the contact onto the
    WordPress profile (ACF meta).
 9. Actions for extensions: `my_iapsnj/membership_paid`, `my_iapsnj/new_member`,
    `my_iapsnj/membership_refunded`, `my_iapsnj/membership_expired`; filter
    `my_iapsnj/new_member_notification`.
 
 **Daily expiry job** (WP-Cron `my_iapsnj_daily`, 00:30 site time; `wp iapsnj
-expire`; Sync & Settings → Expirations): every contact whose `paid_through`
+expire`; Members → Lapsed Members → Expirations): every contact whose `paid_through`
 (+ grace days) is past loses `Member-Active` and drops to the "when expired"
 role; anyone in good standing without the tag gets it. `Paid-YYYY` stays as
 history. Build "membership expired" emails on **Tag Removed → Member-Active**

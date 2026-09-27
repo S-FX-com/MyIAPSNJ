@@ -4,7 +4,7 @@ FluentCRM is the single source of truth for member records. WordPress users
 hold credentials only, plus a one-way mirror of a few profile fields
 (My IAPSNJ → Profile Mirror). ACF user fields are **retired**, not synced.
 
-`wp iapsnj crm-schema` (or My IAPSNJ → Sync & Settings → *Create missing tags &
+`wp iapsnj crm-schema` (or My IAPSNJ → Settings → Configurations → *Create missing tags &
 fields*) creates every tag and custom field below idempotently. Constants live
 in `includes/class-schema.php`.
 
@@ -17,7 +17,7 @@ in `includes/class-schema.php`.
 | `Checkout-Abandoned` | `checkout-abandoned` | email typed at the FluentCart checkout (`checkout/form_data_changed`) | `order_placed_offline`, `order_paid` | Checkout started, no payment — the follow-up list that did not exist before |
 | `Honorary` | `honorary` | migration (`migrate_comped`) / admin by hand | admin | Comped; **excluded from every dues automation** |
 | `Lifetime` | `lifetime` | migration (`migrate_comped`), Lifetime product paid | admin | Comped; **excluded from every dues automation** |
-| `Member-Active` | `member-active` | `order_paid` / `renewal_paid`, daily expiry job (`wp iapsnj expire`), Sync & Settings → *Apply now* | daily expiry job when `paid_through` (+ grace days) is past; full refund that leaves the contact lapsed | **Status**, not history: present while in good standing (or comped). Drives the WordPress role (Sync & Settings) and is the tag to key "membership expired" automations on (Tag Removed). |
+| `Member-Active` | `member-active` | `order_paid` / `renewal_paid`, daily expiry job (`wp iapsnj expire`), Members → Lapsed Members → *Apply now* | daily expiry job when `paid_through` (+ grace days) is past; full refund that leaves the contact lapsed | **Status**, not history: present while in good standing (or comped). Drives the WordPress role (Sync & Settings) and is the tag to key "membership expired" automations on (Tag Removed). |
 
 Honorary is **never a product**: it is admin-assigned (tag + `member_type`).
 
@@ -28,7 +28,7 @@ Honorary is **never a product**: it is admin-assigned (tag + `member_type`).
 | `member_type` | select-one | `Regular` / `Associate` / `Lifetime` / `Honorary` | **Mandatory.** The exclusion condition for dues campaigns is `member_type` is none of `Lifetime`, `Honorary`. A purchase never lowers the type. |
 | `paid_through` | date (Y-m-d) | e.g. `2027-12-31` | Set from the product (fixed calendar-year date), only ever extended (`max`). **Null for Lifetime and Honorary** — the plugin deletes the value; never a far-future date. |
 | `member_number` | number | | Migrated from ACF `MemberNum` (already synced pre-4.0). Printed on the memo line of checks; shown in Pending Checks. |
-| `department` | text (or select-one, see below) | | Required on the checkout application (dropdown options set in My IAPSNJ → Sync & Settings). |
+| `department` | text (or select-one, see below) | | Required on the checkout application (dropdown options set in My IAPSNJ → Dues → Checkout Builder). |
 | `rank_level` | text/select-one | | Same. |
 | `join_date` | date | `Y-m-d` | Migrated from ACF `join_date`; for new members set to the payment date of their first paid order (4.4.0), never overwritten. |
 | `legacy_pmpro_level` | text | e.g. `3` or `3, 5` | Written by migration for members/orders on deleted PMPro levels (IDs 3, 5). Diagnostic only. |
@@ -112,7 +112,7 @@ check-placed order, so the WordPress profile (ACF meta) reflects the payment
 immediately. Extra ACF fields (e.g. a separate `member_type`) need no code:
 create the ACF field and add the row in Profile Mirror.
 
-**WordPress role** (4.5.0, Sync & Settings → *WordPress role per member
+**WordPress role** (4.5.0, Settings → Profile Sync → *WordPress role per member
 type*): `member_type` → role slug, applied by the same mirror (contact save,
 paid / check-placed order, refund, bulk mirror). New users are created as
 Subscriber and get the mapped role in the same request. Guard rails: the
@@ -121,10 +121,10 @@ include anything other than a mapped role or Subscriber (editors, staff) is
 never changed. Unmapped types are skipped.
 
 **Expiration** (4.6.0): a membership is *active* while `paid_through` plus
-the grace period (Sync & Settings, default 0 days) is today or later, or the
+the grace period (Members → Lapsed Members, default 0 days) is today or later, or the
 type is Lifetime / Honorary. WP-Cron runs `My_IAPSNJ_Membership::run_expirations()`
 daily at 00:30 site time (`my_iapsnj_daily`; also `wp iapsnj expire` and
-Sync & Settings → Expirations → Preview / Apply now): lapsed contacts lose
+Members → Lapsed Members → Expirations → Preview / Apply now): lapsed contacts lose
 `Member-Active` and drop to the *when expired* role (default Subscriber);
 contacts in good standing that lack the tag (migrated members, manual CRM
 edits) get it and their mapped role. Staff roles are never touched. A
@@ -153,7 +153,7 @@ subscriptions (auto-renew); Lifetime and Multi-Year are one-time.
 | Lifetime Membership | $300 | Lifetime | — | one-time |
 | Multi-Year Membership | $120 | Regular | 5 | one-time |
 
-**Term rule** (`My_IAPSNJ_Dates::membership_term`, cutover in Sync & Settings,
+**Term rule** (`My_IAPSNJ_Dates::membership_term`, cutover in Dues → Membership Products,
 default `10-01`): the payment date decides the term, not the product.
 
 | Paid on | 1-year product | 5-year product |

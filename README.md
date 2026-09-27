@@ -37,7 +37,7 @@ Documentation: [`docs/phase1-findings.md`](docs/phase1-findings.md) ·
   `Checkout-Abandoned`, gets a WordPress login if it has none, and the
   application is closed. Full refunds revert exactly what the order applied.
 * **Term rule** — products carry no year. A payment before the renewal-season
-  cutover (default Oct 1, Sync & Settings) covers through Dec 31 of that year;
+  cutover (default Oct 1, Dues → Membership Products) covers through Dec 31 of that year;
   on/after it, through Dec 31 of the next year. Multi-year products add whole
   years. Checks count from the deposit date.
 * **New-member notification** — plain-text email on *payment* with name, full
@@ -77,12 +77,12 @@ Documentation: [`docs/phase1-findings.md`](docs/phase1-findings.md) ·
 * **Reports** — applications awaiting payment, paid orders without an
   application, checks pending 30+ days, WordPress ↔ CRM orphans.
 * **Profile Mirror** — CRM → WordPress user meta, configurable field map,
-  plus a WordPress role per member type (Sync & Settings; staff accounts
+  plus a WordPress role per member type (Settings → Profile Sync; staff accounts
   are never touched).
 * **Expirations** — status tag `Member-Active` and the role are given on
   payment and taken away by a daily WP-Cron job once `paid_through` is past
   (grace period configurable); `wp iapsnj expire` and a Preview / Apply
-  button in Sync & Settings. `Paid-YYYY` history is never removed.
+  button on Members → Lapsed Members. `Paid-YYYY` history is never removed.
 * **Migration toolkit** — census, subscriber linking, address consolidation,
   Paid-YYYY backfill, Honorary/Lifetime from `pmpro_memberships_users`,
   member state, login verification, reconciliation, PMPro order CSV export.
@@ -110,7 +110,7 @@ migration if present.
 1. Download `my-iapsnj.zip` from the
    [latest release](https://github.com/S-FX-com/MyIAPSNJ/releases/latest).
 2. Plugins → Add New → Upload Plugin → Activate.
-3. My IAPSNJ → Sync & Settings → *Create missing tags & fields*, review the
+3. My IAPSNJ → Settings → Configurations → *Create missing tags & fields*, review the
    application fields (the Department and Rank dropdown options are imported
    from the ACF field choices or the existing CRM values; *Fill empty
    dropdown options* re-runs that), set the
@@ -138,17 +138,23 @@ until the forms are changed).
 
 ## Admin screens (My IAPSNJ menu, `manage_options`)
 
-| Screen | Slug | Purpose |
-|---|---|---|
-| Dashboard | `my-iapsnj` | counts, members by type, paid years, environment checklist |
-| Pending Checks | `my-iapsnj-checks` | batch mark paid; record a check |
-| Membership Products | `my-iapsnj-products` | FluentCart variation → member type / years covered; checkout links |
-| Reports | `my-iapsnj-reports` | open applications, orphan orders, aging, WP↔CRM orphans |
-| Profile Mirror | `my-iapsnj-mapping` | CRM → WP field map with sample preview |
-| Sync & Settings | `my-iapsnj-sync` | mirror now, triggers, role per member type, join page / renewal products, notification, checkout, CRM schema |
-| Checkout Builder | `my-iapsnj-checkout` | checkout forms (create, edit, duplicate, delete) and the form used by each membership level |
-| Migration | `my-iapsnj-migration` | PMPro → CRM steps (shown while PMPro tables exist) |
-| Notes Search | `my-iapsnj-notes-search` | |
+The submenu is grouped under headings (**Dues**, **Members**, **Settings**);
+slugs of the screens that existed before 4.11 are unchanged.
+
+| Group | Screen | Slug | Purpose |
+|---|---|---|---|
+| | Dashboard | `my-iapsnj` | counts, members by type (active / lapsed), paid years, environment checklist |
+| Dues | Membership Products | `my-iapsnj-products` | FluentCart variation → member type / years covered; renewal season, renewal product per type, Join page URL, checkout links |
+| Dues | Pending Checks | `my-iapsnj-checks` | batch mark paid; record a check |
+| Dues | Checkout Builder | `my-iapsnj-checkout` | checkout forms and the form per level; billing address → CRM; Pay by Check label & instructions |
+| Members | Active Membership | `my-iapsnj-members` | members in good standing: search, filters, sort, CSV |
+| Members | Lapsed Members | `my-iapsnj-lapsed` | lapsed members and data checks; grace period; expirations Preview / Apply now |
+| Members | Notes Search | `my-iapsnj-notes-search` | |
+| | Reports | `my-iapsnj-reports` | open applications, orphan orders, aging, WP↔CRM orphans; aging threshold, go-live date |
+| Settings | Configurations | `my-iapsnj-sync` | new-member notification, CRM schema (formerly "Sync & Settings") |
+| Settings | Profile Mirror | `my-iapsnj-mapping` | CRM → WP field map with sample preview |
+| Settings | Profile Sync | `my-iapsnj-profile-sync` | mirror triggers, mirror all contacts now, WordPress role per member type |
+| Settings | Migrate PMPro | `my-iapsnj-migration` | PMPro → CRM steps (shown while PMPro tables exist) |
 
 Legacy slugs (`fcrm-wp-sync*`, `my-iapsnj-mismatches`, `my-iapsnj-pmp`)
 redirect. My IAPSNJ sits in the admin sidebar just below FluentHub (or below
@@ -158,7 +164,7 @@ Dashboard when FluentHub is not installed); no other menu is moved.
 
 `[iapsnj_renew_link text="Renew my membership" join_text="Join IAPSNJ" class="button"]`
 — renewal checkout link for the logged-in member (product per member type in
-Sync & Settings), Join page link for visitors, nothing for Lifetime / Honorary.
+Dues → Membership Products), Join page link for visitors, nothing for Lifetime / Honorary.
 
 ## WP-CLI
 

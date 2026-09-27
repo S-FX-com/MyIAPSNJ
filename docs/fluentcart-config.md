@@ -22,7 +22,7 @@ Honorary is **not** a product. No "Catch-Up" product: the term rule in
 
 Then My IAPSNJ → Membership Products: enable each, set member type and *years
 covered per payment* (1, 1, —, 5). Set the renewal-season cutover (default
-`10-01`) in Sync & Settings.
+`10-01`) in Dues → Membership Products.
 
 Subscriptions work in FluentCart free with Stripe; Pro is not required for
 them. Renewal reminder emails: FluentCart → Settings → Emails → Reminders.
@@ -37,7 +37,7 @@ choosing subscription billing.
   Manage): enable; **Checkout Label** = `Pay by Check`; **Checkout
   Instructions** = mailing address + "Make checks payable to IAPSNJ. Write your
   **member number** on the memo line. Your membership is activated when the
-  check is deposited." (Or apply from My IAPSNJ → Sync & Settings.) Confirm on
+  check is deposited." (Or apply from My IAPSNJ → Dues → Checkout Builder → Pay by Check.) Confirm on
   the checkout page that the label reads *Pay by Check* and that "Cash" appears
   nowhere the member can see (payment list, thank-you page, receipt,
   emails). If any string still says cash, report it — a gettext override can be

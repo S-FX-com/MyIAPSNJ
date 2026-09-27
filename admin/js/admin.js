@@ -305,14 +305,15 @@
     });
 
     // =========================================================================
-    // Sync & Settings
+    // Settings forms (Configurations, Profile Sync, Membership Products,
+    // Checkout Builder, Lapsed Members, Reports) and Profile Sync tools
     // =========================================================================
 
     $('#fcrm-bulk-fcrm-to-wp').on('click', function () {
         var $wrap = $('#fcrm-bulk-progress').show(), $bar = $('#fcrm-progress-bar').css('width', '0%'), $status = $('#fcrm-bulk-status').text(i18n.syncing);
         var offset = 0, total = 0, synced = 0, errors = 0;
         function page() {
-            post('bulk_sync', { per_page: 50, offset: offset }).done(function (resp) {
+            post('bulk_sync', { per_page: 100, offset: offset, total: total }).done(function (resp) {
                 if (!resp.success) { $status.text(errMsg(resp)); return; }
                 var d = resp.data;
                 total = d.total || total; synced += d.success || 0; errors += (d.errors || []).length; offset = d.next_offset;
@@ -324,9 +325,13 @@
         page();
     });
 
-    $('#fcrm-settings-form').on('submit', function (e) {
+    // Each form saves only its own settings (ajax_save_settings touches the
+    // keys it receives), and reports in its own notice.
+    $(document).on('submit', '.fcrm-settings-form', function (e) {
         e.preventDefault();
-        var $btn = $(this).find('[type="submit"]'), $notice = $('#fcrm-settings-notice'), data = {};
+        var $btn = $(this).find('[type="submit"]'), data = {};
+        var $notice = $(this).find('.fcrm-form-notice').first();
+        if (!$notice.length) { $notice = $('#fcrm-settings-notice'); }
         $(this).find('input, select, textarea').each(function () {
             var name = $(this).attr('name');
             if (!name) { return; }
@@ -819,16 +824,47 @@
         var $btn = $(this), dry = $btn.data('dry') === 1 || $btn.data('dry') === '1', $out = $('#fcrm-expiry-result').html('<p>' + i18n.loading + '</p>');
         if (!dry && !window.confirm('Apply expirations now? Lapsed members lose the Member-Active tag and their role; members in good standing get them.')) { $out.empty(); return; }
         setBtn($btn, i18n.loading, true);
-        post('run_expiry', { dry: dry ? 1 : 0 })
-            .done(function (resp) {
-                if (!resp.success) { $out.html('<p class="fcrm-error">' + escHtml(errMsg(resp)) + '</p>'); return; }
-                var d = resp.data, html = '<p>' + (d.dry ? 'Preview' : 'Applied') + ': ' + d.active + ' active, ' + d.expired + ' expired · to expire now: ' + d.to_expire + ', to activate: ' + d.to_activate
-                    + (d.dry ? '' : ' · done: ' + d.expired_now + ' expired, ' + d.activated + ' activated, ' + d.roles_changed + ' roles changed') + '</p>';
-                if (d.samples && d.samples.length) { html += '<ul style="margin-left:18px">' + d.samples.map(function (s) { return '<li>' + escHtml(s) + '</li>'; }).join('') + '</ul>'; }
-                $out.html(html);
-            })
-            .fail(function () { $out.html('<p class="fcrm-error">' + i18n.error + '</p>'); })
-            .always(function () { resetBtn($btn); });
+        // Apply runs in batches of 200 until nothing is left to change (the
+        // job recomputes the work each time, so it is safe to repeat).
+        var done = { expired_now: 0, activated: 0, roles_changed: 0 }, first = null, rounds = 0;
+        function report(d) {
+            var html = '<p>' + (d.dry ? 'Preview' : 'Applied') + ': ' + first.active + ' active, ' + first.expired + ' expired · to expire now: ' + first.to_expire + ', to activate: ' + first.to_activate
+                + (d.dry ? '' : ' · done: ' + done.expired_now + ' expired, ' + done.activated + ' activated, ' + done.roles_changed + ' roles changed') + '</p>';
+            var samples = (first.samples || []);
+            if (samples.length) { html += '<ul style="margin-left:18px">' + samples.map(function (s) { return '<li>' + escHtml(s) + '</li>'; }).join('') + '</ul>'; }
+            $out.html(html);
+        }
+        function run() {
+            post('run_expiry', { dry: dry ? 1 : 0, limit: 200 })
+                .done(function (resp) {
+                    if (!resp.success) { $out.html('<p class="fcrm-error">' + escHtml(errMsg(resp)) + '</p>'); resetBtn($btn); return; }
+                    var d = resp.data;
+                    if (!first) { first = d; }
+                    rounds++;
+                    if (!dry) {
+                        done.expired_now += d.expired_now; done.activated += d.activated; done.roles_changed += d.roles_changed;
+                        var left = d.to_expire + d.to_activate, progressed = d.expired_now + d.activated;
+                        // Stop when nothing is left, or when a batch changed nothing (failures are logged).
+                        if (left > progressed && progressed > 0 && rounds < 1000) {
+                            $out.html('<p>' + i18n.loading + ' ' + (done.expired_now + done.activated) + ' / ' + (first.to_expire + first.to_activate) + '</p>');
+                            run();
+                            return;
+                        }
+                    }
+                    report(d);
+                    resetBtn($btn);
+                })
+                .fail(function () { $out.html('<p class="fcrm-error">' + i18n.error + '</p>'); resetBtn($btn); });
+        }
+        run();
+    });
+
+    $('#fcrm-refresh-field-list').on('click', function () {
+        var $btn = $(this);
+        setBtn($btn, i18n.loading, true);
+        post('refresh_field_list', {})
+            .done(function (resp) { if (resp.success) { window.location.reload(); } else { resetBtn($btn); } })
+            .fail(function () { resetBtn($btn); });
     });
 
     $('#fcrm-ensure-schema').on('click', function () {
@@ -911,7 +947,7 @@
         var total = 0;
         checksRows.forEach(function (r) {
             total += r.total_cents;
-            html += '<tr data-id="' + r.id + '" data-cents="' + r.total_cents + '" class="' + (r.age_days >= 30 ? 'fcrm-aging' : '') + '">' +
+            html += '<tr data-id="' + r.id + '" data-cents="' + r.total_cents + '" class="' + (r.age_days >= (myIapsnj.agingDays || 30) ? 'fcrm-aging' : '') + '">' +
                 '<td><input type="checkbox" class="fcrm-check-select"></td>' +
                 '<td>' + link(r.admin_url, '#' + r.id) + (r.source === 'manual_check' ? ' <span class="fcrm-badge">manual</span>' : '') + (r.is_membership ? '' : ' <span class="fcrm-badge fcrm-badge-warn">not membership</span>') + '</td>' +
                 '<td>' + escHtml(r.date) + '</td>' +
