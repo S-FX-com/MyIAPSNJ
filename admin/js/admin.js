@@ -405,8 +405,14 @@
         var $sel = $box.find('.fcrm-cond-values');
         var type = $parent.find('.fcrm-field-type').val();
         var opts = rowOptions($parent);
-        var picked = $sel.data('ready') ? ($sel.val() || []) : parseJsonAttr($sel.attr('data-selected') || '[]');
-        $sel.data('ready', true);
+        // The admin's picks live apart from the rebuilt list, so an answer that
+        // disappears from the parent's options for a moment (editing the
+        // list, switching its type) is selected again when it comes back.
+        var picked = $sel.data('picked');
+        if (!picked) {
+            picked = parseJsonAttr($sel.attr('data-selected') || '[]');
+            $sel.data('picked', picked);
+        }
         $box.find('.fcrm-cond-parent').text(rowLabel($parent));
         if ((type === 'select' || type === 'radio') && opts.length) {
             var html = '';
@@ -583,11 +589,25 @@
         var $tr = $(this).closest('tr');
         if (canIndent($tr, $tr.prevAll(ROW).first())) { setChild($tr, true); renumberFieldRows(); }
     }).on('click', '.fcrm-field-outdent', function () {
-        setChild($(this).closest('tr'), false);
+        var $tr = $(this).closest('tr'), $last = $tr;
+        // Leave the group first: the siblings below keep their parent.
+        $tr.nextAll(ROW).each(function () {
+            if (!isChild($(this))) { return false; }
+            $last = $(this);
+        });
+        if ($last[0] !== $tr[0]) { $last.after($tr); }
+        setChild($tr, false);
         renumberFieldRows();
     }).on('change', '.fcrm-field-type', function () {
-        syncFieldRow($(this).closest('tr'));
+        var $tr = $(this).closest('tr');
+        if (isSection($tr)) {
+            childrenOf($tr).each(function () { setChild($(this), false); });
+            setChild($tr, false);
+        }
+        syncFieldRow($tr);
         renumberFieldRows();
+    }).on('change', '.fcrm-cond-values', function () {
+        $(this).data('picked', $(this).val() || []);
     }).on('change', '.fcrm-field-target', function () {
         syncCrmTargets();
     }).on('input change', '.fcrm-field-label, .fcrm-field-options', function () {
@@ -645,8 +665,9 @@
                 } else if (dx < -INDENT_PX) {
                     drag.indent = false;
                 } else {
-                    // No sideways move: keep what it was, or join the group it is dropped into.
-                    drag.indent = drag.wasChild || (isChild($above) && isChild($below));
+                    // No sideways move: keep what it was, or join the group it is
+                    // dropped into (right above one of its children).
+                    drag.indent = drag.wasChild || isChild($below);
                 }
                 ui.placeholder.toggleClass('fcrm-sort-placeholder-child', drag.indent);
             },
@@ -657,15 +678,17 @@
                 $row.find('.fcrm-field-enabled').prop('checked', shown);
                 setChild($row, shown && drag && drag.indent);
                 syncFieldRow($row);
-                if (kids.length) {
-                    if (shown) {
-                        $row.after(kids);
-                        // Dropped inside another parent's group: land after the group.
-                        var $after = kids.last().nextAll(ROW).first(), $end = null;
+                if (kids.length && !shown) {
+                    moveToInactive($row, kids, true);
+                } else if (shown) {
+                    if (kids.length) { $row.after(kids); }
+                    if (!isChild($row)) {
+                        // A top-level row never splits another field's group:
+                        // dropped among its children, it lands after the group.
+                        var $block = $row.add(kids);
+                        var $after = $block.last().nextAll(ROW).first(), $end = null;
                         while ($after.length && isChild($after)) { $end = $after; $after = $after.nextAll(ROW).first(); }
-                        if ($end) { $end.after($row.add(kids)); }
-                    } else {
-                        moveToInactive($row, kids, true);
+                        if ($end) { $end.after($block); }
                     }
                 }
                 $fieldRows.append($fieldRows.find('tr.fcrm-fields-empty')); // keep "no active fields" last
@@ -681,6 +704,19 @@
         e.preventDefault();
         var $btn = $(this).find('[type="submit"]'), $notice = $('#fcrm-settings-notice'), data = {};
         renumberFieldRows();
+        // A child whose chosen answers are no longer options of its parent
+        // would otherwise be saved as "any answer": ask for new ones.
+        var lost = [];
+        $fieldRows.children(ROW).filter('.fcrm-field-child').each(function () {
+            var $sel = $(this).find('.fcrm-cond-values');
+            if ($sel.is(':visible') && ($sel.data('picked') || []).length && !($sel.val() || []).length) {
+                lost.push(rowLabel($(this)));
+            }
+        });
+        if (lost.length) {
+            showNotice($notice, i18n.condLost.replace('%s', lost.join(', ')), 'error');
+            return;
+        }
         $(this).find('input, select, textarea').each(function () {
             var name = $(this).attr('name');
             if (!name) { return; }

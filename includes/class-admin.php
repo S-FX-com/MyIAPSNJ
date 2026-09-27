@@ -215,6 +215,8 @@ class My_IAPSNJ_Admin {
                 'condIs'        => __( 'is', 'my-iapsnj' ),
                 'condTicked'    => __( 'is ticked', 'my-iapsnj' ),
                 'condAnswered'  => __( 'has an answer', 'my-iapsnj' ),
+                /* translators: %s: labels of the conditional fields */
+                'condLost'      => __( 'Not saved: pick the answers that show %s again — the ones chosen before are no longer options of the field above.', 'my-iapsnj' ),
             ],
         ] );
     }
@@ -1248,7 +1250,7 @@ class My_IAPSNJ_Admin {
         // Conditional display: filled in by admin.js from the parent row above.
         echo '<div class="fcrm-field-condition"' . ( $parent !== '' ? '' : ' style="display:none"' ) . '>';
         echo '<span class="fcrm-cond-arrow" aria-hidden="true">&#8627;</span> ' . esc_html__( 'Show only when', 'my-iapsnj' ) . ' <strong class="fcrm-cond-parent"></strong> <span class="fcrm-cond-rule"></span>';
-        echo '<select multiple class="fcrm-cond-values" name="' . esc_attr( $n ) . '[show_when]" size="4" data-selected="' . esc_attr( (string) wp_json_encode( array_values( (array) ( $def['show_when'] ?? [] ) ) ) ) . '" aria-label="' . esc_attr__( 'Answers that show this field', 'my-iapsnj' ) . '"></select>';
+        echo '<select multiple class="fcrm-cond-values" name="' . esc_attr( $n ) . '[show_when]" size="4" data-selected="' . esc_attr( (string) wp_json_encode( array_values( (array) ( $def['show_when'] ?? [] ) ), JSON_HEX_AMP | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT ) ) . '" aria-label="' . esc_attr__( 'Answers that show this field', 'my-iapsnj' ) . '"></select>';
         echo '<small class="fcrm-muted fcrm-cond-hint">' . esc_html__( 'Ctrl / ⌘-click for several; none selected = any answer.', 'my-iapsnj' ) . '</small>';
         echo '</div>';
         echo '</td>';
@@ -1447,20 +1449,10 @@ class My_IAPSNJ_Admin {
             wp_send_json_error( [ 'message' => __( 'That checkout form no longer exists.', 'my-iapsnj' ) ] );
         }
         $raw = isset( $post['fields'] ) && is_array( $post['fields'] ) ? $post['fields'] : [];
-        // Two rows writing one CRM field would overwrite each other's answer.
-        $dupes = My_IAPSNJ_Checkout_Fields::duplicate_targets( $raw );
-        if ( $dupes ) {
-            $lines = [];
-            foreach ( $dupes as $slug => $labels ) {
-                $lines[] = sprintf( '%1$s: %2$s', $slug, implode( ', ', $labels ) );
-            }
-            wp_send_json_error( [ 'message' => sprintf(
-                /* translators: %s: CRM field slug followed by the labels of the rows writing to it */
-                __( 'Not saved: several fields are stored in the same FluentCRM field (%s). Pick another "Stored in FluentCRM as" for all but one.', 'my-iapsnj' ),
-                implode( '; ', $lines )
-            ) ] );
+        $saved = My_IAPSNJ_Checkout_Fields::save_config( $raw, $form_id );
+        if ( is_wp_error( $saved ) ) {
+            wp_send_json_error( [ 'message' => $saved->get_error_message() ] );
         }
-        My_IAPSNJ_Checkout_Fields::save_config( $raw, $form_id );
         My_IAPSNJ_Checkout_Fields::save_form_meta(
             $form_id,
             (string) ( $post['form_name'] ?? '' ),

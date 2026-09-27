@@ -109,6 +109,11 @@ Builder**.
   the same rule (`visible_inputs()`): a hidden child is never required and
   its answer is not stored, even if one was typed before the parent
   changed. Stored per row as `parent` (the parent's key) and `show_when`.
+  If the parent's options change so that none of a child's chosen answers
+  exists any more, the child stays hidden (never widened to "any answer")
+  and the editor refuses to save until new answers are picked. A field
+  dropped right above a child joins that group; a top-level field dropped
+  into a group lands after it, so no child is ever re-parented silently.
 * **Section headings.** *+ Add section heading* (or type *Section heading*)
   adds a heading row. On the checkout the fields after it, up to the next
   heading, are grouped under it (`<h3>` plus the optional help text as a
@@ -130,8 +135,9 @@ Builder**.
 * **One row per CRM field (4.10).** As soon as a row's *Stored in FluentCRM
   as* names a CRM field, that field leaves *Other FluentCRM fields* (and
   comes back when no row writes to it any more), and the other rows'
-  pickers cannot choose it. The save handler refuses a form in which two
-  rows write to the same CRM field (`duplicate_targets()`), naming them.
+  pickers cannot choose it. `save_config()` refuses a form in which two
+  rows write to the same CRM field (including a "+ Create new" whose slug
+  another row already uses), naming them; nothing is saved or created.
 * **View checkout (4.10).** Each form on the Checkout Builder list (and the
   form editor, for the saved version) has *View*: it opens the
   real checkout page in a new tab with a mapped membership product of the
