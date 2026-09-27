@@ -136,6 +136,22 @@ final class My_IAPSNJ_Schema {
     }
 
     /**
+     * Membership-state custom fields: set by payments and the migration only,
+     * never offered on (or written from) the checkout application.
+     *
+     * @return string[]
+     */
+    public static function system_fields(): array {
+        return [
+            self::FIELD_MEMBER_TYPE,
+            self::FIELD_PAID_THROUGH,
+            self::FIELD_MEMBER_NUMBER,
+            self::FIELD_JOIN_DATE,
+            self::FIELD_LEGACY_LEVEL,
+        ];
+    }
+
+    /**
      * Custom fields the plugin depends on. Anything already present in
      * FluentCRM is left untouched (type/options are not rewritten).
      */

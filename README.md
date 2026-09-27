@@ -56,7 +56,9 @@ Documentation: [`docs/phase1-findings.md`](docs/phase1-findings.md) ·
   level uses: Regular (Lifetime uses the Regular form) and Associate. In a
   form: add fields, pick the type and where the answer is stored in FluentCRM
   (existing custom field, contact field, or a new custom field created on
-  save). A cart without a membership product (events, merchandise) shows no
+  save), group fields under section headings, and switch on any other
+  FluentCRM field from the Inactive list (hidden fields are never
+  required). A cart without a membership product (events, merchandise) shows no
   application fields and checks out with FluentCart's own fields only. No
   Fluent Forms.
 * **Application tracking** — as soon as an email is typed at checkout the
