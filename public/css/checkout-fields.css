@@ -32,6 +32,19 @@
 .my-iapsnj-field {
     margin-bottom: 16px;
 }
+/* A conditional field sits under the answer that shows it. */
+.my-iapsnj-conditional {
+    margin-left: 4px;
+    padding-left: 14px;
+    border-left: 2px solid rgba(0, 0, 0, 0.1);
+}
+.my-iapsnj-preview-notice {
+    margin: 0 0 16px;
+    padding: 10px 12px;
+    border-left: 4px solid #dba617;
+    background: #fcf9e8;
+    font-size: 0.9em;
+}
 .my-iapsnj-field > label {
     display: block;
     margin-bottom: 6px;

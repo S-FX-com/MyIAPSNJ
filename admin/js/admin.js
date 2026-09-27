@@ -342,17 +342,151 @@
     // ---- Application fields builder -------------------------------------------
     // Two tables: active rows (#fcrm-fields-rows, shown at checkout, in order)
     // and inactive rows (#fcrm-fields-inactive: hidden fields, then FluentCRM
-    // fields the form does not use yet). Ticking / unticking Show moves a row.
+    // fields the form does not use yet). Ticking / unticking Show or dragging
+    // moves a row. An active row can be indented one level under the field
+    // above it (a "child"): the checkout then shows it only while that
+    // field's answer matches. A parent moves together with its children.
 
     var $fieldRows = $('#fcrm-fields-rows');
     var $inactiveRows = $('#fcrm-fields-inactive');
     var fieldRowTemplate = document.getElementById('fcrm-field-row-template');
+    var ROW = 'tr.fcrm-field-row:not(.fcrm-sort-helper)';
+    var INDENT_PX = 36; // horizontal drag that indents / outdents a row
+
+    function isSection($r) { return $r.find('.fcrm-field-type').val() === 'section'; }
+    function isChild($r) { return $r.hasClass('fcrm-field-child'); }
+    function isShownRow($r) { return $r.closest('#fcrm-fields-rows').length > 0; }
+    function isOn($r) { return $r.find('.fcrm-field-enabled').is(':checked'); }
+
+    // The children right below a top-level row.
+    function childrenOf($r) {
+        var kids = [];
+        if (isChild($r)) { return $(kids); }
+        $r.nextAll(ROW).each(function () {
+            if (!isChild($(this))) { return false; }
+            kids.push(this);
+        });
+        return $(kids);
+    }
+
+    function blockOf($r) { return $r.add(childrenOf($r)); }
+
+    function rowLabel($r) {
+        var $l = $r.find('.fcrm-field-label');
+        return $.trim($l.val()) || '(' + ($l.attr('placeholder') || '') + ')';
+    }
+
+    function rowOptions($r) {
+        return $.map(String($r.find('.fcrm-field-options').val() || '').split(/\r\n|\r|\n/), function (o) {
+            o = $.trim(o);
+            return o === '' ? null : o;
+        });
+    }
+
+    // A top-level row can be indented under the row right above it, unless
+    // either is a section heading or it has children of its own (one level).
+    function canIndent($r, $above) {
+        if (!isShownRow($r) || isSection($r) || isChild($r) || childrenOf($r).length) { return false; }
+        return $above.length > 0 && !isSection($above);
+    }
+
+    function setChild($r, on) {
+        $r.toggleClass('fcrm-field-child', !!on);
+        if (!on) {
+            $r.find('.fcrm-field-parent').val('');
+            $r.find('.fcrm-field-condition').hide();
+        }
+    }
+
+    // "Show only when <parent> is …": a choice of the parent's options for
+    // a dropdown / radio, "is ticked" for a tick box, else "has an answer".
+    function fillCondition($child, $parent) {
+        var $box = $child.find('.fcrm-field-condition');
+        var $sel = $box.find('.fcrm-cond-values');
+        var type = $parent.find('.fcrm-field-type').val();
+        var opts = rowOptions($parent);
+        var picked = $sel.data('ready') ? ($sel.val() || []) : parseJsonAttr($sel.attr('data-selected') || '[]');
+        $sel.data('ready', true);
+        $box.find('.fcrm-cond-parent').text(rowLabel($parent));
+        if ((type === 'select' || type === 'radio') && opts.length) {
+            var html = '';
+            $.each(opts, function (i, o) {
+                html += '<option value="' + escHtml(o) + '"' + ($.inArray(o, picked) > -1 ? ' selected' : '') + '>' + escHtml(o) + '</option>';
+            });
+            $box.find('.fcrm-cond-rule').text(i18n.condIs);
+            $sel.html(html).attr('size', Math.min(6, Math.max(2, opts.length))).show();
+            $box.find('.fcrm-cond-hint').show();
+        } else {
+            $box.find('.fcrm-cond-rule').text(type === 'checkbox' ? i18n.condTicked : i18n.condAnswered);
+            $sel.empty().hide();
+            $box.find('.fcrm-cond-hint').hide();
+        }
+        $box.show();
+    }
+
+    // Children take the nearest top-level row above them (no heading in
+    // between) as parent; anything else is outdented. Inactive rows never
+    // have a parent.
+    function refreshConditions() {
+        var $top = null;
+        $fieldRows.children(ROW).each(function () {
+            var $r = $(this);
+            if (isSection($r)) { setChild($r, false); $top = null; return; }
+            if (isChild($r)) {
+                if (!$top) { setChild($r, false); $top = $r; return; }
+                $r.find('.fcrm-field-parent').val($top.attr('data-key'));
+                fillCondition($r, $top);
+                return;
+            }
+            $top = $r;
+        });
+        $inactiveRows.children(ROW).each(function () { setChild($(this), false); });
+        $('#fcrm-fields-rows, #fcrm-fields-inactive').children(ROW).each(function () {
+            var $r = $(this);
+            $r.find('.fcrm-field-indent').prop('disabled', !canIndent($r, $r.prevAll(ROW).first()));
+            $r.find('.fcrm-field-outdent').prop('disabled', !isChild($r));
+        });
+    }
+
+    function rowTarget($r) { return $r.find('.fcrm-field-target').val() || 'none'; }
+    function isCrmTarget(t) { return t.indexOf('custom:') === 0 || t.indexOf('default:') === 0; }
+
+    // A FluentCRM field some row writes to leaves "Other FluentCRM fields"
+    // (and comes back when no row does), and no other row can pick it.
+    function syncCrmTargets() {
+        var $rows = $('#fcrm-fields-rows, #fcrm-fields-inactive').children(ROW);
+        var used = {};
+        $rows.each(function () {
+            var $r = $(this), t = rowTarget($r);
+            if (isSection($r) || ($r.hasClass('fcrm-field-auto') && !isOn($r)) || !isCrmTarget(t)) { return; }
+            (used[t] = used[t] || []).push(this);
+        });
+        var anyOffered = false;
+        $rows.filter('.fcrm-field-auto').each(function () {
+            var $r = $(this);
+            if (isOn($r)) { $r.removeClass('fcrm-field-crm-used').show(); return; }
+            var taken = !!used[rowTarget($r)];
+            $r.toggleClass('fcrm-field-crm-used', taken).toggle(!taken);
+            anyOffered = anyOffered || !taken;
+        });
+        $inactiveRows.find('tr.fcrm-fields-subhead').toggle(anyOffered);
+        $rows.each(function () {
+            var self = this;
+            $(this).find('.fcrm-field-target option').each(function () {
+                var others = $.grep(used[this.value] || [], function (el) { return el !== self; });
+                // Never disable the row's own choice: jQuery would read it as empty.
+                $(this).prop('disabled', others.length > 0 && !this.selected);
+            });
+        });
+    }
 
     function renumberFieldRows() {
-        $('#fcrm-fields-rows tr.fcrm-field-row, #fcrm-fields-inactive tr.fcrm-field-row').each(function (i) {
+        $('#fcrm-fields-rows, #fcrm-fields-inactive').children(ROW).each(function (i) {
             $(this).find('.fcrm-field-order').val(i + 1);
         });
-        $fieldRows.find('tr.fcrm-fields-empty').toggle($fieldRows.find('tr.fcrm-field-row').length === 0);
+        $fieldRows.find('tr.fcrm-fields-empty').toggle($fieldRows.children(ROW).length === 0);
+        refreshConditions();
+        syncCrmTargets();
     }
 
     // Options, CRM target and Required follow the type and Show.
@@ -360,7 +494,7 @@
         var type    = $row.find('.fcrm-field-type').val();
         var section = type === 'section';
         var has     = type === 'select' || type === 'radio';
-        var shown   = $row.find('.fcrm-field-enabled').is(':checked');
+        var shown   = isOn($row);
         var $req    = $row.find('.fcrm-field-required');
         var $label  = $row.find('.fcrm-field-label');
         var $help   = $row.find('.fcrm-field-help');
@@ -374,6 +508,30 @@
         $req.prop('disabled', !shown || section);
         $label.attr('placeholder', section ? $label.data('placeholder-section') : $label.data('placeholder-field'));
         $help.attr('placeholder', section ? $help.data('placeholder-section') : '');
+    }
+
+    // Hide a row (and its children, which go with it, outdented). A row
+    // dropped into Inactive by drag keeps its place ($keepPlace).
+    function moveToInactive($row, $kids, keepPlace) {
+        setChild($row, false);
+        if (keepPlace) {
+            // already where it was dropped
+        } else if ($row.hasClass('fcrm-field-auto') && $inactiveRows.find('tr.fcrm-fields-subhead').length) {
+            $inactiveRows.find('tr.fcrm-fields-subhead').after($row); // back to the CRM list
+        } else {
+            $inactiveRows.prepend($row);
+        }
+        $row.find('.fcrm-field-enabled').prop('checked', false);
+        syncFieldRow($row);
+        if ($kids && $kids.length) {
+            $row.after($kids);
+            $kids.each(function () {
+                var $k = $(this);
+                setChild($k, false);
+                $k.find('.fcrm-field-enabled').prop('checked', false);
+                syncFieldRow($k);
+            });
+        }
     }
 
     function addFieldRow(type) {
@@ -396,39 +554,66 @@
     $('#fcrm-add-section').on('click', function () { addFieldRow('section'); });
 
     $('#fcrm-fields-table, #fcrm-fields-inactive-table').on('click', '.fcrm-field-remove', function () {
-        $(this).closest('tr').remove();
+        var $tr = $(this).closest('tr');
+        childrenOf($tr).each(function () { setChild($(this), false); });
+        $tr.remove();
         renumberFieldRows();
     }).on('click', '.fcrm-field-up', function () {
-        var $tr = $(this).closest('tr'), $prev = $tr.prevAll('tr.fcrm-field-row').first();
-        if ($prev.length) { $prev.before($tr); renumberFieldRows(); }
+        // A child moves among its siblings; a parent moves with its children
+        // above the whole block (parent + children) above it.
+        var $tr = $(this).closest('tr'), $prev = $tr.prevAll(ROW).first();
+        if (isChild($tr)) {
+            if ($prev.length && isChild($prev)) { $prev.before($tr); }
+        } else {
+            while ($prev.length && isChild($prev)) { $prev = $prev.prevAll(ROW).first(); }
+            if ($prev.length) { $prev.before(blockOf($tr)); }
+        }
+        renumberFieldRows();
     }).on('click', '.fcrm-field-down', function () {
-        var $tr = $(this).closest('tr'), $next = $tr.nextAll('tr.fcrm-field-row').first();
-        if ($next.length) { $next.after($tr); renumberFieldRows(); }
+        var $tr = $(this).closest('tr');
+        if (isChild($tr)) {
+            var $n = $tr.nextAll(ROW).first();
+            if ($n.length && isChild($n)) { $n.after($tr); }
+        } else {
+            var $block = blockOf($tr), $next = $block.last().nextAll(ROW).first();
+            if ($next.length) { blockOf($next).last().after($block); }
+        }
+        renumberFieldRows();
+    }).on('click', '.fcrm-field-indent', function () {
+        var $tr = $(this).closest('tr');
+        if (canIndent($tr, $tr.prevAll(ROW).first())) { setChild($tr, true); renumberFieldRows(); }
+    }).on('click', '.fcrm-field-outdent', function () {
+        setChild($(this).closest('tr'), false);
+        renumberFieldRows();
     }).on('change', '.fcrm-field-type', function () {
         syncFieldRow($(this).closest('tr'));
+        renumberFieldRows();
+    }).on('change', '.fcrm-field-target', function () {
+        syncCrmTargets();
+    }).on('input change', '.fcrm-field-label, .fcrm-field-options', function () {
+        refreshConditions(); // a parent's label / options feed its children's condition
     }).on('change', '.fcrm-field-enabled', function () {
         var $row = $(this).closest('tr');
-        syncFieldRow($row);
         if ($(this).is(':checked')) {
-            // Shown: to the end of the active list.
-            $fieldRows.find('tr.fcrm-fields-empty').before($row);
-        } else if ($row.hasClass('fcrm-field-auto') && $inactiveRows.find('tr.fcrm-fields-subhead').length) {
-            // A FluentCRM field goes back to the CRM list.
-            $inactiveRows.find('tr.fcrm-fields-subhead').after($row);
+            setChild($row, false);
+            syncFieldRow($row);
+            $fieldRows.find('tr.fcrm-fields-empty').before($row); // to the end of the active list
         } else {
-            $inactiveRows.prepend($row);
+            moveToInactive($row, childrenOf($row));
         }
         renumberFieldRows();
     });
 
     // Drag and drop (jquery-ui-sortable, bundled with WordPress): reorder by
     // the handle; dropping into Active shows a field, into Inactive hides it.
+    // Dragged right (under a field) a row is indented = conditional; dragged
+    // left it is outdented. A parent is dragged together with its children.
     if ($.fn.sortable && $fieldRows.length && $inactiveRows.length) {
+        var drag = null;
         $('#fcrm-fields-rows, #fcrm-fields-inactive').sortable({
             items: '> tr.fcrm-field-row',
             handle: '.fcrm-drag-handle',
             connectWith: '#fcrm-fields-rows, #fcrm-fields-inactive',
-            axis: 'y',
             cursor: 'grabbing',
             tolerance: 'pointer',
             placeholder: 'fcrm-sort-placeholder',
@@ -441,19 +626,56 @@
                 return $helper.addClass('fcrm-sort-helper');
             },
             start: function (e, ui) {
+                var $kids = childrenOf(ui.item);
+                drag = { kids: $kids.detach(), wasChild: isChild(ui.item), indent: isChild(ui.item) };
                 ui.placeholder.html('<td colspan="9"></td>').height(ui.item.outerHeight());
+                if (drag.kids.length) { $(this).sortable('refreshPositions'); }
+            },
+            sort: function (e, ui) {
+                if (!drag) { return; }
+                var dx     = ui.position.left - ui.originalPosition.left;
+                var $above = ui.placeholder.prevAll(ROW).not(ui.item).filter(':visible').first();
+                var $below = ui.placeholder.nextAll(ROW).not(ui.item).filter(':visible').first();
+                var ok     = ui.placeholder.closest('#fcrm-fields-rows').length > 0 && !isSection(ui.item) &&
+                    !drag.kids.length && $above.length > 0 && !isSection($above);
+                if (!ok) {
+                    drag.indent = false;
+                } else if (dx > INDENT_PX) {
+                    drag.indent = true;
+                } else if (dx < -INDENT_PX) {
+                    drag.indent = false;
+                } else {
+                    // No sideways move: keep what it was, or join the group it is dropped into.
+                    drag.indent = drag.wasChild || (isChild($above) && isChild($below));
+                }
+                ui.placeholder.toggleClass('fcrm-sort-placeholder-child', drag.indent);
             },
             stop: function (e, ui) {
                 var $row  = ui.item;
-                var shown = $row.closest('#fcrm-fields-rows').length > 0;
+                var shown = isShownRow($row);
+                var kids  = drag ? drag.kids : $();
                 $row.find('.fcrm-field-enabled').prop('checked', shown);
+                setChild($row, shown && drag && drag.indent);
                 syncFieldRow($row);
-                // Keep the "no active fields" line last.
-                $fieldRows.append($fieldRows.find('tr.fcrm-fields-empty'));
+                if (kids.length) {
+                    if (shown) {
+                        $row.after(kids);
+                        // Dropped inside another parent's group: land after the group.
+                        var $after = kids.last().nextAll(ROW).first(), $end = null;
+                        while ($after.length && isChild($after)) { $end = $after; $after = $after.nextAll(ROW).first(); }
+                        if ($end) { $end.after($row.add(kids)); }
+                    } else {
+                        moveToInactive($row, kids, true);
+                    }
+                }
+                $fieldRows.append($fieldRows.find('tr.fcrm-fields-empty')); // keep "no active fields" last
+                drag = null;
                 renumberFieldRows();
             }
         });
     }
+
+    renumberFieldRows();
 
     $('#fcrm-checkout-fields-form').on('submit', function (e) {
         e.preventDefault();

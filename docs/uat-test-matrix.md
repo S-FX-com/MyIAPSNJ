@@ -26,6 +26,8 @@ email is blocked — verify emails in the mail log / catcher. Tick every row.
 | 17 | User delete | Delete a test WP user | | Contact kept, `user_id` cleared | | |
 | 18 | Form per level | Checkout Builder: duplicate the form, edit the copy, assign it to Associate; open a Regular, a Lifetime and an Associate checkout | Order note names the checkout form used | Answers written to the fields of that form | Regular + Lifetime show the Regular form, Associate the copy (heading, fields, required marks) | |
 | 19 | Plain store checkout | Buy an event registration or merchandise product only (not in Membership Products) | Order completes with FluentCart's fields only | No `Checkout-Abandoned`, no application fields written | No application section on the checkout; no application row | |
+| 20 | Conditional field | Checkout Builder: indent Spouse's name under Marital status (shown when Married), Save; checkout as a new member | Order completes with Single and no spouse; with Married the spouse is required | `spouse_name` written only when Married | Field appears / disappears as the answer changes; hidden field never blocks the order | |
+| 21 | View checkout | Checkout Builder → View checkout on the Associate form | Real checkout, Associate product in the cart | | Associate form with the Preview notice (administrators only) | |
 
 ## Client UAT (acceptance gate)
 

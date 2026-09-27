@@ -95,6 +95,20 @@ Builder**.
   dragging near the window edge. ▲▼ still move a row one step (keyboard).
   Uses WordPress's bundled `jquery-ui-sortable`; nothing is saved until
   *Save form*.
+* **Conditional display (4.10).** Indent a field under the field above it —
+  drag it to the right (the drop outline shifts right), or press ▶ — and
+  it becomes that field's *child*: the checkout shows it only while the
+  parent's answer matches. The rule is picked in the child's row: for a
+  dropdown / radio parent, one or more of its options (none selected = any
+  answer); for a tick box, "is ticked"; for any other field, "has an
+  answer". One level only: a child has no children, a heading ends a
+  group, a parent moves (▲▼, drag, Show, Inactive) together with its
+  children, and hiding a parent hides its children. ◀ or dragging left
+  makes a child an ordinary field again. On the checkout a hidden child is
+  disabled (not submitted, not browser-validated) and the server applies
+  the same rule (`visible_inputs()`): a hidden child is never required and
+  its answer is not stored, even if one was typed before the parent
+  changed. Stored per row as `parent` (the parent's key) and `show_when`.
 * **Section headings.** *+ Add section heading* (or type *Section heading*)
   adds a heading row. On the checkout the fields after it, up to the next
   heading, are grouped under it (`<h4>` plus the optional help text as a
@@ -113,6 +127,20 @@ Builder**.
   offered, cannot be picked as a target, and are never written from a
   checkout — only payments set them. FluentCart already collects name,
   email, phone and address, so those contact columns are not offered.
+* **One row per CRM field (4.10).** As soon as a row's *Stored in FluentCRM
+  as* names a CRM field, that field leaves *Other FluentCRM fields* (and
+  comes back when no row writes to it any more), and the other rows'
+  pickers cannot choose it. The save handler refuses a form in which two
+  rows write to the same CRM field (`duplicate_targets()`), naming them.
+* **View checkout (4.10).** Each form on the Checkout Builder list (and the
+  form editor, for the saved version) has *View checkout*: it opens the
+  real checkout page in a new tab with a mapped membership product of the
+  form's level in your cart (`?fluent-cart=instant_checkout&item_id=…`,
+  plus `iapsnj_preview=<form>` and a nonce, which FluentCart forwards to
+  the checkout page). Administrators then see that form, with a
+  "Preview" notice, whatever the cart holds; nothing is charged unless an
+  order is placed, and an order whose cart needs another form is refused.
+  Disabled until a membership product is mapped.
 
 Each form's field list is a small builder: order, show,
 required, label, type (text, paragraph, dropdown, radio, date, checkbox),
@@ -232,6 +260,13 @@ does not fire and the Welcome automation is skipped (Paid history exists).
       cleared; checkout no longer asks for it
 - [ ] Drag a field by ☰ to a new position, drag one into Inactive and one
       CRM field up into the list, Save → the checkout shows that order
+- [ ] Indent Spouse's name under Marital status, pick "Married", Save →
+      checkout: hidden until Married is chosen; required only then; choosing
+      Single again hides it and the order goes through without it
+- [ ] Pick a CRM field in one row → it disappears from Other FluentCRM
+      fields and cannot be picked in another row
+- [ ] View checkout on each form → the real checkout opens with that form
+      and the Preview notice; a logged-out visitor never sees the notice
 - [ ] Add two section headings → checkout groups the fields under them; a
       heading with nothing shown under it is not printed
 - [ ] A CRM custom field created in FluentCRM appears under Inactive → Other

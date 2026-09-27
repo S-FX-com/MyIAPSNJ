@@ -57,6 +57,8 @@ class My_IAPSNJ_Checkout_Fields {
     const META_APPLIED = '_my_iapsnj_application_applied';  // order meta: UTC datetime
     const PREFIX       = 'iapsnj_';                          // input name prefix
     const FORM_INPUT   = 'iapsnj__form';                     // hidden input: form printed on the page
+    const PREVIEW_PARAM = 'iapsnj_preview';                  // "View checkout": form to show an administrator
+    const PREVIEW_NONCE = 'iapsnj_preview_nonce';
     const NEW_TARGET   = '__new__';                          // "create a CRM custom field" picker value
 
     /** @var string[] 'section' is a heading row, not an input */
@@ -861,6 +863,8 @@ class My_IAPSNJ_Checkout_Fields {
                 $def['crm_kind'] = $row['crm_kind'];
                 $def['crm']      = $row['crm_kind'] === 'none' ? '' : sanitize_key( (string) ( $row['crm'] ?? '' ) );
             }
+            $def['parent']    = sanitize_key( (string) ( $row['parent'] ?? '' ) );
+            $def['show_when'] = self::clean_values( $row['show_when'] ?? [] );
             if ( $def['label'] === '' ) {
                 continue;
             }
@@ -873,15 +877,120 @@ class My_IAPSNJ_Checkout_Fields {
         // can be switched on again from the screen.
         foreach ( $builtins as $key => $def ) {
             if ( ! isset( $out[ $key ] ) ) {
-                $def['enabled']  = $saved ? false : $def['enabled'];
-                $def['required'] = $def['required'] && $def['enabled'];
-                $def['builtin']  = true;
-                $out[ $key ]     = $def;
+                $def['enabled']   = $saved ? false : $def['enabled'];
+                $def['required']  = $def['required'] && $def['enabled'];
+                $def['builtin']   = true;
+                $def['parent']    = '';
+                $def['show_when'] = [];
+                $out[ $key ]      = $def;
             }
         }
 
         // Fresh install (nothing saved): built-in order and defaults.
+        return self::normalise_conditions( $out );
+    }
+
+    /**
+     * @param mixed $raw array or one value per line
+     * @return string[]
+     */
+    private static function clean_values( $raw ): array {
+        if ( is_string( $raw ) ) {
+            $raw = preg_split( '/\r\n|\r|\n/', $raw );
+        }
+        $out = [];
+        foreach ( (array) $raw as $v ) {
+            $v = is_scalar( $v ) ? sanitize_text_field( (string) $v ) : '';
+            if ( $v !== '' && ! in_array( $v, $out, true ) ) {
+                $out[] = $v;
+            }
+        }
         return $out;
+    }
+
+    /**
+     * Conditional display is one level deep: a child ('parent' set) is shown
+     * only when its parent — the nearest shown, top-level input above it,
+     * with no section heading in between — has an answer (a ticked box, or
+     * one of 'show_when' for a dropdown / radio; any answer when 'show_when'
+     * is empty). Anything else loses its condition here: a hidden row, a
+     * heading, a parent that is itself a child or not directly above.
+     * 'show_when' keeps only values the parent can take.
+     *
+     * @param array<string,array> $defs in display order
+     * @return array<string,array>
+     */
+    private static function normalise_conditions( array $defs ): array {
+        $top = '';
+        foreach ( $defs as $key => $def ) {
+            $parent = (string) ( $def['parent'] ?? '' );
+            if ( empty( $def['enabled'] ) || $def['type'] === 'section' ) {
+                $defs[ $key ]['parent']    = '';
+                $defs[ $key ]['show_when'] = [];
+                if ( $def['type'] === 'section' && ! empty( $def['enabled'] ) ) {
+                    $top = ''; // a heading starts a new group
+                }
+                continue;
+            }
+            if ( $parent === '' || $parent !== $top ) {
+                $defs[ $key ]['parent']    = '';
+                $defs[ $key ]['show_when'] = [];
+                $top                       = (string) $key;
+                continue;
+            }
+            $p    = $defs[ $parent ];
+            $when = (array) ( $def['show_when'] ?? [] );
+            if ( in_array( $p['type'], [ 'select', 'radio' ], true ) && ! empty( $p['options'] ) ) {
+                $when = array_values( array_intersect( $when, (array) $p['options'] ) );
+            } else {
+                $when = []; // tick box / free text: "is ticked" / "has an answer"
+            }
+            $defs[ $key ]['show_when'] = $when;
+        }
+        return $defs;
+    }
+
+    /**
+     * Is a (child) field shown for these answers?
+     *
+     * @param array<string,string> $values key => sanitized value of the parents
+     * @param array<string,array>  $fields the form's shown inputs
+     */
+    public static function condition_met( array $def, array $values, array $fields ): bool {
+        $parent = (string) ( $def['parent'] ?? '' );
+        if ( $parent === '' ) {
+            return true;
+        }
+        if ( ! isset( $fields[ $parent ] ) ) {
+            return false;
+        }
+        $value = (string) ( $values[ $parent ] ?? '' );
+        if ( $value === '' ) {
+            return false;
+        }
+        $when = (array) ( $def['show_when'] ?? [] );
+        return ! $when || in_array( $value, $when, true );
+    }
+
+    /**
+     * The form's inputs shown for a request: top-level inputs, plus children
+     * whose condition the posted parent answer meets. A child that is not
+     * shown is neither required nor stored.
+     *
+     * @param array<string,mixed> $request posted checkout data (iapsnj_* keys)
+     * @return array<string,array>
+     */
+    public static function visible_inputs( string $form_id, array $request ): array {
+        $fields = self::input_fields( $form_id );
+        $values = [];
+        foreach ( $fields as $key => $def ) {
+            if ( (string) ( $def['parent'] ?? '' ) === '' ) {
+                $values[ $key ] = self::sanitize_value( $def, $request[ self::input_name( $key ) ] ?? null );
+            }
+        }
+        return array_filter( $fields, function ( $def ) use ( $values, $fields ) {
+            return self::condition_met( $def, $values, $fields );
+        } );
     }
 
     /**
@@ -980,9 +1089,13 @@ class My_IAPSNJ_Checkout_Fields {
      * columns FluentCart already collects (name, email, phone, address) and
      * the membership-state fields are not offered.
      *
+     * With $include_used the fields a row already writes to are returned too,
+     * flagged 'used' => true: the editor keeps them out of sight and shows
+     * one again as soon as no row writes to it any more.
+     *
      * @return array<string,array>
      */
-    public static function crm_candidates( string $form_id = '' ): array {
+    public static function crm_candidates( string $form_id = '', bool $include_used = false ): array {
         $config  = self::config( $form_id );
         $used    = [];
         foreach ( $config as $def ) {
@@ -999,10 +1112,12 @@ class My_IAPSNJ_Checkout_Fields {
         };
         $out = [];
         foreach ( self::DEFAULT_TARGETS as $column => $label ) {
-            if ( isset( $used[ 'default:' . $column ] ) ) {
+            $in_use = isset( $used[ 'default:' . $column ] );
+            if ( $in_use && ! $include_used ) {
                 continue;
             }
             $out[ $key_for( $column ) ] = [
+                'used'     => $in_use,
                 'label'    => $label,
                 'help'     => '',
                 'type'     => $column === 'date_of_birth' ? 'date' : 'text',
@@ -1016,12 +1131,14 @@ class My_IAPSNJ_Checkout_Fields {
             ];
         }
         foreach ( self::crm_custom_fields() as $slug => $cf ) {
-            if ( isset( $used[ 'custom:' . $slug ] ) ) {
+            $in_use = isset( $used[ 'custom:' . $slug ] );
+            if ( $in_use && ! $include_used ) {
                 continue;
             }
             $options = array_values( array_filter( array_map( 'strval', (array) ( $cf['options'] ?? [] ) ), 'strlen' ) );
             $type    = self::type_from_crm( (string) ( $cf['type'] ?? 'text' ), $options );
             $out[ $key_for( $slug ) ] = [
+                'used'     => $in_use,
                 'label'    => (string) ( $cf['label'] ?? $slug ) !== '' ? (string) $cf['label'] : $slug,
                 'help'     => '',
                 'type'     => $type,
@@ -1069,6 +1186,36 @@ class My_IAPSNJ_Checkout_Fields {
     }
 
     /**
+     * Labels of posted rows that write to a CRM field another posted row
+     * already writes to (FluentCRM field => labels). The editor prevents this;
+     * the save handler refuses it as a backstop. Rows offered from FluentCRM
+     * and left hidden are not saved, so they do not count.
+     *
+     * @param array<string|int,array> $rows posted rows
+     * @return array<string,string[]>
+     */
+    public static function duplicate_targets( array $rows ): array {
+        $by_target = [];
+        foreach ( $rows as $row ) {
+            if ( ! is_array( $row ) || ( ! empty( $row['auto'] ) && empty( $row['enabled'] ) ) || (string) ( $row['type'] ?? '' ) === 'section' ) {
+                continue;
+            }
+            $target = (string) ( $row['crm_target'] ?? '' );
+            if ( strpos( $target, 'custom:' ) !== 0 && strpos( $target, 'default:' ) !== 0 ) {
+                continue; // none, "create new" (its slug is the row's own key) or not posted
+            }
+            $by_target[ $target ][] = sanitize_text_field( (string) ( $row['label'] ?? '' ) );
+        }
+        $out = [];
+        foreach ( $by_target as $target => $labels ) {
+            if ( count( $labels ) > 1 ) {
+                $out[ substr( $target, strpos( $target, ':' ) + 1 ) ] = $labels;
+            }
+        }
+        return $out;
+    }
+
+    /**
      * Persist the field list of one form.
      *
      * @param array<string|int,array> $rows Posted rows: ['key','label','help','type','options'(string|array),'crm_target','enabled','required','order']
@@ -1092,8 +1239,9 @@ class My_IAPSNJ_Checkout_Fields {
             return $a[0] === $b[0] ? $a[1] - $b[1] : $a[0] - $b[0];
         } );
 
-        $clean = [];
-        $used  = [];
+        $clean  = [];
+        $used   = [];
+        $row_to = []; // posted row id (a new row's temporary id) => saved key
         foreach ( $ordered as [ , , $row_id, $row ] ) {
             // A FluentCRM field offered in "Inactive" and left hidden is not
             // saved: it is offered again from the CRM on the next visit.
@@ -1164,19 +1312,36 @@ class My_IAPSNJ_Checkout_Fields {
             }
 
             $enabled = ! empty( $row['enabled'] );
+            $row_to[ sanitize_key( (string) $row_id ) ] = $key;
             $clean[ $key ] = [
-                'key'      => $key,
-                'label'    => $label,
-                'help'     => sanitize_text_field( (string) ( $row['help'] ?? '' ) ),
-                'type'     => $type,
-                'options'  => in_array( $type, [ 'select', 'radio' ], true ) ? $options : [],
-                'crm'      => $crm,
-                'crm_kind' => $crm_kind,
-                'enabled'  => $enabled,
+                'key'       => $key,
+                'label'     => $label,
+                'help'      => sanitize_text_field( (string) ( $row['help'] ?? '' ) ),
+                'type'      => $type,
+                'options'   => in_array( $type, [ 'select', 'radio' ], true ) ? $options : [],
+                'crm'       => $crm,
+                'crm_kind'  => $crm_kind,
+                'enabled'   => $enabled,
                 // A hidden field is never required; a heading never is.
-                'required' => $enabled && $type !== 'section' && ! empty( $row['required'] ),
+                'required'  => $enabled && $type !== 'section' && ! empty( $row['required'] ),
+                // Posted as the parent row's id; resolved to its key below.
+                'parent'    => $type === 'section' ? '' : sanitize_key( (string) ( $row['parent'] ?? '' ) ),
+                'show_when' => self::clean_values( $row['show_when'] ?? [] ),
             ];
         }
+        foreach ( $clean as $key => $def ) {
+            if ( $def['parent'] === '' ) {
+                continue;
+            }
+            $parent = $row_to[ $def['parent'] ] ?? ( isset( $clean[ $def['parent'] ] ) ? $def['parent'] : '' );
+            $clean[ $key ]['parent'] = $parent;
+            // A child goes wherever its parent goes: hidden with it.
+            if ( $parent !== '' && empty( $clean[ $parent ]['enabled'] ) ) {
+                $clean[ $key ]['enabled']  = false;
+                $clean[ $key ]['required'] = false;
+            }
+        }
+        $clean = self::rows_from_config( self::normalise_conditions( $clean ) );
         $store = self::store();
         $store['forms'][ $form_id ]['fields'] = $clean;
         self::save_store( $store );
@@ -1313,7 +1478,9 @@ class My_IAPSNJ_Checkout_Fields {
      */
     public static function collect( array $request, string $form_id = '' ): array {
         $out = [];
-        foreach ( self::input_fields( $form_id ) as $key => $def ) {
+        // Children whose condition is not met are dropped: what a member
+        // typed before changing the parent answer is not stored.
+        foreach ( self::visible_inputs( $form_id, $request ) as $key => $def ) {
             $value = self::sanitize_value( $def, $request[ self::input_name( $key ) ] ?? null );
             if ( $value !== '' ) {
                 $out[ $key ] = $value;
@@ -1371,7 +1538,10 @@ class My_IAPSNJ_Checkout_Fields {
      */
     public function render( $args = [] ): void {
         $args    = is_array( $args ) ? $args : [];
-        $form_id = self::form_for_cart( $args['cart'] ?? null );
+        // "View checkout" from the Checkout Builder: an administrator sees
+        // the named form whatever the cart holds.
+        $preview = self::preview_form_id();
+        $form_id = $preview !== '' ? $preview : self::form_for_cart( $args['cart'] ?? null );
         if ( $form_id === '' ) {
             return; // no membership product in the cart: a plain store checkout
         }
@@ -1387,6 +1557,13 @@ class My_IAPSNJ_Checkout_Fields {
         $intro   = $form['intro'];
 
         echo '<div class="fct-checkout-section my-iapsnj-application" id="my-iapsnj-application" data-my-iapsnj-form="' . esc_attr( $form_id ) . '">';
+        if ( $preview !== '' ) {
+            echo '<p class="my-iapsnj-preview-notice" role="note">' . esc_html( sprintf(
+                /* translators: %s: checkout form name */
+                __( 'Preview of the checkout form "%s" (only administrators see this notice). An order placed from here is refused if the cart needs a different form.', 'my-iapsnj' ),
+                $form['name']
+            ) ) . '</p>';
+        }
         echo '<h3 class="fct-section-title my-iapsnj-application-title">' . esc_html( $heading !== '' ? $heading : __( 'Membership application', 'my-iapsnj' ) ) . '</h3>';
         if ( $intro !== '' ) {
             echo '<p class="my-iapsnj-application-intro">' . esc_html( $intro ) . '</p>';
@@ -1394,26 +1571,104 @@ class My_IAPSNJ_Checkout_Fields {
         // Which form was printed: validate() refuses the order when the cart
         // changed on the page to one that needs another form.
         echo '<input type="hidden" name="' . esc_attr( self::FORM_INPUT ) . '" value="' . esc_attr( $form_id ) . '">';
+        // Conditional fields start shown or hidden for the prefilled answers;
+        // the footer script keeps them in step as the member answers.
+        $inputs  = self::input_fields( $form_id );
+        $parents = [];
+        foreach ( $inputs as $key => $def ) {
+            if ( (string) ( $def['parent'] ?? '' ) === '' ) {
+                $parents[ $key ] = self::sanitize_value( $def, $values[ $key ] ?? '' );
+            }
+        }
         foreach ( self::sections( $form_id ) as $section ) {
             if ( ! $section['fields'] ) {
                 continue; // a heading with nothing shown under it
             }
+            $shown = [];
+            foreach ( $section['fields'] as $key => $def ) {
+                $shown[ $key ] = self::condition_met( $def, $parents, $inputs );
+            }
             if ( $section['key'] !== '' ) {
                 $title_id = 'my-iapsnj-section-' . sanitize_html_class( $section['key'] );
-                echo '<div class="my-iapsnj-section" role="group" aria-labelledby="' . esc_attr( $title_id ) . '" data-my-iapsnj-section="' . esc_attr( $section['key'] ) . '">';
+                echo '<div class="my-iapsnj-section" role="group" aria-labelledby="' . esc_attr( $title_id ) . '" data-my-iapsnj-section="' . esc_attr( $section['key'] ) . '"' . ( in_array( true, $shown, true ) ? '' : ' style="display:none"' ) . '>';
                 echo '<h4 class="my-iapsnj-section-title" id="' . esc_attr( $title_id ) . '">' . esc_html( $section['label'] ) . '</h4>';
                 if ( $section['help'] !== '' ) {
                     echo '<p class="my-iapsnj-section-intro">' . esc_html( $section['help'] ) . '</p>';
                 }
             }
             foreach ( $section['fields'] as $key => $def ) {
-                $this->render_field( $key, $def, (string) ( $values[ $key ] ?? '' ) );
+                $this->render_field( $key, $def, (string) ( $values[ $key ] ?? '' ), $shown[ $key ] );
             }
             if ( $section['key'] !== '' ) {
                 echo '</div>';
             }
         }
         echo '</div>';
+    }
+
+    // -----------------------------------------------------------------------
+    // "View checkout" preview (administrators)
+    // -----------------------------------------------------------------------
+
+    /**
+     * The form an administrator asked to preview on the checkout page
+     * (?iapsnj_preview=<form>&iapsnj_preview_nonce=…), '' otherwise. The
+     * preview only changes what the administrator sees; validate() still
+     * decides by the cart, so an order that needs another form is refused.
+     */
+    public static function preview_form_id(): string {
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- verified below
+        $form_id = isset( $_GET[ self::PREVIEW_PARAM ] ) ? sanitize_key( wp_unslash( (string) $_GET[ self::PREVIEW_PARAM ] ) ) : '';
+        if ( $form_id === '' || ! current_user_can( 'manage_options' ) || ! self::form_exists( $form_id ) ) {
+            return '';
+        }
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- verified here
+        $nonce = isset( $_GET[ self::PREVIEW_NONCE ] ) ? sanitize_text_field( wp_unslash( (string) $_GET[ self::PREVIEW_NONCE ] ) ) : '';
+        return wp_verify_nonce( $nonce, 'my_iapsnj_preview_' . $form_id ) ? $form_id : '';
+    }
+
+    /**
+     * The mapped membership product a preview of $form_id opens with: one of
+     * the level the form is assigned to (Regular before Lifetime), else any
+     * membership product. 0 when none is mapped.
+     */
+    public static function preview_variation( string $form_id ): int {
+        $levels   = self::levels_for_form( $form_id );
+        $want     = $levels ? $levels[0] : My_IAPSNJ_Schema::TYPE_REGULAR;
+        $best     = 0;
+        $fallback = 0;
+        foreach ( My_IAPSNJ_Membership::products_config() as $vid => $cfg ) {
+            $type = (string) $cfg['member_type'];
+            if ( $fallback === 0 ) {
+                $fallback = (int) $vid;
+            }
+            if ( self::level_for_member_type( $type ) !== $want ) {
+                continue;
+            }
+            if ( $best === 0 || $type === $want ) {
+                $best = (int) $vid;
+                if ( $type === $want ) {
+                    break;
+                }
+            }
+        }
+        return $best ?: $fallback;
+    }
+
+    /**
+     * Front-end checkout URL that shows $form_id to the current administrator
+     * ('' when no membership product is mapped). Opening it puts the product
+     * in the administrator's cart; nothing is charged unless an order is placed.
+     */
+    public static function preview_url( string $form_id ): string {
+        $vid = self::form_exists( $form_id ) ? self::preview_variation( $form_id ) : 0;
+        if ( $vid <= 0 ) {
+            return '';
+        }
+        return My_IAPSNJ_Membership::checkout_url( $vid, [
+            self::PREVIEW_PARAM => $form_id,
+            self::PREVIEW_NONCE => wp_create_nonce( 'my_iapsnj_preview_' . $form_id ),
+        ] );
     }
 
     /**
@@ -1434,7 +1689,12 @@ class My_IAPSNJ_Checkout_Fields {
         return $groups;
     }
 
-    private function render_field( string $key, array $def, string $value ): void {
+    /**
+     * One application input. A conditional field (one with a parent) carries
+     * its rule for the footer script and starts hidden and disabled — so it
+     * is neither submitted nor browser-validated — unless $shown.
+     */
+    private function render_field( string $key, array $def, string $value, bool $shown = true ): void {
         $name     = self::input_name( $key );
         $id       = 'my-iapsnj-' . sanitize_html_class( $key );
         $required = ! empty( $def['required'] );
@@ -1443,8 +1703,16 @@ class My_IAPSNJ_Checkout_Fields {
         $help     = (string) ( $def['help'] ?? '' );
         $type     = (string) $def['type'];
         $options  = (array) ( $def['options'] ?? [] );
+        $parent   = (string) ( $def['parent'] ?? '' );
+        $req_attr .= $shown ? '' : ' disabled';
 
-        echo '<div class="fct_form_group my-iapsnj-field my-iapsnj-field-' . esc_attr( $type ) . '" data-my-iapsnj-field="' . esc_attr( $key ) . '">';
+        $wrap = ' data-my-iapsnj-field="' . esc_attr( $key ) . '"';
+        if ( $parent !== '' ) {
+            $wrap .= ' data-my-iapsnj-parent="' . esc_attr( self::input_name( $parent ) ) . '"'
+                . ' data-my-iapsnj-show-when="' . esc_attr( (string) wp_json_encode( array_values( (array) ( $def['show_when'] ?? [] ) ) ) ) . '"'
+                . ( $shown ? '' : ' style="display:none"' );
+        }
+        echo '<div class="fct_form_group my-iapsnj-field my-iapsnj-field-' . esc_attr( $type ) . ( $parent !== '' ? ' my-iapsnj-conditional' : '' ) . '"' . $wrap . '>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- attributes escaped above
 
         if ( $type === 'checkbox' ) {
             echo '<label class="fct_input_label fct_input_label_checkbox my-iapsnj-checkbox" for="' . esc_attr( $id ) . '">';
@@ -1457,7 +1725,7 @@ class My_IAPSNJ_Checkout_Fields {
             foreach ( $options as $opt ) {
                 $oid = $id . '-' . $i++;
                 echo '<label class="fct_input_label fct_input_label_checkbox my-iapsnj-radio" for="' . esc_attr( $oid ) . '">';
-                echo '<input type="radio" class="fct-input" id="' . esc_attr( $oid ) . '" name="' . esc_attr( $name ) . '" value="' . esc_attr( $opt ) . '"' . checked( $value, $opt, false ) . ( $required && $i === 1 ? ' required' : '' ) . '> ';
+                echo '<input type="radio" class="fct-input" id="' . esc_attr( $oid ) . '" name="' . esc_attr( $name ) . '" value="' . esc_attr( $opt ) . '"' . checked( $value, $opt, false ) . ( $required && $i === 1 ? ' required' : '' ) . ( $shown ? '' : ' disabled' ) . '> ';
                 echo '<span>' . esc_html( $opt ) . '</span></label>';
             }
             echo '</fieldset>';
@@ -1688,7 +1956,11 @@ class My_IAPSNJ_Checkout_Fields {
 
     /**
      * Keep typed values across FluentCart's client-side re-renders of the
-     * checkout form (sessionStorage, cleared on the receipt page).
+     * checkout form (sessionStorage, cleared on the receipt page), and show
+     * each conditional field only while its parent's answer matches (a
+     * hidden one is disabled, so it is neither submitted nor
+     * browser-validated; a section whose fields are all hidden is hidden).
+     * validate() / collect() apply the same rule on the server.
      */
     public function print_footer_script(): void {
         if ( ! $this->rendered ) {
@@ -1700,9 +1972,12 @@ class My_IAPSNJ_Checkout_Fields {
             . 'function read(){try{return JSON.parse(sessionStorage.getItem(K)||"{}")}catch(e){return {}}}'
             . 'function save(){var o=read();all().forEach(function(i){if(i.type==="radio"){if(i.checked){o[i.name]=i.value;}}else{o[i.name]=i.type==="checkbox"?(i.checked?"yes":""):i.value;}});try{sessionStorage.setItem(K,JSON.stringify(o))}catch(e){}}'
             . 'function restore(){var o=read();all().forEach(function(i){if(!(i.name in o)){return;}if(i.type==="checkbox"){if(!i.checked&&o[i.name]==="yes"){i.checked=true;}}else if(i.type==="radio"){if(i.value===o[i.name]){i.checked=true;}}else if(!i.value&&o[i.name]){i.value=o[i.name];}});}'
-            . 'function watch(e){if(e.target&&e.target.name&&e.target.name.indexOf(P)===0){save();}}'
+            . 'function val(n){var v="";document.querySelectorAll(\'[name="\'+n+\'"]\').forEach(function(i){if(i.type==="checkbox"){if(i.checked){v="yes";}}else if(i.type==="radio"){if(i.checked){v=i.value;}}else{v=String(i.value||"").trim();}});return v;}'
+            . 'function cond(){document.querySelectorAll("[data-my-iapsnj-parent]").forEach(function(w){var s=[];try{s=JSON.parse(w.getAttribute("data-my-iapsnj-show-when")||"[]");}catch(e){}var v=val(w.getAttribute("data-my-iapsnj-parent")),on=v!==""&&(!s.length||s.indexOf(v)>-1);w.style.display=on?"":"none";w.querySelectorAll("input,select,textarea").forEach(function(i){i.disabled=!on;});});'
+            . 'document.querySelectorAll("[data-my-iapsnj-section]").forEach(function(g){var any=false;g.querySelectorAll(".my-iapsnj-field").forEach(function(f){if(f.style.display!=="none"){any=true;}});g.style.display=any?"":"none";});}'
+            . 'function watch(e){if(e.target&&e.target.name&&e.target.name.indexOf(P)===0){save();cond();}}'
             . 'document.addEventListener("change",watch,true);document.addEventListener("input",watch,true);'
-            . 'restore();var n=0,t=setInterval(function(){restore();if(++n>120){clearInterval(t);}},1000);'
+            . 'restore();cond();var n=0,t=setInterval(function(){restore();cond();if(++n>120){clearInterval(t);}},1000);'
             . '})();</script>' . "\n";
     }
 
@@ -1748,7 +2023,8 @@ class My_IAPSNJ_Checkout_Fields {
             $errors[ self::FORM_INPUT ]['changed'] = __( 'Your cart changed and needs a different membership application. Please reload the checkout page and complete the form shown.', 'my-iapsnj' );
             return $errors;
         }
-        foreach ( $fields as $key => $def ) {
+        // A conditional field that is not shown for these answers is not required.
+        foreach ( self::visible_inputs( $form_id, $data ) as $key => $def ) {
             $name  = self::input_name( $key );
             $value = self::sanitize_value( $def, $data[ $name ] ?? null );
             $label = $def['type'] === 'checkbox' ? __( 'Certification', 'my-iapsnj' ) : $def['label'];

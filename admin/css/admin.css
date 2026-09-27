@@ -630,6 +630,16 @@ tr.fcrm-row-suggested:hover td {
 tr.fcrm-sort-helper { background: #fff; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18); opacity: 0.95; }
 .fcrm-fields-table tbody.ui-sortable { min-height: 44px; }
 .fcrm-fields-table tr.fcrm-fields-empty td { height: 44px; text-align: center; }
+/* Conditional (indented) rows */
+.fcrm-fields-table tr.fcrm-field-child td:nth-child(n+2) { background: #f7fbf7; }
+.fcrm-fields-table tr.fcrm-field-child td:nth-child(4) { padding-left: 34px; border-left: 3px solid #8fc39a; position: relative; }
+.fcrm-fields-table tr.fcrm-field-child td:nth-child(4)::before { content: "\21B3"; position: absolute; left: 12px; top: 9px; color: #5b9a67; font-size: 15px; }
+.fcrm-fields-table .fcrm-field-condition { margin-top: 6px; padding: 6px 8px; background: #eef7ef; border-radius: 3px; font-size: 12px; line-height: 1.5; }
+.fcrm-fields-table .fcrm-field-condition .fcrm-cond-arrow { display: none; }
+.fcrm-fields-table .fcrm-cond-values { display: block; width: 100%; max-width: 240px; margin-top: 4px; font-size: 12px; }
+.fcrm-fields-table .fcrm-cond-hint { display: block; margin-top: 2px; }
+.fcrm-fields-table .fcrm-field-arrows .button-link:disabled { opacity: 0.3; cursor: default; }
+.fcrm-fields-table tr.fcrm-sort-placeholder.fcrm-sort-placeholder-child td { border-left-width: 36px; border-left-color: #8fc39a; }
 .fcrm-products-table input[type="date"] { min-width: 150px; }
 .fcrm-steps-table td { vertical-align: middle; }
 .fcrm-mig-report h3 { margin-top: 0; }
