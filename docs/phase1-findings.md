@@ -35,6 +35,19 @@ https://iapsnj.org/?fluent-cart=instant_checkout&item_id={VARIATION_ID}&quantity
   `quantity`, `coupons` and redirects to the checkout page with the rest
   attached. This is what carries the application token.
 
+> **Superseded in 4.1 (2026-09-24):** Fluent Forms is out; the application is
+> collected on the checkout page. Verified against FluentCart **1.6.5**
+> source: the checkout JS posts the whole `<form>` (`new FormData(this.form)`),
+> `fluent_cart/checkout/validate_data` receives `['data','cart']`,
+> `fluent_cart/checkout/prepare_other_data` receives
+> `['cart','order','prev_order','request_data','validated_data']`,
+> `fluent_cart/before_payment_methods` fires inside the form with
+> `['cart']`, `fluent_cart/renewal_paid` fires only for store-billed
+> renewals while gateway-billed renewals fire `fluent_cart/subscription_renewed`
+> (both `['order' => …]`). FluentCRM 3.2.0
+> `Subscriber::syncCustomFieldValues($values, true)` deletes only the keys
+> passed as `''`. See `docs/checkout-fields.md`.
+
 **Prefilling billing fields via URL is not supported by FluentCart itself.**
 There is no `?email=` handling. What exists is the filter
 `fluent_cart/checkout_page_name_fields_schema` (`$fields, ['cart','scope']`),

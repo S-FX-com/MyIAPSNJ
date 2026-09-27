@@ -22,34 +22,54 @@ Both the field and the tags are checked because either can be set by hand.
 Verify on **each** automation individually (open it, confirm the block is the
 first step after the trigger, test with a Lifetime contact).
 
-## In code — fires on `fluent_cart/order_paid` (card or check, identical path)
+## In code — fires on `fluent_cart/order_paid` and `fluent_cart/renewal_paid` (card, subscription renewal or check, identical path)
 
 `includes/class-membership.php::apply_paid_order()`:
 
-1. Apply `Paid-YYYY` tag(s) from the product configuration.
+1. Compute the term from the payment date (deposit date for checks) and the
+   product's *years covered*: through Dec 31 of the payment year, or of the
+   next year when paid on/after the renewal-season cutover (default Oct 1).
+   Apply the matching `Paid-YYYY` tag(s).
 2. Set `member_type` (never lowered) and `paid_through` (never shortened; null
    for Lifetime/Honorary).
 3. Remove `Payment-Pending-Check` and `Checkout-Abandoned`.
-4. Fill empty CRM address fields from the checkout billing address.
+4. Fill empty CRM address fields from the checkout billing address; copy the
+   application fields collected at checkout (department, rank, …) onto the
+   contact (`docs/checkout-fields.md`).
 5. Create the WordPress user if none exists (password-reset email, not a
    password), link contact ↔ user ↔ FluentCart customer.
-6. Resolve and close the Fluent Forms application.
+6. Resolve and close the application row opened at checkout.
 7. **New member admin notification** (Sebbie's request, Billy's certificate
    trigger): plain-text email to *Sync & Settings → Recipients* containing
    name, member type, paid-through, product, payment method + amount, order
    number, **email, phone, full mailing address, department**, rank, member
    number, and links to the CRM contact and the FluentCart order. Sent only
-   when the payment is confirmed and the contact is a new member (join form,
-   or first payment on record). Never on application submitted.
-8. Actions for extensions: `my_iapsnj/membership_paid`, `my_iapsnj/new_member`,
-   `my_iapsnj/membership_refunded`; filter `my_iapsnj/new_member_notification`.
+   when the payment is confirmed and the contact is a new member (application
+   kind *join*, or first payment on record). Never on checkout started.
+8. Add the status tag `Member-Active` and give the WordPress user the role
+   mapped to its member type (Sync & Settings); mirror the contact onto the
+   WordPress profile (ACF meta).
+9. Actions for extensions: `my_iapsnj/membership_paid`, `my_iapsnj/new_member`,
+   `my_iapsnj/membership_refunded`, `my_iapsnj/membership_expired`; filter
+   `my_iapsnj/new_member_notification`.
+
+**Daily expiry job** (WP-Cron `my_iapsnj_daily`, 00:30 site time; `wp iapsnj
+expire`; Sync & Settings → Expirations): every contact whose `paid_through`
+(+ grace days) is past loses `Member-Active` and drops to the "when expired"
+role; anyone in good standing without the tag gets it. `Paid-YYYY` stays as
+history. Build "membership expired" emails on **Tag Removed → Member-Active**
+(automation H below), never on Paid-YYYY.
 
 Timezone rule (audit P1-4): `paid_through` is a calendar date string and is
 rendered with `My_IAPSNJ_Dates::ymd_display()` (UTC round-trip) so 12/31 is
 12/31 everywhere; order timestamps are rendered with `wp_date()`.
 
+`fluent_cart/checkout/form_data_changed` (email typed at checkout) → contact
+created, tag `Checkout-Abandoned`, application row opened.
+
 `fluent_cart/order_placed_offline` → tag `Payment-Pending-Check`, untag
-`Checkout-Abandoned`, mark the application *awaiting check*.
+`Checkout-Abandoned`, copy the application fields to the contact, mark the
+application *awaiting check*.
 
 `fluent_cart/order_fully_refunded` → remove the tags that order added, restore
 `member_type` / `paid_through` from the snapshot taken before payment, mark the
@@ -68,16 +88,14 @@ application refunded. (Test explicitly on staging — Phase 4.)
 ## FluentCRM automations to build (UI)
 
 Triggers available: FluentCart *Order Paid*, *Order Refunded*, *Cart Abandoned*;
-FluentCRM *Tag Applied*, *Tag Removed*, *Custom field updated*, *Contact created*;
-Fluent Forms *Form submitted*. Recommended set:
+FluentCRM *Tag Applied*, *Tag Removed*, *Custom field updated*, *Contact created*.
+Recommended set:
 
 ### A. Welcome (new member)
 
 * Trigger: **Tag Applied → `Paid-YYYY`** (current year) with condition
   *contact has no earlier `Paid-*` tag* (Conditional: tag does not include
-  Paid-2024, Paid-2025 …) — or trigger on Fluent Forms **join form submitted**
-  and *wait until* tag `Paid-*` applied (FluentCRM "Wait for event"). Prefer
-  the tag trigger: it fires only after payment.
+  Paid-2024, Paid-2025 …). It fires only after payment.
 * Exclusion condition (above).
 * Email: the **rewritten Welcome** — under the new flow the application is
   complete at signup, so drop the "please complete your application" wording.
@@ -93,16 +111,20 @@ Fluent Forms *Form submitted*. Recommended set:
 
 * Sequence / campaign to segment: `member_type` in (Regular, Associate) AND tag
   does not include `Paid-{next year}` AND exclusion condition.
-* Send Oct, Nov, Dec, Jan. Each email links to the **renewal form**, not to
-  checkout directly (the form prefills the contact and passes the token).
+* Send Oct, Nov, Dec, Jan. Each email links to the **renewal checkout** for
+  the segment's member type (the instant-checkout link from Membership
+  Products; Regular and Associate segments get different links), or to the
+  member-area page that carries `[iapsnj_renew_link]`. A logged-in member sees
+  the application fields prefilled from the CRM.
 * Dynamic segment refreshes as payments land; nobody who has `Paid-{next year}`
   receives the next send.
 
 ### D. Abandoned application follow-up
 
-* Trigger: **Tag Applied → `Checkout-Abandoned`**. Wait 2 days. Conditional:
-  tag still includes `Checkout-Abandoned` (it is removed on payment). Send
-  "finish your membership" with the checkout link. Optional second nudge at
+* Trigger: **Tag Applied → `Checkout-Abandoned`** (applied the moment an
+  email is typed at checkout). Wait 2 days. Conditional: tag still includes
+  `Checkout-Abandoned` (it is removed on payment / check placed). Send
+  "finish your membership" with the Join page link. Optional second nudge at
   7 days. Exclusion condition not needed (no member_type yet) but harmless.
 * The same list is visible any time in My IAPSNJ → Reports → *Applications
   awaiting payment*.
@@ -125,7 +147,19 @@ FluentCRM email instead, build: Trigger Tag Applied → `Paid-YYYY`, condition
 *new member* as in A, exclusion condition, email to Billy with SmartCodes
 `{{contact.full_name}}`, `{{contact.address_line_1}}`, `{{contact.city}}`,
 `{{contact.state}}`, `{{contact.postal_code}}`, `{{contact.custom.department}}`,
-`{{contact.email}}`, `{{contact.phone}}`. **Never** trigger on form submitted.
+`{{contact.email}}`, `{{contact.phone}}`. **Never** trigger on checkout
+started or `Checkout-Abandoned`.
+
+### H. Membership expired
+
+* Trigger: **Tag Removed → `Member-Active`** (the daily job removes it the
+  day after `paid_through`, i.e. Jan 1 for everyone who did not renew).
+* Exclusion condition (a comped contact never loses the tag, but keep the
+  block for safety). Optional Conditional: tag still does not include
+  `Member-Active` after a 1-day wait (a same-day payment re-adds it).
+* Email: "your membership has lapsed" with the renewal link
+  (`[iapsnj_renew_link]` page). The WordPress role has already been dropped by
+  the job, so any role-gated member content is closed at this point.
 
 ## Deliverability
 
@@ -142,5 +176,5 @@ at the new configuration must not be the 4,000-member renewal blast.
 - [ ] Join by card → Welcome once, notification once, receipt once
 - [ ] Join by check → offline email once; mark paid → Welcome, notification, receipt; `Payment-Pending-Check` gone
 - [ ] Renewal by card → B once, no Welcome, no notification
-- [ ] Abandon after form → D fires; pay → D stops
+- [ ] Type email at checkout and leave → D fires; pay → D stops
 - [ ] Dates in every email show 12/31 (not 12/30)

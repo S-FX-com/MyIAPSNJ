@@ -6,11 +6,19 @@
  * "a member paid", whatever the payment method:
  *
  *   card at checkout          → Stripe/PayPal webhook → fluent_cart/order_paid
+ *   subscription renewal      → renewal order paid    → fluent_cart/renewal_paid (+ order_paid)
  *   check, marked paid later  → Pending Checks screen  → fluent_cart/order_paid
  *   check without the website → Record a Check         → fluent_cart/order_paid
  *
- * On fluent_cart/order_paid the handler applies Paid-YYYY tags, sets
- * member_type and paid_through, removes the pending tags, creates the
+ * The term a payment buys is computed from the payment date, not from the
+ * product (My_IAPSNJ_Dates::membership_term): through Dec 31 of the payment
+ * year, or of the next year when paid on/after the renewal-season cutover
+ * (default Oct 1). A product only says how many years it covers (1, 5 …) and
+ * which member type it grants; Lifetime has no term.
+ *
+ * On order_paid the handler applies Paid-YYYY tags, sets member_type and
+ * paid_through (never shortened), removes the pending tags, copies the
+ * application fields collected at checkout onto the contact, creates the
  * WordPress user if none exists, resolves the application, and sends the
  * new-member admin notification (name, full mailing address, email, phone,
  * department — the certificate trigger, and it fires on paid only).
@@ -42,11 +50,6 @@ class My_IAPSNJ_Membership {
     const META_DEPOSIT_DATE = '_my_iapsnj_deposit_date';
     const META_NOTIFIED     = '_my_iapsnj_notified';
 
-    // Cart checkout_data key and public query parameter carrying the token.
-    const CART_TOKEN_KEY = '__iapsnj_app';
-    const QUERY_TOKEN    = 'iapsnj_app';
-    const COOKIE_TOKEN   = 'my_iapsnj_app';
-
     // FluentCart's built-in offline method (labelled "Cash" until renamed).
     const OFFLINE_METHOD = 'offline_payment';
     const OFFLINE_SETTINGS_KEY = 'fluent_cart_payment_settings_offline_payment';
@@ -56,9 +59,6 @@ class My_IAPSNJ_Membership {
     /** @var bool Suppress FluentCart's "order placed (offline)" mail while Record a Check runs. */
     private static bool $suppress_offline_mail = false;
 
-    /** @var string Email to lock at checkout (set during the fields filter, printed in wp_footer). */
-    private string $lock_email = '';
-
     public static function get_instance(): self {
         if ( null === self::$instance ) {
             self::$instance = new self();
@@ -66,15 +66,21 @@ class My_IAPSNJ_Membership {
         return self::$instance;
     }
 
+    /** Daily WP-Cron event: expire lapsed memberships (tag + role). */
+    const CRON_HOOK = 'my_iapsnj_daily';
+
     private function __construct() {
+        add_action( self::CRON_HOOK, [ $this, 'on_daily_cron' ] );
         add_action( 'fluent_cart/order_paid',            [ $this, 'on_order_paid' ], 10, 1 );
+        // Store-billed renewals (manual / system invoices) fire renewal_paid;
+        // gateway-billed renewals (Stripe auto-charge) only fire
+        // subscription_renewed. Both carry ['order' => renewal Order]. The
+        // handler is idempotent per order (verified in FluentCart 1.6.5:
+        // StatusHelper::syncOrderStatuses, SubscriptionService).
+        add_action( 'fluent_cart/renewal_paid',          [ $this, 'on_order_paid' ], 10, 1 );
+        add_action( 'fluent_cart/subscription_renewed',  [ $this, 'on_order_paid' ], 10, 1 );
         add_action( 'fluent_cart/order_placed_offline',  [ $this, 'on_order_placed_offline' ], 10, 1 );
         add_action( 'fluent_cart/order_fully_refunded',  [ $this, 'on_order_fully_refunded' ], 10, 1 );
-
-        // Application token → cart, email lock at checkout.
-        add_action( 'init', [ $this, 'capture_token_cookie' ] );
-        add_filter( 'fluent_cart/checkout_page_name_fields_schema', [ $this, 'filter_checkout_name_fields' ], 20, 2 );
-        add_action( 'wp_footer', [ $this, 'print_email_lock_script' ], 99 );
 
         add_filter( 'fluent_cart/should_send_email_notification', [ $this, 'filter_email_notification' ], 10, 2 );
     }
@@ -92,7 +98,18 @@ class My_IAPSNJ_Membership {
     // -----------------------------------------------------------------------
 
     /**
-     * variation id → [ member_type, paid_through, years[] ]
+     * Renewal-season cutover ("MM-DD"): a payment on/after this date buys the
+     * following year. Default Oct 1.
+     */
+    public static function renewal_cutover(): string {
+        return My_IAPSNJ_Dates::month_day( My_IAPSNJ_Plugin::settings()['renewal_cutover'] ?? '10-01' );
+    }
+
+    /**
+     * variation id → [ label, member_type, duration (years covered), lifetime ]
+     *
+     * Older rows (4.0/4.1) stored a fixed paid_through and a list of years;
+     * they are read as duration = count(years). Lifetime has no duration.
      *
      * @return array<int,array>
      */
@@ -111,13 +128,16 @@ class My_IAPSNJ_Membership {
             if ( ! in_array( $type, My_IAPSNJ_Schema::member_types(), true ) ) {
                 continue;
             }
-            $years = array_values( array_unique( array_filter( array_map( 'intval', (array) ( $cfg['years'] ?? [] ) ) ) ) );
-            sort( $years );
+            $duration = (int) ( $cfg['duration'] ?? 0 );
+            if ( $duration <= 0 ) {
+                $duration = max( 1, count( array_filter( array_map( 'intval', (array) ( $cfg['years'] ?? [] ) ) ) ) );
+            }
+            $lifetime = $type === My_IAPSNJ_Schema::TYPE_LIFETIME;
             $out[ $vid ] = [
-                'label'        => (string) ( $cfg['label'] ?? '' ),
-                'member_type'  => $type,
-                'paid_through' => $type === My_IAPSNJ_Schema::TYPE_LIFETIME ? '' : My_IAPSNJ_Dates::ymd( $cfg['paid_through'] ?? '' ),
-                'years'        => $years,
+                'label'       => (string) ( $cfg['label'] ?? '' ),
+                'member_type' => $type,
+                'duration'    => $lifetime ? 0 : min( 10, $duration ),
+                'lifetime'    => $lifetime,
             ];
         }
         return $out;
@@ -128,9 +148,20 @@ class My_IAPSNJ_Membership {
     }
 
     /**
+     * Human label for what a product grants ("Regular · 1 year", "Lifetime").
+     */
+    public static function product_grant_label( array $cfg ): string {
+        if ( ! empty( $cfg['lifetime'] ) ) {
+            return My_IAPSNJ_Schema::TYPE_LIFETIME;
+        }
+        $n = (int) ( $cfg['duration'] ?? 1 );
+        return (string) $cfg['member_type'] . ' · ' . sprintf( _n( '%d year', '%d years', $n, 'my-iapsnj' ), $n );
+    }
+
+    /**
      * Persist the product configuration (admin screen). Unknown keys dropped.
      *
-     * @param array<int,array> $config
+     * @param array<int,array> $config vid => ['label','enabled','member_type','duration']
      */
     public static function save_products_config( array $config ): void {
         $clean = [];
@@ -139,19 +170,12 @@ class My_IAPSNJ_Membership {
             if ( $vid <= 0 || ! is_array( $cfg ) ) {
                 continue;
             }
-            $years = [];
-            foreach ( (array) ( $cfg['years'] ?? [] ) as $y ) {
-                $y = (int) $y;
-                if ( $y >= 2000 && $y <= 2100 ) {
-                    $years[] = $y;
-                }
-            }
+            $duration = (int) ( $cfg['duration'] ?? 1 );
             $clean[ $vid ] = [
-                'label'        => sanitize_text_field( (string) ( $cfg['label'] ?? '' ) ),
-                'enabled'      => ! empty( $cfg['enabled'] ),
-                'member_type'  => sanitize_text_field( (string) ( $cfg['member_type'] ?? '' ) ),
-                'paid_through' => My_IAPSNJ_Dates::ymd( $cfg['paid_through'] ?? '' ),
-                'years'        => array_values( array_unique( $years ) ),
+                'label'       => sanitize_text_field( (string) ( $cfg['label'] ?? '' ) ),
+                'enabled'     => ! empty( $cfg['enabled'] ),
+                'member_type' => sanitize_text_field( (string) ( $cfg['member_type'] ?? '' ) ),
+                'duration'    => min( 10, max( 1, $duration ) ),
             ];
         }
         update_option( self::OPTION_PRODUCTS, $clean );
@@ -192,7 +216,8 @@ class My_IAPSNJ_Membership {
 
     /**
      * Instant-checkout URL for a variation (FluentCart 1.6 format, verified in
-     * WebRoutes::registerRoutes). Extra query args survive the redirect.
+     * WebRoutes::registerRoutes). These are the Join-page buttons; the
+     * application fields are collected on the checkout page itself.
      */
     public static function checkout_url( int $variation_id, array $extra = [] ): string {
         $url = site_url( '?fluent-cart=instant_checkout&item_id=' . $variation_id . '&quantity=1' );
@@ -204,12 +229,14 @@ class My_IAPSNJ_Membership {
     // -----------------------------------------------------------------------
 
     /**
-     * Combine the configured items of an order into one membership outcome.
+     * Combine the configured items of an order into one membership outcome,
+     * with the term computed from the payment date.
      *
      * @param object $order FluentCart Order (order_items loaded)
-     * @return array{member_type:string,paid_through:string,years:int[],items:array,lifetime:bool}|null
+     * @param string $as_of Payment date Y-m-d (site timezone); '' = today
+     * @return array{member_type:string,paid_through:string,years:int[],duration:int,items:array,lifetime:bool,as_of:string}|null
      */
-    public static function plan_for_order( $order ): ?array {
+    public static function plan_for_order( $order, string $as_of = '' ): ?array {
         $config = self::products_config();
         if ( ! $config ) {
             return null;
@@ -225,8 +252,10 @@ class My_IAPSNJ_Membership {
             'member_type'  => '',
             'paid_through' => '',
             'years'        => [],
+            'duration'     => 0,
             'items'        => [],
             'lifetime'     => false,
+            'as_of'        => My_IAPSNJ_Dates::ymd( $as_of ) ?: My_IAPSNJ_Dates::today(),
         ];
         foreach ( $items as $item ) {
             $vid = (int) ( $item->object_id ?? 0 );
@@ -239,27 +268,45 @@ class My_IAPSNJ_Membership {
                 'title'        => trim( (string) ( $item->post_title ?? '' ) . ' ' . (string) ( $item->title ?? '' ) ),
                 'quantity'     => (int) ( $item->quantity ?? 1 ),
                 'member_type'  => $cfg['member_type'],
-                'paid_through' => $cfg['paid_through'],
-                'years'        => $cfg['years'],
+                'duration'     => (int) $cfg['duration'],
             ];
             if ( My_IAPSNJ_Schema::member_type_rank( $cfg['member_type'] ) > My_IAPSNJ_Schema::member_type_rank( $plan['member_type'] ) ) {
                 $plan['member_type'] = $cfg['member_type'];
             }
-            if ( $cfg['member_type'] === My_IAPSNJ_Schema::TYPE_LIFETIME ) {
+            if ( ! empty( $cfg['lifetime'] ) ) {
                 $plan['lifetime'] = true;
             }
-            $plan['paid_through'] = My_IAPSNJ_Dates::ymd_max( $plan['paid_through'], $cfg['paid_through'] );
-            $plan['years']        = array_merge( $plan['years'], $cfg['years'] );
+            $plan['duration'] = max( $plan['duration'], (int) $cfg['duration'] );
         }
         if ( ! $plan['items'] ) {
             return null;
         }
-        $plan['years'] = array_values( array_unique( $plan['years'] ) );
-        sort( $plan['years'] );
         if ( $plan['lifetime'] ) {
             $plan['paid_through'] = '';
+            $plan['years']        = [];
+            $plan['duration']     = 0;
+            return $plan;
         }
+        $term                 = My_IAPSNJ_Dates::membership_term( $plan['as_of'], max( 1, $plan['duration'] ), self::renewal_cutover() );
+        $plan['paid_through'] = $term['paid_through'];
+        $plan['years']        = $term['years'];
         return $plan;
+    }
+
+    /**
+     * The date a paid order counts from: the deposit date recorded for a
+     * check, else today (order_paid fires at payment time).
+     */
+    public static function paid_as_of( $order ): string {
+        try {
+            $deposit = My_IAPSNJ_Dates::ymd( (string) $order->getMeta( self::META_DEPOSIT_DATE, '' ) );
+            if ( $deposit !== '' ) {
+                return $deposit;
+            }
+        } catch ( \Throwable $e ) {
+            // fall through
+        }
+        return My_IAPSNJ_Dates::today();
     }
 
     // -----------------------------------------------------------------------
@@ -267,10 +314,12 @@ class My_IAPSNJ_Membership {
     // -----------------------------------------------------------------------
 
     /**
-     * @param array $data ['order' => Order, 'customer' => Customer|null, 'transaction' => OrderTransaction|null]
+     * fluent_cart/order_paid and fluent_cart/renewal_paid.
+     *
+     * @param mixed $data ['order' => Order, …] or the Order itself (renewal_paid)
      */
     public function on_order_paid( $data ): void {
-        $order = is_array( $data ) ? ( $data['order'] ?? null ) : null;
+        $order = is_array( $data ) ? ( $data['order'] ?? null ) : $data;
         if ( ! is_object( $order ) || empty( $order->id ) ) {
             return;
         }
@@ -292,18 +341,23 @@ class My_IAPSNJ_Membership {
         if ( (string) $order->payment_status !== 'paid' ) {
             return null;
         }
-        if ( in_array( (string) $order->type, [ 'renewal' ], true ) ) {
-            return null; // store-managed subscription renewals do not exist in this setup
-        }
         if ( $order->getMeta( self::META_APPLIED ) ) {
-            return null;
+            return null; // idempotent: order_paid and renewal_paid may both fire
         }
 
         $order->load( [ 'customer', 'order_items', 'billing_address' ] );
 
-        $plan = self::plan_for_order( $order );
+        // Subscription renewals are ordinary orders of type "renewal": same
+        // rule, term counted from the renewal payment date.
+        $plan = self::plan_for_order( $order, self::paid_as_of( $order ) );
         if ( ! $plan ) {
             $order->updateMeta( self::META_SKIPPED, 'no_configured_membership_product' );
+            $this->order_log(
+                $order,
+                'My IAPSNJ: membership not applied',
+                'None of the order items is configured in My IAPSNJ → Membership Products (variation ids may have changed). Items: ' . My_IAPSNJ_Checkout_Fields::order_item_ids( $order ),
+                'warning'
+            );
             return null;
         }
 
@@ -333,6 +387,9 @@ class My_IAPSNJ_Membership {
             $this->order_log( $order, 'My IAPSNJ: membership not applied', 'FluentCRM contact could not be created or updated.', 'error' );
             return null;
         }
+
+        // ---- Application fields collected at checkout ---------------------
+        My_IAPSNJ_Checkout_Fields::apply_to_contact( $order, $subscriber );
 
         // ---- member_type / paid_through -----------------------------------
         $new_type = $plan['member_type'];
@@ -368,6 +425,9 @@ class My_IAPSNJ_Membership {
         // ---- WordPress login -----------------------------------------------
         $user_id = $this->ensure_wp_user( $subscriber, $order );
 
+        // ---- Member-Active tag + WordPress role ---------------------------
+        self::reconcile_contact( $subscriber );
+
         // ---- Application ---------------------------------------------------
         $app = My_IAPSNJ_Applications::resolve_for_order( $order );
         if ( $app ) {
@@ -391,6 +451,11 @@ class My_IAPSNJ_Membership {
             $is_new = true;
         }
 
+        // ---- join_date: the first payment, never overwritten ---------------
+        if ( My_IAPSNJ_Schema::field( $subscriber, My_IAPSNJ_Schema::FIELD_JOIN_DATE ) === '' && ( $is_new || ! $had_paid_years ) ) {
+            My_IAPSNJ_Schema::set_fields( $subscriber, [ My_IAPSNJ_Schema::FIELD_JOIN_DATE => $plan['as_of'] ] );
+        }
+
         $applied = [
             'subscriber_id' => (int) $subscriber->id,
             'user_id'       => $user_id,
@@ -400,6 +465,8 @@ class My_IAPSNJ_Membership {
             'tags_added'    => $tags_added,
             'items'         => $plan['items'],
             'application'   => $app ? (int) $app->id : 0,
+            'as_of'         => $plan['as_of'],
+            'order_type'    => (string) $order->type,
             'kind'          => $is_new ? 'join' : 'renewal',
             'source'        => (string) ( $order->getMeta( self::META_SOURCE ) ?: 'checkout' ),
             'payment'       => (string) $order->payment_method === self::OFFLINE_METHOD ? 'check' : 'card',
@@ -412,10 +479,12 @@ class My_IAPSNJ_Membership {
             $order,
             'My IAPSNJ: membership updated',
             sprintf(
-                'Contact #%d: member_type=%s, paid_through=%s, tags added: %s',
+                'Contact #%d: member_type=%s, paid_through=%s (paid %s, cutover %s), tags added: %s',
                 (int) $subscriber->id,
                 $new_type,
                 $applied['paid_through'] !== '' ? $applied['paid_through'] : 'null',
+                $plan['as_of'],
+                self::renewal_cutover(),
                 $tags_added ? implode( ', ', $tags_added ) : '(none)'
             )
         );
@@ -429,12 +498,224 @@ class My_IAPSNJ_Membership {
          */
         do_action( 'my_iapsnj/membership_paid', $subscriber, $order, $applied );
 
+        // ---- Mirror CRM → WordPress user (ACF-era profile meta) -----------
+        // FluentCRM fired contact_updated during the upsert above, before the
+        // membership fields were set; run the mirror again with the final
+        // values so member_status / expiration_date / join_date / department
+        // on the WP profile match the CRM.
+        self::mirror_to_wp( $subscriber );
+
         if ( $is_new ) {
             $this->send_new_member_notification( $subscriber, $order, $applied );
             do_action( 'my_iapsnj/new_member', $subscriber, $order, $applied );
         }
 
         return $applied;
+    }
+
+    // -----------------------------------------------------------------------
+    // Membership state: Member-Active tag, WordPress role, daily expiry
+    // -----------------------------------------------------------------------
+
+    /**
+     * 'active' (comped, or paid through today or later), 'expired'
+     * (paid_through in the past or missing), '' (no member_type: not a member).
+     *
+     * @param array<string,mixed> $custom contact custom fields
+     */
+    public static function state_of( array $custom ): string {
+        $type = $custom[ My_IAPSNJ_Schema::FIELD_MEMBER_TYPE ] ?? '';
+        $type = is_array( $type ) ? (string) reset( $type ) : (string) $type;
+        if ( $type === '' ) {
+            return '';
+        }
+        $pt = $custom[ My_IAPSNJ_Schema::FIELD_PAID_THROUGH ] ?? '';
+        $pt = is_array( $pt ) ? (string) reset( $pt ) : (string) $pt;
+        return My_IAPSNJ_Schema::is_active_state( $type, $pt ) ? 'active' : 'expired';
+    }
+
+    /**
+     * Make the Member-Active tag and the WordPress role match the contact's
+     * state. Fires my_iapsnj/membership_expired when the tag comes off.
+     *
+     * @param array<string,mixed>|null $custom       pre-loaded custom fields
+     * @param string[]|null            $current_tags pre-loaded managed tag slugs
+     * @return array{state:string,tag:string,role:string} tag: 'added' | 'removed' | ''
+     */
+    public static function reconcile_contact( Subscriber $subscriber, ?array $custom = null, ?array $current_tags = null ): array {
+        if ( $custom === null ) {
+            $custom = $subscriber->custom_fields();
+        }
+        $state = self::state_of( $custom );
+        $out   = [ 'state' => $state, 'tag' => '', 'role' => '' ];
+        if ( $state === '' ) {
+            return $out;
+        }
+        $ids    = My_IAPSNJ_Schema::tag_ids( [ My_IAPSNJ_Schema::TAG_ACTIVE ] );
+        $tag_id = (int) ( $ids[ My_IAPSNJ_Schema::TAG_ACTIVE ] ?? 0 );
+        if ( $current_tags === null ) {
+            $current_tags = My_IAPSNJ_Schema::managed_tag_slugs( $subscriber );
+        }
+        $has = in_array( My_IAPSNJ_Schema::TAG_ACTIVE, $current_tags, true );
+        if ( $tag_id && $state === 'active' && ! $has ) {
+            $subscriber->attachTags( [ $tag_id ] );
+            $out['tag'] = 'added';
+        } elseif ( $tag_id && $state === 'expired' && $has ) {
+            $subscriber->detachTags( [ $tag_id ] );
+            $out['tag'] = 'removed';
+        }
+        if ( ! empty( $subscriber->user_id ) ) {
+            try {
+                $out['role'] = My_IAPSNJ_Engine::apply_role( $subscriber, (int) $subscriber->user_id, $custom );
+            } catch ( \Throwable $e ) {
+                error_log( 'My IAPSNJ: role update failed for contact #' . (int) $subscriber->id . ': ' . $e->getMessage() );
+            }
+        }
+        if ( $out['tag'] === 'removed' ) {
+            /**
+             * A membership lapsed: paid_through is past, Member-Active removed,
+             * role dropped.
+             *
+             * @param Subscriber $subscriber
+             * @param array      $custom custom fields at the time
+             */
+            do_action( 'my_iapsnj/membership_expired', $subscriber, $custom );
+        }
+        return $out;
+    }
+
+    /**
+     * Daily expiry / reconciliation: every contact with a member_type whose
+     * Member-Active tag disagrees with its state gets the tag added or
+     * removed and its WordPress role updated. Idempotent; safe to run any
+     * time (also the way migrated members get their tag and role).
+     *
+     * @param bool $dry   Report only.
+     * @param int  $limit Max contacts to change (0 = all).
+     * @return array{active:int,expired:int,to_activate:int,to_expire:int,activated:int,expired_now:int,roles_changed:int,samples:string[],dry:bool}
+     */
+    public static function run_expirations( bool $dry = false, int $limit = 0 ): array {
+        global $wpdb;
+        $report = [ 'active' => 0, 'expired' => 0, 'to_activate' => 0, 'to_expire' => 0, 'activated' => 0, 'expired_now' => 0, 'roles_changed' => 0, 'samples' => [], 'dry' => $dry ];
+
+        $meta = $wpdb->prefix . 'fc_subscriber_meta';
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT subscriber_id, `key`, value FROM {$meta} WHERE object_type = 'custom_field' AND `key` IN (%s, %s)", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+            My_IAPSNJ_Schema::FIELD_MEMBER_TYPE,
+            My_IAPSNJ_Schema::FIELD_PAID_THROUGH
+        ), ARRAY_A );
+        $contacts = [];
+        foreach ( (array) $rows as $r ) {
+            $value = maybe_unserialize( (string) $r['value'] );
+            $contacts[ (int) $r['subscriber_id'] ][ (string) $r['key'] ] = is_array( $value ) ? (string) reset( $value ) : (string) $value;
+        }
+
+        $ids    = My_IAPSNJ_Schema::tag_ids( [ My_IAPSNJ_Schema::TAG_ACTIVE ] );
+        $tag_id = (int) ( $ids[ My_IAPSNJ_Schema::TAG_ACTIVE ] ?? 0 );
+        $pivot  = $wpdb->prefix . 'fc_subscriber_pivot';
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $tagged = $tag_id ? array_map( 'intval', (array) $wpdb->get_col( $wpdb->prepare(
+            "SELECT subscriber_id FROM {$pivot} WHERE object_type = %s AND object_id = %d", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+            'FluentCrm\App\Models\Tag',
+            $tag_id
+        ) ) ) : [];
+        $tagged = array_flip( $tagged );
+
+        $work = [];
+        foreach ( $contacts as $sid => $custom ) {
+            $state = self::state_of( $custom );
+            if ( $state === '' ) {
+                continue;
+            }
+            $report[ $state ]++;
+            $has = isset( $tagged[ $sid ] );
+            if ( $state === 'active' && ! $has ) {
+                $report['to_activate']++;
+                $work[ $sid ] = [ $custom, [] ];
+            } elseif ( $state === 'expired' && $has ) {
+                $report['to_expire']++;
+                $work[ $sid ] = [ $custom, [ My_IAPSNJ_Schema::TAG_ACTIVE ] ];
+            }
+        }
+
+        $done = 0;
+        foreach ( $work as $sid => [ $custom, $tags ] ) {
+            if ( $limit > 0 && $done >= $limit ) {
+                break;
+            }
+            $subscriber = Subscriber::where( 'id', $sid )->first();
+            if ( ! $subscriber instanceof Subscriber ) {
+                continue;
+            }
+            if ( count( $report['samples'] ) < 50 ) {
+                $report['samples'][] = sprintf(
+                    '%s → %s (paid through %s)',
+                    (string) $subscriber->email,
+                    $tags ? 'expire' : 'activate',
+                    (string) ( $custom[ My_IAPSNJ_Schema::FIELD_PAID_THROUGH ] ?? '' ) !== '' ? My_IAPSNJ_Dates::ymd_display( $custom[ My_IAPSNJ_Schema::FIELD_PAID_THROUGH ] ) : 'n/a'
+                );
+            }
+            $done++;
+            if ( $dry ) {
+                continue;
+            }
+            try {
+                $r = self::reconcile_contact( $subscriber, $custom, $tags );
+            } catch ( \Throwable $e ) {
+                error_log( 'My IAPSNJ: expiry failed for contact #' . $sid . ': ' . $e->getMessage() );
+                continue;
+            }
+            if ( $r['tag'] === 'added' ) {
+                $report['activated']++;
+            } elseif ( $r['tag'] === 'removed' ) {
+                $report['expired_now']++;
+            }
+            if ( $r['role'] !== '' ) {
+                $report['roles_changed']++;
+            }
+        }
+        if ( ! $dry ) {
+            update_option( 'my_iapsnj_last_expiry_run', [ 'at' => My_IAPSNJ_Dates::now_utc(), 'report' => array_diff_key( $report, [ 'samples' => 1 ] ) ], false );
+        }
+        return $report;
+    }
+
+    public function on_daily_cron(): void {
+        try {
+            self::run_expirations( false );
+        } catch ( \Throwable $e ) {
+            error_log( 'My IAPSNJ: daily expiry run failed: ' . $e->getMessage() );
+        }
+    }
+
+    /**
+     * Schedule the daily run at 00:30 site time if it is not scheduled.
+     */
+    public static function ensure_cron(): void {
+        if ( wp_next_scheduled( self::CRON_HOOK ) ) {
+            return;
+        }
+        try {
+            $first = ( new \DateTime( 'tomorrow 00:30', wp_timezone() ) )->getTimestamp();
+        } catch ( \Throwable $e ) {
+            $first = time() + DAY_IN_SECONDS;
+        }
+        wp_schedule_event( $first, 'daily', self::CRON_HOOK );
+    }
+
+    /**
+     * Copy the contact onto its linked WordPress user through the Profile
+     * Mirror (no-op when the contact has no user yet). Best effort.
+     */
+    public static function mirror_to_wp( Subscriber $subscriber ): void {
+        try {
+            if ( ! empty( My_IAPSNJ_Plugin::settings()['sync_on_fcrm_update'] ) ) {
+                My_IAPSNJ_Engine::get_instance()->sync_fcrm_to_wp( $subscriber );
+            }
+        } catch ( \Throwable $e ) {
+            error_log( 'My IAPSNJ: profile mirror failed for contact #' . (int) $subscriber->id . ': ' . $e->getMessage() );
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -462,6 +743,9 @@ class My_IAPSNJ_Membership {
                 $ids = My_IAPSNJ_Schema::tag_ids( [ My_IAPSNJ_Schema::TAG_PENDING_CHECK, My_IAPSNJ_Schema::TAG_ABANDONED ] );
                 $subscriber->attachTags( [ $ids[ My_IAPSNJ_Schema::TAG_PENDING_CHECK ] ] );
                 $subscriber->detachTags( [ $ids[ My_IAPSNJ_Schema::TAG_ABANDONED ] ] );
+                // Profile data from the application (department, rank …); not membership state.
+                My_IAPSNJ_Checkout_Fields::apply_to_contact( $order, $subscriber );
+                self::mirror_to_wp( $subscriber );
             }
             $app = My_IAPSNJ_Applications::resolve_for_order( $order );
             if ( $app ) {
@@ -524,6 +808,8 @@ class My_IAPSNJ_Membership {
                 if ( $restore ) {
                     My_IAPSNJ_Schema::set_fields( $subscriber, $restore );
                 }
+                self::reconcile_contact( $subscriber );
+                self::mirror_to_wp( $subscriber );
             }
             My_IAPSNJ_Applications::mark_refunded_for_order( (int) $order->id );
             $order->updateMeta( self::META_REFUNDED, My_IAPSNJ_Dates::now_utc() );
@@ -538,131 +824,6 @@ class My_IAPSNJ_Membership {
         } catch ( \Throwable $e ) {
             error_log( 'My IAPSNJ: refund handler failed for order ' . (int) $order->id . ': ' . $e->getMessage() );
         }
-    }
-
-    // -----------------------------------------------------------------------
-    // Checkout: token capture + email lock
-    // -----------------------------------------------------------------------
-
-    /**
-     * The Fluent Forms redirect lands on ?fluent-cart=instant_checkout&…&iapsnj_app=TOKEN,
-     * which FluentCart forwards to the checkout page with the token intact.
-     * Remember it in a short-lived cookie for the rest of the checkout.
-     */
-    public function capture_token_cookie(): void {
-        if ( is_admin() || wp_doing_ajax() || wp_doing_cron() ) {
-            return;
-        }
-        // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-        $token = isset( $_GET[ self::QUERY_TOKEN ] ) ? sanitize_text_field( wp_unslash( $_GET[ self::QUERY_TOKEN ] ) ) : '';
-        if ( $token === '' || ! My_IAPSNJ_Applications::get_by_token( $token ) ) {
-            return;
-        }
-        if ( ! headers_sent() ) {
-            setcookie( self::COOKIE_TOKEN, $token, time() + 2 * HOUR_IN_SECONDS, COOKIEPATH ? COOKIEPATH : '/', COOKIE_DOMAIN, is_ssl(), true );
-        }
-        $_COOKIE[ self::COOKIE_TOKEN ] = $token;
-    }
-
-    /**
-     * Token for the current front-end request (query string, then cookie).
-     */
-    public static function current_token(): string {
-        // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-        $token = isset( $_GET[ self::QUERY_TOKEN ] ) ? sanitize_text_field( wp_unslash( $_GET[ self::QUERY_TOKEN ] ) ) : '';
-        if ( $token === '' && isset( $_COOKIE[ self::COOKIE_TOKEN ] ) ) {
-            $token = sanitize_text_field( wp_unslash( $_COOKIE[ self::COOKIE_TOKEN ] ) );
-        }
-        return $token;
-    }
-
-    /**
-     * fluent_cart/checkout_page_name_fields_schema — store the token on the
-     * cart and prefill + lock the email so the order cannot orphan.
-     *
-     * @param array $fields
-     * @param array $data ['cart' => Cart|null, 'scope' => 'render'|…]
-     * @return array
-     */
-    public function filter_checkout_name_fields( $fields, $data = [] ) {
-        if ( ! is_array( $fields ) ) {
-            return $fields;
-        }
-        $token = self::current_token();
-        if ( $token === '' ) {
-            return $fields;
-        }
-        $app = My_IAPSNJ_Applications::get_by_token( $token );
-        if ( ! $app ) {
-            return $fields;
-        }
-
-        $cart = is_array( $data ) ? ( $data['cart'] ?? null ) : null;
-        if ( is_object( $cart ) ) {
-            try {
-                $cd = $cart->checkout_data;
-                if ( ! is_array( $cd ) ) {
-                    $cd = [];
-                }
-                if ( ( $cd[ self::CART_TOKEN_KEY ] ?? '' ) !== $token ) {
-                    $cd[ self::CART_TOKEN_KEY ] = $token;
-                    $cart->checkout_data        = $cd;
-                    $cart->save();
-                }
-            } catch ( \Throwable $e ) {
-                error_log( 'My IAPSNJ: could not store application token on cart: ' . $e->getMessage() );
-            }
-        }
-
-        if ( isset( $fields['billing_email'] ) && is_array( $fields['billing_email'] ) ) {
-            $fields['billing_email']['value']    = (string) $app->email;
-            $fields['billing_email']['readonly'] = 'readonly';
-            $this->lock_email                    = (string) $app->email;
-        }
-        $full = trim( (string) $app->first_name . ' ' . (string) $app->last_name );
-        if ( $full !== '' && isset( $fields['billing_full_name'] ) && empty( $fields['billing_full_name']['value'] ) ) {
-            $fields['billing_full_name']['value'] = $full;
-        }
-        if ( isset( $fields['billing_first_name'] ) && empty( $fields['billing_first_name']['value'] ) ) {
-            $fields['billing_first_name']['value'] = (string) $app->first_name;
-        }
-        if ( isset( $fields['billing_last_name'] ) && empty( $fields['billing_last_name']['value'] ) ) {
-            $fields['billing_last_name']['value'] = (string) $app->last_name;
-        }
-        return $fields;
-    }
-
-    /**
-     * Belt and braces for the readonly attribute: FluentCart re-renders the
-     * checkout form client-side, so enforce the lock in the browser too.
-     */
-    public function print_email_lock_script(): void {
-        if ( $this->lock_email === '' ) {
-            return;
-        }
-        $email = wp_json_encode( $this->lock_email );
-        echo '<script>(function(){var e=' . $email . ';function lock(){var i=document.querySelector(\'input[name="billing_email"]\');if(i){if(!i.value){i.value=e;}i.readOnly=true;i.setAttribute("aria-readonly","true");}}lock();var t=setInterval(lock,800);setTimeout(function(){clearInterval(t);},60000);})();</script>' . "\n";
-    }
-
-    /**
-     * Token stored on the cart that produced an order ('' when none).
-     */
-    public static function token_for_order( $order ): string {
-        if ( ! class_exists( '\FluentCart\App\Models\Cart' ) || ! is_object( $order ) ) {
-            return '';
-        }
-        try {
-            $cart = \FluentCart\App\Models\Cart::query()->where( 'order_id', (int) $order->id )->first();
-            if ( $cart ) {
-                $cd = $cart->checkout_data;
-                if ( is_array( $cd ) && ! empty( $cd[ self::CART_TOKEN_KEY ] ) ) {
-                    return (string) $cd[ self::CART_TOKEN_KEY ];
-                }
-            }
-        } catch ( \Throwable $e ) {
-            // fall through
-        }
-        return '';
     }
 
     // -----------------------------------------------------------------------

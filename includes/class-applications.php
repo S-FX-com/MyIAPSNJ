@@ -2,21 +2,20 @@
 /**
  * My_IAPSNJ_Applications
  *
- * Tracks Fluent Forms join / renewal submissions from the moment they are
- * submitted until the matching FluentCart order is paid.
+ * Tracks membership applications from the moment an email is typed at the
+ * FluentCart checkout until the order is paid.
  *
- * Why this exists: a member who completes the application but never pays
- * used to vanish. Now every submission is a row in {prefix}my_iapsnj_applications,
- * the CRM contact is tagged Checkout-Abandoned, and the row is resolved to
- * "awaiting_check" / "paid" / "refunded" as the order progresses. The
- * pending rows are the follow-up list; the Orphan report is built on them.
+ * Why this exists: a member who starts an application but never pays used
+ * to vanish. Now every checkout with a membership product is a row in
+ * {prefix}my_iapsnj_applications, the CRM contact is tagged
+ * Checkout-Abandoned, and the row is resolved to "awaiting_check" / "paid" /
+ * "refunded" as the order progresses. The pending rows are the follow-up
+ * list; the Orphan report is built on them.
  *
- * Handoff integrity: each row carries a token that is appended to the
- * Fluent Forms redirect URL (fluentform/redirect_url_value). FluentCart's
- * instant-checkout route preserves unknown query parameters, so the token
- * reaches the checkout page, where My_IAPSNJ_Membership stores it on the
- * cart and locks the email field. Orders therefore reconcile back to their
- * application by token first, and by email only as a fallback.
+ * Rows are written by My_IAPSNJ_Checkout_Fields (form_data_changed and
+ * prepare_other_data) and resolved by My_IAPSNJ_Membership (order placed
+ * offline, paid, refunded). The link between a row and its order is the
+ * FluentCart cart hash, which FluentCart itself ties to the order.
  */
 
 defined( 'ABSPATH' ) || exit;
@@ -25,10 +24,7 @@ use FluentCrm\App\Models\Subscriber;
 
 class My_IAPSNJ_Applications {
 
-    /** @var self|null */
-    private static ?self $instance = null;
-
-    const STATUS_PENDING        = 'pending';         // form submitted, no order yet
+    const STATUS_PENDING        = 'pending';         // checkout started, no order yet (or card not completed)
     const STATUS_AWAITING_CHECK = 'awaiting_check';  // offline order placed
     const STATUS_PAID           = 'paid';
     const STATUS_REFUNDED       = 'refunded';
@@ -36,27 +32,11 @@ class My_IAPSNJ_Applications {
     const KIND_JOIN    = 'join';
     const KIND_RENEWAL = 'renewal';
 
-    /** @var array<int,string> submission id → token, within one request */
-    private static array $token_by_submission = [];
-
-    public static function get_instance(): self {
-        if ( null === self::$instance ) {
-            self::$instance = new self();
-        }
-        return self::$instance;
-    }
-
-    private function __construct() {
-        add_action( 'fluentform/submission_inserted', [ $this, 'on_submission_inserted' ], 10, 3 );
-        add_filter( 'fluentform/redirect_url_value', [ $this, 'on_redirect_url' ], 10, 4 );
-        add_action( 'fluent_crm/contact_updated_by_fluentform', [ $this, 'on_crm_contact_from_form' ], 10, 4 );
-    }
-
     /**
-     * Fluent Forms present?
+     * Application tracking needs FluentCart (the checkout is the form).
      */
     public static function is_available(): bool {
-        return defined( 'FLUENTFORM' ) || function_exists( 'wpFluentForm' );
+        return My_IAPSNJ_Membership::is_available();
     }
 
     // -----------------------------------------------------------------------
@@ -75,6 +55,10 @@ class My_IAPSNJ_Applications {
         return $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) === $table;
     }
 
+    /**
+     * Create or upgrade the table (dbDelta adds new columns to existing
+     * installs; form_id / submission_id / token remain from 4.0 and are unused).
+     */
     public static function create_table(): void {
         global $wpdb;
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
@@ -87,6 +71,7 @@ class My_IAPSNJ_Applications {
             kind VARCHAR(20) NOT NULL DEFAULT 'join',
             form_id BIGINT UNSIGNED NULL,
             submission_id BIGINT UNSIGNED NULL,
+            cart_hash VARCHAR(64) NOT NULL DEFAULT '',
             email VARCHAR(191) NOT NULL DEFAULT '',
             first_name VARCHAR(191) NOT NULL DEFAULT '',
             last_name VARCHAR(191) NOT NULL DEFAULT '',
@@ -95,6 +80,7 @@ class My_IAPSNJ_Applications {
             order_id BIGINT UNSIGNED NULL,
             status VARCHAR(20) NOT NULL DEFAULT 'pending',
             token VARCHAR(64) NOT NULL DEFAULT '',
+            fields LONGTEXT NULL,
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
             paid_at DATETIME NULL,
@@ -102,246 +88,194 @@ class My_IAPSNJ_Applications {
             KEY email (email),
             KEY status (status),
             KEY order_id (order_id),
-            KEY submission_id (submission_id),
-            KEY token (token)
+            KEY cart_hash (cart_hash)
         ) {$charset};";
 
         dbDelta( $sql );
     }
 
     // -----------------------------------------------------------------------
-    // Settings
+    // Recording (called from the checkout hooks)
     // -----------------------------------------------------------------------
 
     /**
-     * Configured Fluent Forms: form id → kind.
-     *
-     * @return array<int,string>
+     * Join or renewal? A contact with Paid-YYYY history, or a comped type,
+     * is renewing; everyone else is joining.
      */
-    public static function configured_forms(): array {
-        $s   = My_IAPSNJ_Plugin::settings();
-        $out = [];
-        if ( (int) ( $s['join_form_id'] ?? 0 ) > 0 ) {
-            $out[ (int) $s['join_form_id'] ] = self::KIND_JOIN;
+    public static function kind_for_contact( ?Subscriber $subscriber ): string {
+        if ( ! $subscriber instanceof Subscriber ) {
+            return self::KIND_JOIN;
         }
-        if ( (int) ( $s['renewal_form_id'] ?? 0 ) > 0 ) {
-            $out[ (int) $s['renewal_form_id'] ] = self::KIND_RENEWAL;
+        if ( My_IAPSNJ_Schema::paid_years( $subscriber ) ) {
+            return self::KIND_RENEWAL;
         }
-        return $out;
+        if ( My_IAPSNJ_Schema::is_comped_type( My_IAPSNJ_Schema::field( $subscriber, My_IAPSNJ_Schema::FIELD_MEMBER_TYPE ) ) ) {
+            return self::KIND_RENEWAL;
+        }
+        return self::KIND_JOIN;
     }
-
-    public static function kind_for_form( int $form_id ): string {
-        return self::configured_forms()[ $form_id ] ?? '';
-    }
-
-    // -----------------------------------------------------------------------
-    // Fluent Forms hooks
-    // -----------------------------------------------------------------------
 
     /**
-     * fluentform/submission_inserted — record the application and tag the
-     * contact Checkout-Abandoned. The tag is removed when the order is paid.
+     * Create or refresh the application row for a checkout. Also makes sure
+     * the CRM contact exists and carries Checkout-Abandoned while no order is
+     * paid. Membership state (member_type, paid_through, Paid-YYYY) is never
+     * touched here.
      *
-     * @param int    $insert_id
-     * @param array  $form_data
-     * @param object $form
+     * @param object|null           $cart   FluentCart Cart (may be null)
+     * @param object|null           $order  FluentCart Order once it exists
+     * @param string                $email
+     * @param string                $first
+     * @param string                $last
+     * @param array<string,string>  $fields application values (key => value)
      */
-    public function on_submission_inserted( $insert_id, $form_data, $form ): void {
-        $form_id = (int) ( $form->id ?? 0 );
-        $kind    = self::kind_for_form( $form_id );
-        if ( $kind === '' || ! is_array( $form_data ) ) {
-            return;
+    public static function record_checkout( $cart, $order, string $email, string $first, string $last, array $fields ): ?object {
+        $email = strtolower( sanitize_email( $email ) );
+        if ( ! is_email( $email ) || ! self::table_exists() ) {
+            return null;
+        }
+        $first     = sanitize_text_field( $first );
+        $last      = sanitize_text_field( $last );
+        $cart_hash = is_object( $cart ) && ! empty( $cart->cart_hash ) ? (string) $cart->cart_hash : '';
+        $order_id  = is_object( $order ) && ! empty( $order->id ) ? (int) $order->id : 0;
+
+        $row = null;
+        if ( $order_id ) {
+            $row = self::get_by_order( $order_id );
+        }
+        if ( ! $row && $cart_hash !== '' ) {
+            $row = self::get_by_cart( $cart_hash );
+        }
+        if ( ! $row ) {
+            $row = self::find_open_by_email( $email );
+        }
+        if ( $row && $row->status === self::STATUS_PAID && ( ! $order_id || (int) $row->order_id !== $order_id ) ) {
+            $row = null; // a new checkout by a paid member: fresh row
         }
 
+        // ---- Contact (minimal; the checkout billing data fills the rest on payment)
+        $subscriber = null;
         try {
-            $email = self::extract_email( $form_data );
-            if ( ! is_email( $email ) ) {
-                error_log( sprintf( 'My IAPSNJ: form %d submission %d has no usable email; application not recorded.', $form_id, (int) $insert_id ) );
-                return;
-            }
-            $names        = self::extract_names( $form_data );
-            $variation_id = self::extract_variation_id( $form_data );
-
-            global $wpdb;
-            $now = My_IAPSNJ_Dates::now_utc();
-            // phpcs:ignore WordPress.DB.DirectDatabaseQuery
-            $wpdb->insert( self::table(), [
-                'kind'          => $kind,
-                'form_id'       => $form_id,
-                'submission_id' => (int) $insert_id,
-                'email'         => strtolower( $email ),
-                'first_name'    => $names['first_name'],
-                'last_name'     => $names['last_name'],
-                'variation_id'  => $variation_id ?: null,
-                'status'        => self::STATUS_PENDING,
-                'token'         => '',
-                'created_at'    => $now,
-                'updated_at'    => $now,
-            ] );
-            $id = (int) $wpdb->insert_id;
-            if ( ! $id ) {
-                return;
-            }
-            $token = self::make_token( $id, $email );
-            self::update( $id, [ 'token' => $token ] );
-            self::$token_by_submission[ (int) $insert_id ] = $token;
-
-            // Create or update the CRM contact and tag it. The FluentCRM feed on
-            // the same form fills in the full profile; this guarantees the
-            // contact and the tag exist even if that feed is misconfigured.
-            $contact_data = [
-                'email'      => $email,
-                'first_name' => $names['first_name'],
-                'last_name'  => $names['last_name'],
-            ];
             $existing = Subscriber::where( 'email', $email )->first();
-            if ( ! $existing instanceof Subscriber ) {
-                $contact_data['status'] = 'subscribed';
-                $contact_data['source'] = 'iapsnj-application';
+            $data     = [ 'email' => $email ];
+            if ( $existing instanceof Subscriber ) {
+                $data['id'] = $existing->id;
+                if ( $first !== '' && trim( (string) $existing->first_name ) === '' ) {
+                    $data['first_name'] = $first;
+                }
+                if ( $last !== '' && trim( (string) $existing->last_name ) === '' ) {
+                    $data['last_name'] = $last;
+                }
+            } else {
+                $data['first_name'] = $first;
+                $data['last_name']  = $last;
+                $data['status']     = 'subscribed';
+                $data['source']     = 'iapsnj-checkout';
             }
-            $subscriber = FluentCrmApi( 'contacts' )->createOrUpdate( $contact_data );
-            if ( $subscriber instanceof Subscriber ) {
+            $subscriber = FluentCrmApi( 'contacts' )->createOrUpdate( $data );
+            if ( ! $subscriber instanceof Subscriber ) {
+                $subscriber = $existing instanceof Subscriber ? $existing : null;
+            }
+            if ( $subscriber instanceof Subscriber && ( ! $row || in_array( $row->status, [ self::STATUS_PENDING ], true ) ) ) {
                 $tags = My_IAPSNJ_Schema::tag_ids( [ My_IAPSNJ_Schema::TAG_ABANDONED ] );
                 $subscriber->attachTags( array_values( $tags ) );
-                self::update( $id, [ 'subscriber_id' => (int) $subscriber->id ] );
             }
-
-            do_action( 'my_iapsnj/application_recorded', self::get( $id ), $form_data, $form );
         } catch ( \Throwable $e ) {
-            error_log( 'My IAPSNJ: application record failed: ' . $e->getMessage() );
+            error_log( 'My IAPSNJ: contact upsert at checkout failed for ' . $email . ': ' . $e->getMessage() );
         }
-    }
 
-    /**
-     * fluentform/redirect_url_value — append the application token to the
-     * checkout redirect so the order can be reconciled to this submission.
-     *
-     * @param string $url
-     * @param int    $insert_id
-     * @param object $form
-     * @param array  $form_data
-     * @return string
-     */
-    public function on_redirect_url( $url, $insert_id, $form, $form_data ) {
-        if ( ! is_string( $url ) || $url === '' ) {
-            return $url;
-        }
-        $kind = self::kind_for_form( (int) ( $form->id ?? 0 ) );
-        if ( $kind === '' ) {
-            return $url;
-        }
-        $token = self::$token_by_submission[ (int) $insert_id ] ?? '';
-        if ( $token === '' ) {
-            $row   = self::get_by_submission( (int) $insert_id );
-            $token = $row ? (string) $row->token : '';
-        }
-        if ( $token === '' ) {
-            return $url;
-        }
-        return add_query_arg( [ My_IAPSNJ_Membership::QUERY_TOKEN => $token ], $url );
-    }
-
-    /**
-     * fluent_crm/contact_updated_by_fluentform — the FluentCRM feed has run
-     * for this submission; remember the contact id and make sure the
-     * Checkout-Abandoned tag survived the feed's own tag handling.
-     */
-    public function on_crm_contact_from_form( $subscriber, $entry, $form, $feed ): void {
-        if ( ! $subscriber instanceof Subscriber ) {
-            return;
-        }
-        if ( self::kind_for_form( (int) ( $form->id ?? 0 ) ) === '' ) {
-            return;
-        }
-        $submission_id = (int) ( is_object( $entry ) ? ( $entry->id ?? 0 ) : ( $entry['id'] ?? 0 ) );
-        if ( ! $submission_id ) {
-            return;
-        }
-        $row = self::get_by_submission( $submission_id );
-        if ( ! $row ) {
-            return;
-        }
-        if ( (int) $row->subscriber_id !== (int) $subscriber->id ) {
-            self::update( (int) $row->id, [ 'subscriber_id' => (int) $subscriber->id ] );
-        }
-        if ( $row->status === self::STATUS_PENDING ) {
-            $tags = My_IAPSNJ_Schema::tag_ids( [ My_IAPSNJ_Schema::TAG_ABANDONED ] );
-            $subscriber->attachTags( array_values( $tags ) );
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // Extraction helpers
-    // -----------------------------------------------------------------------
-
-    private static function extract_email( array $form_data ): string {
-        $field = (string) ( My_IAPSNJ_Plugin::settings()['form_email_field'] ?? 'email' );
-        if ( $field !== '' && isset( $form_data[ $field ] ) && is_string( $form_data[ $field ] ) && is_email( $form_data[ $field ] ) ) {
-            return sanitize_email( $form_data[ $field ] );
-        }
-        foreach ( $form_data as $value ) {
-            if ( is_string( $value ) && is_email( $value ) ) {
-                return sanitize_email( $value );
+        // ---- Variation
+        $variation_id = 0;
+        if ( is_object( $order ) ) {
+            try {
+                $plan = My_IAPSNJ_Membership::plan_for_order( $order );
+                if ( $plan && ! empty( $plan['items'] ) ) {
+                    $variation_id = (int) $plan['items'][0]['variation_id'];
+                }
+            } catch ( \Throwable $e ) {
+                $variation_id = 0;
             }
         }
-        return '';
-    }
+        if ( ! $variation_id && is_object( $cart ) ) {
+            $config = My_IAPSNJ_Membership::products_config();
+            foreach ( (array) My_IAPSNJ_Checkout_Fields::cart_variation_ids( $cart ) as $vid ) {
+                if ( isset( $config[ $vid ] ) ) {
+                    $variation_id = (int) $vid;
+                    break;
+                }
+            }
+        }
 
-    /**
-     * @return array{first_name:string,last_name:string}
-     */
-    private static function extract_names( array $form_data ): array {
-        $first = '';
-        $last  = '';
-        if ( isset( $form_data['names'] ) && is_array( $form_data['names'] ) ) {
-            $first = (string) ( $form_data['names']['first_name'] ?? '' );
-            $last  = (string) ( $form_data['names']['last_name'] ?? '' );
-        }
-        if ( $first === '' && isset( $form_data['first_name'] ) && is_string( $form_data['first_name'] ) ) {
-            $first = $form_data['first_name'];
-        }
-        if ( $last === '' && isset( $form_data['last_name'] ) && is_string( $form_data['last_name'] ) ) {
-            $last = $form_data['last_name'];
-        }
-        return [
-            'first_name' => sanitize_text_field( $first ),
-            'last_name'  => sanitize_text_field( $last ),
+        $now  = My_IAPSNJ_Dates::now_utc();
+        $data = [
+            'email'      => $email,
+            'updated_at' => $now,
         ];
+        if ( $first !== '' ) {
+            $data['first_name'] = $first;
+        }
+        if ( $last !== '' ) {
+            $data['last_name'] = $last;
+        }
+        if ( $subscriber instanceof Subscriber ) {
+            $data['subscriber_id'] = (int) $subscriber->id;
+        }
+        if ( $cart_hash !== '' ) {
+            $data['cart_hash'] = $cart_hash;
+        }
+        if ( $variation_id ) {
+            $data['variation_id'] = $variation_id;
+        }
+        if ( $order_id ) {
+            $data['order_id'] = $order_id;
+        }
+        if ( $fields ) {
+            $data['fields'] = wp_json_encode( $fields );
+        }
+        // The kind is decided while the application is still open.
+        if ( ! $row || ( $row->status === self::STATUS_PENDING && ! (int) $row->order_id ) ) {
+            $data['kind'] = self::kind_for_contact( $subscriber instanceof Subscriber ? $subscriber : null );
+        }
+
+        global $wpdb;
+        if ( $row ) {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+            $wpdb->update( self::table(), $data, [ 'id' => (int) $row->id ] );
+            return self::get( (int) $row->id );
+        }
+        $data['status']     = self::STATUS_PENDING;
+        $data['created_at'] = $now;
+        $data['first_name'] = $data['first_name'] ?? '';
+        $data['last_name']  = $data['last_name'] ?? '';
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $wpdb->insert( self::table(), $data );
+        $id = (int) $wpdb->insert_id;
+        if ( ! $id ) {
+            return null;
+        }
+        $app = self::get( $id );
+        if ( $app ) {
+            /**
+             * A membership application has been opened at checkout.
+             *
+             * @param object $app  Application row
+             * @param object $cart FluentCart Cart|null
+             */
+            do_action( 'my_iapsnj/application_recorded', $app, $cart );
+        }
+        return $app;
     }
 
     /**
-     * The form field that carries the chosen FluentCart variation id.
-     * Default field name: membership_product. Configurable via
-     * my_iapsnj_settings[form_product_field].
+     * Application values stored on a row (key => value).
+     *
+     * @return array<string,string>
      */
-    private static function extract_variation_id( array $form_data ): int {
-        $field = (string) ( My_IAPSNJ_Plugin::settings()['form_product_field'] ?? 'membership_product' );
-        foreach ( array_unique( [ $field, 'membership_product', 'membership_variation', 'variation_id', 'item_id' ] ) as $key ) {
-            if ( $key !== '' && isset( $form_data[ $key ] ) && is_scalar( $form_data[ $key ] ) && is_numeric( $form_data[ $key ] ) ) {
-                return (int) $form_data[ $key ];
-            }
+    public static function fields_of( object $row ): array {
+        if ( empty( $row->fields ) ) {
+            return [];
         }
-        return 0;
-    }
-
-    // -----------------------------------------------------------------------
-    // Tokens
-    // -----------------------------------------------------------------------
-
-    public static function make_token( int $id, string $email ): string {
-        return $id . '-' . substr( wp_hash( $id . '|' . strtolower( trim( $email ) ) ), 0, 16 );
-    }
-
-    public static function get_by_token( string $token ): ?object {
-        $token = trim( $token );
-        if ( ! preg_match( '/^(\d+)-([a-f0-9]{16})$/', $token, $m ) ) {
-            return null;
-        }
-        $row = self::get( (int) $m[1] );
-        if ( ! $row || ! hash_equals( self::make_token( (int) $row->id, (string) $row->email ), $token ) ) {
-            return null;
-        }
-        return $row;
+        $decoded = json_decode( (string) $row->fields, true );
+        return is_array( $decoded ) ? $decoded : [];
     }
 
     // -----------------------------------------------------------------------
@@ -358,13 +292,14 @@ class My_IAPSNJ_Applications {
         return $row ?: null;
     }
 
-    public static function get_by_submission( int $submission_id ): ?object {
+    public static function get_by_cart( string $cart_hash ): ?object {
         global $wpdb;
-        if ( $submission_id <= 0 || ! self::table_exists() ) {
+        $cart_hash = trim( $cart_hash );
+        if ( $cart_hash === '' || ! self::table_exists() ) {
             return null;
         }
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-        $row = $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM ' . self::table() . ' WHERE submission_id = %d ORDER BY id DESC LIMIT 1', $submission_id ) );
+        $row = $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM ' . self::table() . ' WHERE cart_hash = %s ORDER BY id DESC LIMIT 1', $cart_hash ) );
         return $row ?: null;
     }
 
@@ -390,7 +325,7 @@ class My_IAPSNJ_Applications {
         $since = gmdate( 'Y-m-d H:i:s', time() - max( 1, $within_days ) * DAY_IN_SECONDS );
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
         $row = $wpdb->get_row( $wpdb->prepare(
-            'SELECT * FROM ' . self::table() . " WHERE email = %s AND status IN (%s, %s) AND created_at >= %s ORDER BY id DESC LIMIT 1",
+            'SELECT * FROM ' . self::table() . ' WHERE email = %s AND status IN (%s, %s) AND created_at >= %s ORDER BY id DESC LIMIT 1',
             $email,
             self::STATUS_PENDING,
             self::STATUS_AWAITING_CHECK,
@@ -400,13 +335,14 @@ class My_IAPSNJ_Applications {
     }
 
     /**
-     * Resolve the application behind a FluentCart order: token stored on the
-     * cart first, then the customer's open application by email.
+     * Resolve the application behind a FluentCart order: by order id, then by
+     * the cart FluentCart tied to the order, then the customer's open
+     * application by email.
      *
      * @param object $order FluentCart Order model
      */
     public static function resolve_for_order( $order ): ?object {
-        if ( ! is_object( $order ) ) {
+        if ( ! is_object( $order ) || empty( $order->id ) ) {
             return null;
         }
         $existing = self::get_by_order( (int) $order->id );
@@ -414,19 +350,38 @@ class My_IAPSNJ_Applications {
             return $existing;
         }
 
-        $token = My_IAPSNJ_Membership::token_for_order( $order );
-        if ( $token !== '' ) {
-            $app = self::get_by_token( $token );
-            if ( $app ) {
+        $cart_hash = self::cart_hash_for_order( $order );
+        if ( $cart_hash !== '' ) {
+            $app = self::get_by_cart( $cart_hash );
+            if ( $app && $app->status !== self::STATUS_PAID ) {
                 return $app;
             }
         }
 
         $email = '';
-        if ( isset( $order->customer ) && is_object( $order->customer ) ) {
-            $email = (string) $order->customer->email;
+        try {
+            if ( isset( $order->customer ) && is_object( $order->customer ) ) {
+                $email = (string) $order->customer->email;
+            }
+        } catch ( \Throwable $e ) {
+            $email = '';
         }
         return $email !== '' ? self::find_open_by_email( $email ) : null;
+    }
+
+    /**
+     * Cart hash FluentCart associated with an order ('' when none).
+     */
+    public static function cart_hash_for_order( $order ): string {
+        if ( ! class_exists( '\FluentCart\App\Models\Cart' ) || ! is_object( $order ) ) {
+            return '';
+        }
+        try {
+            $cart = \FluentCart\App\Models\Cart::query()->where( 'order_id', (int) $order->id )->first();
+            return $cart && ! empty( $cart->cart_hash ) ? (string) $cart->cart_hash : '';
+        } catch ( \Throwable $e ) {
+            return '';
+        }
     }
 
     public static function update( int $id, array $data ): void {

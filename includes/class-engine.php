@@ -184,9 +184,102 @@ class My_IAPSNJ_Engine {
                     remove_filter( 'send_password_change_email', '__return_false' );
                 }
             }
+
+            if ( empty( $field_ids ) ) {
+                self::apply_role( $subscriber, $user_id, $custom_fields );
+            }
         } finally {
             $this->syncing_to_wp = false;
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // WordPress role from member_type
+    // -----------------------------------------------------------------------
+
+    /**
+     * Roles the mapping is allowed to hand out: every role except
+     * administrator (a CRM edit must never grant admin).
+     *
+     * @return array<string,string> slug => display name
+     */
+    public static function assignable_roles(): array {
+        $out = [];
+        foreach ( wp_roles()->get_names() as $slug => $name ) {
+            if ( $slug !== 'administrator' ) {
+                $out[ $slug ] = translate_user_role( $name );
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * member_type => role slug from Sync & Settings ('' = leave the role alone).
+     *
+     * @return array<string,string>
+     */
+    public static function role_map(): array {
+        $map = My_IAPSNJ_Plugin::settings()['role_map'] ?? [];
+        return is_array( $map ) ? array_filter( array_map( 'strval', $map ), 'strlen' ) : [];
+    }
+
+    /**
+     * Role an expired member drops to (Sync & Settings; default subscriber).
+     */
+    public static function expired_role(): string {
+        $role = sanitize_key( (string) ( My_IAPSNJ_Plugin::settings()['role_expired'] ?? 'subscriber' ) );
+        return $role === 'administrator' ? '' : $role;
+    }
+
+    /**
+     * Give the user the role that matches the contact's membership state:
+     * the role mapped to its member_type while active (paid through today
+     * or later, or comped), the "expired" role once paid_through is past.
+     *
+     * Only users whose current roles are all "managed" (a mapped role, the
+     * expired role, or subscriber) are touched: an administrator, editor or
+     * any other staff account keeps its role whatever the CRM says. A
+     * contact whose member_type has no mapping is left alone.
+     *
+     * @param array<string,mixed>|null $custom_fields pre-loaded contact custom fields
+     * @return string the role set, '' when nothing changed
+     */
+    public static function apply_role( Subscriber $subscriber, int $user_id, ?array $custom_fields = null ): string {
+        $map = self::role_map();
+        if ( ! $map ) {
+            return '';
+        }
+        if ( $custom_fields === null ) {
+            $custom_fields = $subscriber->custom_fields();
+        }
+        $type = $custom_fields[ My_IAPSNJ_Schema::FIELD_MEMBER_TYPE ] ?? '';
+        $type = is_array( $type ) ? (string) reset( $type ) : (string) $type;
+        $pt   = $custom_fields[ My_IAPSNJ_Schema::FIELD_PAID_THROUGH ] ?? '';
+        $pt   = is_array( $pt ) ? (string) reset( $pt ) : (string) $pt;
+        if ( $type === '' || ! isset( $map[ $type ] ) ) {
+            return '';
+        }
+        $expired = self::expired_role();
+        $role    = My_IAPSNJ_Schema::is_active_state( $type, $pt ) ? $map[ $type ] : $expired;
+        if ( $role === '' || $role === 'administrator' || ! get_role( $role ) ) {
+            return '';
+        }
+        $user = get_userdata( $user_id );
+        if ( ! $user ) {
+            return '';
+        }
+        $current = (array) $user->roles;
+        if ( $current === [ $role ] ) {
+            return '';
+        }
+        $managed = array_unique( array_filter( array_merge( array_values( $map ), [ 'subscriber', $expired ] ), 'strlen' ) );
+        foreach ( $current as $r ) {
+            if ( ! in_array( $r, $managed, true ) ) {
+                return ''; // staff account: never touched
+            }
+        }
+        $user->set_role( $role );
+        return $role;
     }
 
     // -----------------------------------------------------------------------
