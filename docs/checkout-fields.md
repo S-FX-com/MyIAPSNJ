@@ -25,7 +25,7 @@ https://SITE/?fluent-cart=instant_checkout&item_id={VARIATION_ID}&quantity=1
 ```
 
 Regular Membership · Associate Membership · Lifetime Membership · Multi-Year
-Membership. Set the page URL in **Sync & Settings → Join page URL**.
+Membership. Set the page URL in **Dues → Membership Products → Join page URL**.
 
 Variation ids differ between staging and production — rebuild the buttons
 after the product import (`docs/not-in-git.md`).
@@ -243,7 +243,7 @@ extends `paid_through` by the term rule (`docs/crm-schema.md`). For a member
 without an active subscription (lapsed, check payer, migrated from PMPro) a
 logged-in click on **Renew** — the `[iapsnj_renew_link]` shortcode (member
 area, dues emails) — lands on the checkout of the renewal product configured
-for their type (**Sync & Settings → Renewal product**, Regular → Regular
+for their type (**Dues → Membership Products → Renewal product**, Regular → Regular
 Membership, Associate → Associate Membership). Name, email, address
 come from FluentCart's customer record; the application fields come prefilled
 from the CRM. Lifetime / Honorary members get no link; visitors get the Join

@@ -78,7 +78,7 @@ wp iapsnj migrate set_member_state --dry-run $LM --report=state-dry.json
 wp iapsnj migrate set_member_state $LM
 
 # 6b. Member-Active tag + WordPress role for everyone in good standing
-#     (pick the roles in Sync & Settings first; dry-run lists who changes)
+#     (pick the roles in Settings → Profile Sync first; dry-run lists who changes)
 wp iapsnj expire --dry-run
 wp iapsnj expire
 
@@ -165,7 +165,7 @@ never run PMPro checkout and FluentCart checkout in parallel.**
     or redirect plugin).
 13. Leave maintenance mode. Watch `wp-content/debug.log` and My IAPSNJ →
     Reports for 48 hours.
-14. Set the **cutover date** in My IAPSNJ → Sync & Settings so the orphan
+14. Set the **go-live date** in My IAPSNJ → Reports → Report settings so the orphan
     report ignores pre-cutover orders.
 15. Tear down staging (PII of law-enforcement officers) after client sign-off.
 

@@ -645,3 +645,9 @@ tr.fcrm-sort-helper { background: #fff; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.1
 .fcrm-mig-report h3 { margin-top: 0; }
 .fcrm-mig-report h4 { margin: 18px 0 6px; }
 .fcrm-mig-report table td, .fcrm-mig-report table th { font-size: 12px; }
+
+/* Settings spread over the screens they affect (4.11) */
+.fcrm-inline-form { margin: 10px 0; }
+.fcrm-inline-form .fcrm-notice { margin-bottom: 8px; }
+.fcrm-moved-list { margin: 6px 0 0 18px; list-style: disc; }
+.fcrm-form-notice { margin: 0 0 12px; }
