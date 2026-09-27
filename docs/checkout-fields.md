@@ -71,6 +71,10 @@ Builder**.
   answers are labelled and written to the CRM with that form's definitions
   even after the forms change (keys only another form defines are still
   read).
+* If the cart changes on the checkout page to one that needs another form
+  (an order bump, an item added), the order is refused with one message
+  asking the member to reload; the page records the form it printed in a
+  hidden `iapsnj__form` input.
 * Upgrade (data version 10, 4.7): the single field list and the heading /
   intro settings become the form **Membership application**, used by both
   levels, so nothing changes on the checkout until an admin edits the forms.

@@ -56,6 +56,7 @@ class My_IAPSNJ_Checkout_Fields {
     const META_FORM    = '_my_iapsnj_checkout_form';        // order meta: checkout form id
     const META_APPLIED = '_my_iapsnj_application_applied';  // order meta: UTC datetime
     const PREFIX       = 'iapsnj_';                          // input name prefix
+    const FORM_INPUT   = 'iapsnj__form';                     // hidden input: form printed on the page
     const NEW_TARGET   = '__new__';                          // "create a CRM custom field" picker value
 
     /** @var string[] */
@@ -547,8 +548,11 @@ class My_IAPSNJ_Checkout_Fields {
      */
     private static function initial_store(): array {
         $legacy = get_option( self::OPTION, [] );
+        // Legacy rows are kept as saved (4.1 override or full-row shape):
+        // config() parses either, and the v7 / v8 steps still see which
+        // built-ins the list really lacks.
         $rows   = is_array( $legacy ) && $legacy
-            ? self::rows_from_config( self::parse_rows( $legacy ) )
+            ? $legacy
             : self::rows_from_config( self::parse_rows( [] ) );
         $settings = get_option( 'my_iapsnj_settings', [] );
         $settings = is_array( $settings ) ? $settings : [];
@@ -1248,6 +1252,9 @@ class My_IAPSNJ_Checkout_Fields {
         if ( $intro !== '' ) {
             echo '<p class="my-iapsnj-application-intro">' . esc_html( $intro ) . '</p>';
         }
+        // Which form was printed: validate() refuses the order when the cart
+        // changed on the page to one that needs another form.
+        echo '<input type="hidden" name="' . esc_attr( self::FORM_INPUT ) . '" value="' . esc_attr( $form_id ) . '">';
         foreach ( $fields as $key => $def ) {
             $this->render_field( $key, $def, (string) ( $values[ $key ] ?? '' ) );
         }
@@ -1555,8 +1562,20 @@ class My_IAPSNJ_Checkout_Fields {
         if ( $form_id === '' ) {
             return $errors; // no membership product: nothing of ours to require
         }
-        $data = is_array( $args ) && isset( $args['data'] ) && is_array( $args['data'] ) ? $args['data'] : [];
-        foreach ( self::enabled_fields( $form_id ) as $key => $def ) {
+        $data   = is_array( $args ) && isset( $args['data'] ) && is_array( $args['data'] ) ? $args['data'] : [];
+        $fields = self::enabled_fields( $form_id );
+        if ( ! $fields ) {
+            return $errors;
+        }
+        // The page printed another form (or none): the cart changed on the
+        // checkout page (order bump, item added). Per-field errors would name
+        // fields the member cannot see, so ask for a reload instead.
+        $printed = sanitize_key( (string) ( $data[ self::FORM_INPUT ] ?? '' ) );
+        if ( $printed !== $form_id ) {
+            $errors[ self::FORM_INPUT ]['changed'] = __( 'Your cart changed and needs a different membership application. Please reload the checkout page and complete the form shown.', 'my-iapsnj' );
+            return $errors;
+        }
+        foreach ( $fields as $key => $def ) {
             $name  = self::input_name( $key );
             $value = self::sanitize_value( $def, $data[ $name ] ?? null );
             $label = $def['type'] === 'checkbox' ? __( 'Certification', 'my-iapsnj' ) : $def['label'];
@@ -1608,6 +1627,20 @@ class My_IAPSNJ_Checkout_Fields {
             // cart); a cart without a membership product has none.
             $form_id = self::form_for_cart( $cart );
             if ( $form_id === '' ) {
+                // Application inputs posted but no mapped membership product:
+                // most likely the products were recreated and the variation
+                // ids in Membership Products are stale.
+                $posted = array_filter( array_keys( $request ), function ( $k ) {
+                    return is_string( $k ) && strpos( $k, self::PREFIX ) === 0;
+                } );
+                if ( $posted && method_exists( $order, 'addLog' ) ) {
+                    $order->addLog(
+                        'My IAPSNJ: application fields ignored (product not mapped)',
+                        'The checkout posted application fields but no item is configured in My IAPSNJ → Membership Products, so nothing was stored and no membership will be applied. Items: ' . self::order_item_ids( $order ),
+                        'warning',
+                        'My IAPSNJ'
+                    );
+                }
                 return;
             }
             $values = self::collect( $request, $form_id );

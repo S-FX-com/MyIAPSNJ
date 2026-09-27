@@ -3,7 +3,7 @@
  * Plugin Name:       My IAPSNJ
  * Plugin URI:        https://github.com/S-FX-com/MyIAPSNJ
  * Description:       Membership operations for the IAPSNJ website. FluentCRM is the single source of truth: the membership application is collected on the FluentCart checkout page, FluentCart payments set membership state (Paid-YYYY tags, member_type, paid_through), applications are tracked until they are paid, mailed checks are reconciled in batch, and WordPress user profiles are mirrored one way from the CRM. Includes the PMPro → FluentCRM migration toolkit.
- * Version:           4.7.0
+ * Version:           4.7.1
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Requires Plugins:  fluent-crm
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'MY_IAPSNJ_VERSION', '4.7.0' );
+define( 'MY_IAPSNJ_VERSION', '4.7.1' );
 define( 'MY_IAPSNJ_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'MY_IAPSNJ_URL',     plugin_dir_url( __FILE__ ) );
 define( 'MY_IAPSNJ_FILE',    __FILE__ );
@@ -438,14 +438,10 @@ final class My_IAPSNJ_Plugin {
             // application heading / intro settings become the form
             // "Membership application", used by Regular (incl. Lifetime) and
             // Associate, so the checkout looks the same until an admin
-            // changes it. The old option is left in place for a rollback.
+            // changes it. The old option and the heading / intro settings
+            // are left in place (unused) so a rollback to 4.6 still works.
             if ( $installed < 10 ) {
                 My_IAPSNJ_Checkout_Fields::seed_defaults();
-                $settings = get_option( 'my_iapsnj_settings', [] );
-                if ( is_array( $settings ) && ( array_key_exists( 'application_heading', $settings ) || array_key_exists( 'application_intro', $settings ) ) ) {
-                    unset( $settings['application_heading'], $settings['application_intro'] );
-                    update_option( 'my_iapsnj_settings', $settings );
-                }
             }
 
             update_option( 'my_iapsnj_data_version', self::DATA_VERSION );
