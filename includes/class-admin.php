@@ -1166,7 +1166,7 @@ class My_IAPSNJ_Admin {
      * when no membership product is mapped.
      */
     private function render_view_checkout_button( string $url, string $label = '' ): void {
-        $label = $label !== '' ? $label : __( 'View checkout', 'my-iapsnj' );
+        $label = $label !== '' ? $label : __( 'View', 'my-iapsnj' );
         if ( $url === '' ) {
             echo '<button type="button" class="button" disabled title="' . esc_attr__( 'Map a membership product in Membership Products first.', 'my-iapsnj' ) . '">' . esc_html( $label ) . '</button>';
             return;

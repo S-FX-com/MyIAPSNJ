@@ -133,7 +133,7 @@ Builder**.
   pickers cannot choose it. The save handler refuses a form in which two
   rows write to the same CRM field (`duplicate_targets()`), naming them.
 * **View checkout (4.10).** Each form on the Checkout Builder list (and the
-  form editor, for the saved version) has *View checkout*: it opens the
+  form editor, for the saved version) has *View*: it opens the
   real checkout page in a new tab with a mapped membership product of the
   form's level in your cart (`?fluent-cart=instant_checkout&item_id=…`,
   plus `iapsnj_preview=<form>` and a nonce, which FluentCart forwards to
