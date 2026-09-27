@@ -188,7 +188,8 @@ class My_IAPSNJ_Admin {
             return;
         }
         wp_enqueue_style( 'my-iapsnj-admin', MY_IAPSNJ_URL . 'admin/css/admin.css', [], MY_IAPSNJ_VERSION );
-        wp_enqueue_script( 'my-iapsnj-admin', MY_IAPSNJ_URL . 'admin/js/admin.js', [ 'jquery' ], MY_IAPSNJ_VERSION, true );
+        // jquery-ui-sortable (bundled with WordPress) drives the Checkout Builder's drag and drop.
+        wp_enqueue_script( 'my-iapsnj-admin', MY_IAPSNJ_URL . 'admin/js/admin.js', [ 'jquery', 'jquery-ui-sortable' ], MY_IAPSNJ_VERSION, true );
 
         wp_localize_script( 'my-iapsnj-admin', 'myIapsnj', [
             'ajaxUrl'    => admin_url( 'admin-ajax.php' ),
@@ -1086,7 +1087,7 @@ class My_IAPSNJ_Admin {
 
         <div class="fcrm-section" id="application-fields">
             <h2><?php esc_html_e( 'Application fields', 'my-iapsnj' ); ?></h2>
-            <p class="description"><?php esc_html_e( 'Active fields are shown on the checkout page above the payment methods, in this order. Use Section headings to break the form into groups (a heading with no active field under it is not shown). Untick Show to move a field to Inactive; a hidden field is never required. Pick where each answer is stored in FluentCRM (an existing custom field, a contact field, a new custom field created on save, or nowhere). Dropdown / radio options: one per line. Blank answers never erase existing CRM data. Built-in fields can be hidden but not removed.', 'my-iapsnj' ); ?></p>
+            <p class="description"><?php esc_html_e( 'Active fields are shown on the checkout page above the payment methods, in this order. Drag a row by its ☰ handle to reorder it, or drag it between Active and Inactive to show or hide it (▲▼ move one step). Use Section headings to break the form into groups (a heading with no active field under it is not shown). A hidden field is never required. Pick where each answer is stored in FluentCRM (an existing custom field, a contact field, a new custom field created on save, or nowhere). Dropdown / radio options: one per line. Blank answers never erase existing CRM data. Built-in fields can be hidden but not removed.', 'my-iapsnj' ); ?></p>
             <?php
             $targets  = My_IAPSNJ_Checkout_Fields::crm_targets();
             $active   = [];
@@ -1119,7 +1120,7 @@ class My_IAPSNJ_Admin {
                 <button type="button" id="fcrm-add-section" class="button">+ <?php esc_html_e( 'Add section heading', 'my-iapsnj' ); ?></button>
             </p>
 
-            <h3 style="margin-top:28px"><?php esc_html_e( 'Inactive', 'my-iapsnj' ); ?> <span class="fcrm-muted" style="font-weight:400;font-size:13px"><?php esc_html_e( '— not shown at checkout. Tick Show to add a field to the form (it moves to the end of the active list; use ▲▼ to place it).', 'my-iapsnj' ); ?></span></h3>
+            <h3 style="margin-top:28px"><?php esc_html_e( 'Inactive', 'my-iapsnj' ); ?> <span class="fcrm-muted" style="font-weight:400;font-size:13px"><?php esc_html_e( '— not shown at checkout. Drag a field up into the active list (or tick Show) to add it to the form.', 'my-iapsnj' ); ?></span></h3>
             <table class="widefat fcrm-products-table fcrm-fields-table" id="fcrm-fields-inactive-table">
                 <?php $this->render_checkout_fields_head(); ?>
                 <tbody id="fcrm-fields-inactive" class="fcrm-fields-inactive">
@@ -1156,7 +1157,7 @@ class My_IAPSNJ_Admin {
      */
     private function render_checkout_fields_head(): void {
         echo '<thead><tr>';
-        echo '<th style="width:60px">' . esc_html__( 'Order', 'my-iapsnj' ) . '</th>';
+        echo '<th style="width:56px"><span class="screen-reader-text">' . esc_html__( 'Order', 'my-iapsnj' ) . '</span></th>';
         echo '<th>' . esc_html__( 'Show', 'my-iapsnj' ) . '</th>';
         echo '<th>' . esc_html__( 'Required', 'my-iapsnj' ) . '</th>';
         echo '<th>' . esc_html__( 'Label shown to the member', 'my-iapsnj' ) . '</th>';
@@ -1201,12 +1202,13 @@ class My_IAPSNJ_Admin {
         $classes     = 'fcrm-field-row' . ( $enabled ? ' enabled' : '' ) . ( $section ? ' fcrm-field-section' : '' ) . ( $auto ? ' fcrm-field-auto' : '' );
 
         echo '<tr class="' . esc_attr( $classes ) . '" data-key="' . esc_attr( $key ) . '">';
-        echo '<td><input type="number" name="' . esc_attr( $n ) . '[order]" value="' . esc_attr( (string) ( $is_template ? 99 : $position ) ) . '" class="small-text fcrm-field-order" style="width:52px">';
+        echo '<td class="fcrm-field-move"><span class="fcrm-drag-handle dashicons dashicons-menu" title="' . esc_attr__( 'Drag to reorder, or drag between Active and Inactive', 'my-iapsnj' ) . '" aria-hidden="true"></span>';
+        echo '<input type="hidden" name="' . esc_attr( $n ) . '[order]" value="' . esc_attr( (string) ( $is_template ? 99 : $position ) ) . '" class="fcrm-field-order">';
         echo '<input type="hidden" name="' . esc_attr( $n ) . '[key]" value="' . esc_attr( $is_template ? '' : $key ) . '">';
         if ( $auto ) {
             echo '<input type="hidden" name="' . esc_attr( $n ) . '[auto]" value="1">';
         }
-        echo ' <button type="button" class="button-link fcrm-field-up" title="' . esc_attr__( 'Move up', 'my-iapsnj' ) . '">&#9650;</button><button type="button" class="button-link fcrm-field-down" title="' . esc_attr__( 'Move down', 'my-iapsnj' ) . '">&#9660;</button></td>';
+        echo '<span class="fcrm-field-arrows"><button type="button" class="button-link fcrm-field-up" title="' . esc_attr__( 'Move up', 'my-iapsnj' ) . '" aria-label="' . esc_attr__( 'Move up', 'my-iapsnj' ) . '">&#9650;</button><button type="button" class="button-link fcrm-field-down" title="' . esc_attr__( 'Move down', 'my-iapsnj' ) . '" aria-label="' . esc_attr__( 'Move down', 'my-iapsnj' ) . '">&#9660;</button></span></td>';
         echo '<td style="text-align:center"><input type="checkbox" class="fcrm-field-enabled" name="' . esc_attr( $n ) . '[enabled]" value="1"' . checked( $enabled, true, false ) . '></td>';
         echo '<td style="text-align:center"><input type="checkbox" class="fcrm-field-required" name="' . esc_attr( $n ) . '[required]" value="1"' . checked( $enabled && ! $section && ! empty( $def['required'] ), true, false ) . disabled( ! $enabled || $section, true, false ) . '></td>';
         echo '<td><input type="text" name="' . esc_attr( $n ) . '[label]" value="' . esc_attr( (string) $def['label'] ) . '" class="regular-text fcrm-field-label" style="width:100%" placeholder="' . esc_attr( $section ? __( 'Section heading', 'my-iapsnj' ) : __( 'Label', 'my-iapsnj' ) ) . '" data-placeholder-field="' . esc_attr__( 'Label', 'my-iapsnj' ) . '" data-placeholder-section="' . esc_attr__( 'Section heading', 'my-iapsnj' ) . '">';

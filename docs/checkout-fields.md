@@ -88,6 +88,13 @@ Builder**.
   a field to Inactive and clears and locks *Required* (a hidden field is
   never required; the server enforces the same rule, also for rows saved
   before 4.8). Ticking *Show* moves it to the end of the active list.
+* **Drag and drop (4.9).** Drag a row by its ☰ handle to reorder fields and
+  section headings; drop it into Inactive to hide it (Required is cleared),
+  or drag a hidden field or an *Other FluentCRM field* up into the active
+  list to show it exactly where it is dropped. The page scrolls while
+  dragging near the window edge. ▲▼ still move a row one step (keyboard).
+  Uses WordPress's bundled `jquery-ui-sortable`; nothing is saved until
+  *Save form*.
 * **Section headings.** *+ Add section heading* (or type *Section heading*)
   adds a heading row. On the checkout the fields after it, up to the next
   heading, are grouped under it (`<h4>` plus the optional help text as a
@@ -223,6 +230,8 @@ does not fire and the Welcome automation is skipped (Paid history exists).
       refused
 - [ ] Untick Show on a required field → it moves to Inactive with Required
       cleared; checkout no longer asks for it
+- [ ] Drag a field by ☰ to a new position, drag one into Inactive and one
+      CRM field up into the list, Save → the checkout shows that order
 - [ ] Add two section headings → checkout groups the fields under them; a
       heading with nothing shown under it is not printed
 - [ ] A CRM custom field created in FluentCRM appears under Inactive → Other

@@ -58,7 +58,8 @@ Documentation: [`docs/phase1-findings.md`](docs/phase1-findings.md) ·
   (existing custom field, contact field, or a new custom field created on
   save), group fields under section headings, and switch on any other
   FluentCRM field from the Inactive list (hidden fields are never
-  required). A cart without a membership product (events, merchandise) shows no
+  required). Rows are arranged by drag and drop, including between the
+  active and inactive lists. A cart without a membership product (events, merchandise) shows no
   application fields and checks out with FluentCart's own fields only. No
   Fluent Forms.
 * **Application tracking** — as soon as an email is typed at checkout the

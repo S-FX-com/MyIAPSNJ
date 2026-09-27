@@ -619,6 +619,17 @@ tr.fcrm-row-suggested:hover td {
 .fcrm-fields-inactive tr.fcrm-field-row td { opacity: 0.85; }
 .fcrm-fields-inactive tr.fcrm-field-row:hover td { opacity: 1; }
 .fcrm-fields-table tr.fcrm-fields-subhead td { background: #f6f7f7; padding-top: 14px; }
+.fcrm-fields-table td.fcrm-field-move { white-space: nowrap; }
+.fcrm-fields-table .fcrm-drag-handle { cursor: grab; color: #787c82; vertical-align: middle; margin-right: 4px; }
+.fcrm-fields-table .fcrm-drag-handle:hover { color: #2271b1; }
+.fcrm-fields-table .fcrm-field-arrows { display: inline-flex; flex-direction: column; vertical-align: middle; line-height: 1; }
+.fcrm-fields-table .fcrm-field-arrows .button-link { font-size: 10px; padding: 1px 2px; color: #787c82; }
+.fcrm-fields-table .fcrm-field-arrows .button-link:hover { color: #2271b1; }
+.fcrm-fields-table tr.fcrm-sort-placeholder td { height: 44px; background: #f0f6fc; border: 2px dashed #72aee6; }
+.fcrm-fields-table .ui-sortable-helper,
+tr.fcrm-sort-helper { background: #fff; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18); opacity: 0.95; }
+.fcrm-fields-table tbody.ui-sortable { min-height: 44px; }
+.fcrm-fields-table tr.fcrm-fields-empty td { height: 44px; text-align: center; }
 .fcrm-products-table input[type="date"] { min-width: 150px; }
 .fcrm-steps-table td { vertical-align: middle; }
 .fcrm-mig-report h3 { margin-top: 0; }
