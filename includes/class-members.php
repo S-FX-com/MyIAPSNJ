@@ -53,7 +53,10 @@ final class My_IAPSNJ_Members {
         global $wpdb;
         $comped = My_IAPSNJ_Schema::comped_types();
         return $wpdb->prepare(
-            "(BINARY m.member_type IN (%s, %s) OR COALESCE(m.paid_through, '') >= %s)",
+            // Only a strict YYYY-MM-DD compares correctly as a string. Anything
+            // else counts as lapsed (junk values are lapsed for the expiry job
+            // too; a parseable non-standard date such as 12/31/2026 is not).
+            "(BINARY COALESCE(m.member_type, '') IN (%s, %s) OR (COALESCE(m.paid_through, '') REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' AND m.paid_through >= %s))",
             (string) ( $comped[0] ?? '' ),
             (string) ( $comped[1] ?? '' ),
             self::active_cutoff()
@@ -75,7 +78,7 @@ final class My_IAPSNJ_Members {
         try {
             $active = self::active_sql();
             // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-            $rows = $wpdb->get_results( "SELECT m.member_type AS type, SUM({$active}) AS active, SUM(NOT {$active}) AS lapsed FROM (" . self::derived_sql() . ") m WHERE COALESCE(m.member_type, '') <> '' GROUP BY m.member_type", ARRAY_A );
+            $rows = $wpdb->get_results( "SELECT m.member_type AS type, SUM({$active}) AS active, SUM(NOT {$active}) AS lapsed FROM (" . self::derived_sql() . ") m WHERE COALESCE(m.member_type, '') <> '' GROUP BY BINARY m.member_type", ARRAY_A );
         } catch ( \Throwable $e ) {
             $rows = [];
         }
@@ -109,8 +112,12 @@ final class My_IAPSNJ_Members {
         $subs  = $wpdb->prefix . 'fc_subscribers';
         $where = "COALESCE(m.member_type, '') <> '' AND " . ( $state === self::STATE_LAPSED ? 'NOT ' : '' ) . self::active_sql();
         $type  = (string) ( $args['type'] ?? '' );
-        if ( $type !== '' ) {
-            $where .= $wpdb->prepare( ' AND m.member_type = %s', $type );
+        if ( $type === 'Other' ) {
+            // counts() files every non-canonical member type under "Other".
+            $known  = My_IAPSNJ_Schema::member_types();
+            $where .= $wpdb->prepare( ' AND BINARY m.member_type NOT IN (' . implode( ', ', array_fill( 0, count( $known ), '%s' ) ) . ')', ...$known ); // phpcs:ignore WordPress.DB.PreparedSQLPlaceholders
+        } elseif ( $type !== '' ) {
+            $where .= $wpdb->prepare( ' AND BINARY m.member_type = %s', $type );
         }
         $s = trim( (string) ( $args['s'] ?? '' ) );
         if ( $s !== '' ) {
