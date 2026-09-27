@@ -71,11 +71,41 @@ Builder**.
   answers are labelled and written to the CRM with that form's definitions
   even after the forms change (keys only another form defines are still
   read).
+* If the cart changes on the checkout page to one that needs another form
+  (an order bump, an item added), the order is refused with one message
+  asking the member to reload; the page records the form it printed in a
+  hidden `iapsnj__form` input.
 * Upgrade (data version 10, 4.7): the single field list and the heading /
   intro settings become the form **Membership application**, used by both
   levels, so nothing changes on the checkout until an admin edits the forms.
   To give Associates their own form: Duplicate → rename → hide
   Department / Rank, require Employer → assign it to Associate.
+
+### Editing a form
+
+* **Active / Inactive.** The editor lists the shown fields first, in
+  checkout order, and an **Inactive** section below. Unticking *Show* moves
+  a field to Inactive and clears and locks *Required* (a hidden field is
+  never required; the server enforces the same rule, also for rows saved
+  before 4.8). Ticking *Show* moves it to the end of the active list.
+* **Section headings.** *+ Add section heading* (or type *Section heading*)
+  adds a heading row. On the checkout the fields after it, up to the next
+  heading, are grouped under it (`<h4>` plus the optional help text as a
+  line under the heading). A heading with no shown field under it is not
+  printed. Headings are never required and store nothing.
+* **Every other FluentCRM field.** Inactive also lists, under *Other
+  FluentCRM fields*, every CRM contact custom field (and the *Prefix*
+  contact field) that no row of this form writes to, with the CRM field's
+  label, type and options (select → dropdown, radio → radio, one-option
+  checkbox → tick box, several options → dropdown, date / date-time → date,
+  anything else → text). Tick *Show* to add one to the checkout; left
+  hidden, it is not saved and simply offered again next time, so new CRM
+  fields appear automatically. The membership-state fields
+  (`member_type`, `paid_through`, `member_number`, `join_date`,
+  `legacy_pmpro_level`, `My_IAPSNJ_Schema::system_fields()`) are never
+  offered, cannot be picked as a target, and are never written from a
+  checkout — only payments set them. FluentCart already collects name,
+  email, phone and address, so those contact columns are not offered.
 
 Each form's field list is a small builder: order, show,
 required, label, type (text, paragraph, dropdown, radio, date, checkbox),
@@ -90,6 +120,8 @@ Built-in fields (4.3.0: the whole ACF-era onboarding form, per Shane
 into the main checkout"). Left out on purpose: what FluentCart collects (name,
 email, phone, billing address), what the payment sets (member number, type,
 join / expiration dates) and `admin_notes` (FluentCRM Notes).
+
+Field types: text, paragraph, dropdown, radio, date, checkbox, section heading.
 
 | Key | Type | Default | CRM target | Notes |
 |---|---|---|---|---|
@@ -189,6 +221,13 @@ does not fire and the Welcome automation is skipped (Paid history exists).
       goes through with FluentCart's fields only
 - [ ] Duplicate a form → copy opens in the editor; deleting a form in use is
       refused
+- [ ] Untick Show on a required field → it moves to Inactive with Required
+      cleared; checkout no longer asks for it
+- [ ] Add two section headings → checkout groups the fields under them; a
+      heading with nothing shown under it is not printed
+- [ ] A CRM custom field created in FluentCRM appears under Inactive → Other
+      FluentCRM fields; Show + Save → on the checkout, answer lands in the
+      contact; Member Type / Paid Through are never listed
 - [ ] Submit with Department empty → inline error, order not created
 - [ ] Pay → order note "application received"; contact has `department`,
       `rank_level` …; `Paid-YYYY`, `member_type`, `paid_through`; Reports →

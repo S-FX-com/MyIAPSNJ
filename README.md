@@ -56,7 +56,9 @@ Documentation: [`docs/phase1-findings.md`](docs/phase1-findings.md) ·
   level uses: Regular (Lifetime uses the Regular form) and Associate. In a
   form: add fields, pick the type and where the answer is stored in FluentCRM
   (existing custom field, contact field, or a new custom field created on
-  save). A cart without a membership product (events, merchandise) shows no
+  save), group fields under section headings, and switch on any other
+  FluentCRM field from the Inactive list (hidden fields are never
+  required). A cart without a membership product (events, merchandise) shows no
   application fields and checks out with FluentCart's own fields only. No
   Fluent Forms.
 * **Application tracking** — as soon as an email is typed at checkout the
@@ -146,8 +148,8 @@ until the forms are changed).
 | Notes Search | `my-iapsnj-notes-search` | |
 
 Legacy slugs (`fcrm-wp-sync*`, `my-iapsnj-mismatches`, `my-iapsnj-pmp`)
-redirect. CRM, Users, FluentCart and My IAPSNJ are pinned to the top of the
-admin sidebar (filter `my_iapsnj_top_menu_slugs`).
+redirect. My IAPSNJ sits in the admin sidebar just below FluentHub (or below
+Dashboard when FluentHub is not installed); no other menu is moved.
 
 ## Shortcode
 
@@ -187,7 +189,7 @@ Steps: `census`, `link_subscribers`, `consolidate_addresses`,
 Actions: `my_iapsnj/membership_paid($subscriber, $order, $applied)`,
 `my_iapsnj/new_member(...)`, `my_iapsnj/membership_refunded(...)`,
 `my_iapsnj/application_recorded($row, $cart)`.
-Filters: `my_iapsnj/new_member_notification($mail, …)`, `my_iapsnj_top_menu_slugs`.
+Filters: `my_iapsnj/new_member_notification($mail, …)`.
 
 FluentCart hooks consumed: `fluent_cart/order_paid`, `fluent_cart/renewal_paid`,
 `fluent_cart/order_placed_offline`, `fluent_cart/order_fully_refunded`,

@@ -137,11 +137,11 @@ class My_IAPSNJ_REST_API {
             'last_bulk_sync'           => get_option( 'my_iapsnj_last_bulk_sync', '' ),
             'plugin_version'           => MY_IAPSNJ_VERSION,
             'fluentcart'               => My_IAPSNJ_Membership::is_available(),
-            'checkout_fields'          => array_keys( My_IAPSNJ_Checkout_Fields::enabled_fields() ),
+            'checkout_fields'          => array_keys( My_IAPSNJ_Checkout_Fields::input_fields() ),
             'checkout_forms'           => array_map( function ( $form_id ) {
                 return [
                     'form'   => $form_id,
-                    'fields' => array_keys( My_IAPSNJ_Checkout_Fields::enabled_fields( $form_id ) ),
+                    'fields' => array_keys( My_IAPSNJ_Checkout_Fields::input_fields( $form_id ) ),
                 ];
             }, My_IAPSNJ_Checkout_Fields::assignments() ),
             'settings'                 => My_IAPSNJ_Plugin::settings(),

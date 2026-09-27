@@ -340,24 +340,43 @@
     });
 
     // ---- Application fields builder -------------------------------------------
+    // Two tables: active rows (#fcrm-fields-rows, shown at checkout, in order)
+    // and inactive rows (#fcrm-fields-inactive: hidden fields, then FluentCRM
+    // fields the form does not use yet). Ticking / unticking Show moves a row.
 
     var $fieldRows = $('#fcrm-fields-rows');
+    var $inactiveRows = $('#fcrm-fields-inactive');
     var fieldRowTemplate = document.getElementById('fcrm-field-row-template');
 
     function renumberFieldRows() {
-        $fieldRows.find('tr.fcrm-field-row').each(function (i) {
+        $('#fcrm-fields-rows tr.fcrm-field-row, #fcrm-fields-inactive tr.fcrm-field-row').each(function (i) {
             $(this).find('.fcrm-field-order').val(i + 1);
         });
+        $fieldRows.find('tr.fcrm-fields-empty').toggle($fieldRows.find('tr.fcrm-field-row').length === 0);
     }
 
-    function toggleFieldOptions($row) {
-        var type = $row.find('.fcrm-field-type').val();
-        var has = type === 'select' || type === 'radio';
+    // Options, CRM target and Required follow the type and Show.
+    function syncFieldRow($row) {
+        var type    = $row.find('.fcrm-field-type').val();
+        var section = type === 'section';
+        var has     = type === 'select' || type === 'radio';
+        var shown   = $row.find('.fcrm-field-enabled').is(':checked');
+        var $req    = $row.find('.fcrm-field-required');
+        var $label  = $row.find('.fcrm-field-label');
+        var $help   = $row.find('.fcrm-field-help');
+        $row.toggleClass('enabled', shown).toggleClass('fcrm-field-section', section);
         $row.find('.fcrm-field-options').toggle(has);
         $row.find('.fcrm-field-no-options').toggle(!has);
+        $row.find('.fcrm-field-target').toggle(!section);
+        $row.find('.fcrm-field-no-target').toggle(section);
+        if (section) { $row.find('.fcrm-field-target').val('none'); }
+        if (!shown || section) { $req.prop('checked', false); }
+        $req.prop('disabled', !shown || section);
+        $label.attr('placeholder', section ? $label.data('placeholder-section') : $label.data('placeholder-field'));
+        $help.attr('placeholder', section ? $help.data('placeholder-section') : '');
     }
 
-    $('#fcrm-add-field').on('click', function () {
+    function addFieldRow(type) {
         if (!fieldRowTemplate) { return; }
         var clone = document.importNode(fieldRowTemplate.content, true);
         var newId = 'new_' + Math.random().toString(36).substr(2, 8);
@@ -366,34 +385,54 @@
         $row.find('input, select, textarea').each(function () {
             if ($(this).attr('name')) { $(this).attr('name', $(this).attr('name').replace('__TEMPLATE__', newId)); }
         });
-        $fieldRows.append($row);
+        $row.find('.fcrm-field-type').val(type);
+        $fieldRows.find('tr.fcrm-fields-empty').before($row);
+        syncFieldRow($row);
         renumberFieldRows();
-        toggleFieldOptions($row);
-        $row.find('input[name$="[label]"]').focus();
-    });
+        $row.find('.fcrm-field-label').focus();
+    }
 
-    $fieldRows.on('click', '.fcrm-field-remove', function () {
+    $('#fcrm-add-field').on('click', function () { addFieldRow('text'); });
+    $('#fcrm-add-section').on('click', function () { addFieldRow('section'); });
+
+    $('#fcrm-fields-table, #fcrm-fields-inactive-table').on('click', '.fcrm-field-remove', function () {
         $(this).closest('tr').remove();
         renumberFieldRows();
     }).on('click', '.fcrm-field-up', function () {
-        var $tr = $(this).closest('tr'), $prev = $tr.prev('tr');
+        var $tr = $(this).closest('tr'), $prev = $tr.prevAll('tr.fcrm-field-row').first();
         if ($prev.length) { $prev.before($tr); renumberFieldRows(); }
     }).on('click', '.fcrm-field-down', function () {
-        var $tr = $(this).closest('tr'), $next = $tr.next('tr');
+        var $tr = $(this).closest('tr'), $next = $tr.nextAll('tr.fcrm-field-row').first();
         if ($next.length) { $next.after($tr); renumberFieldRows(); }
     }).on('change', '.fcrm-field-type', function () {
-        toggleFieldOptions($(this).closest('tr'));
+        syncFieldRow($(this).closest('tr'));
+    }).on('change', '.fcrm-field-enabled', function () {
+        var $row = $(this).closest('tr');
+        syncFieldRow($row);
+        if ($(this).is(':checked')) {
+            // Shown: to the end of the active list.
+            $fieldRows.find('tr.fcrm-fields-empty').before($row);
+        } else if ($row.hasClass('fcrm-field-auto') && $inactiveRows.find('tr.fcrm-fields-subhead').length) {
+            // A FluentCRM field goes back to the CRM list.
+            $inactiveRows.find('tr.fcrm-fields-subhead').after($row);
+        } else {
+            $inactiveRows.prepend($row);
+        }
+        renumberFieldRows();
     });
 
-    $('#fcrm-checkout-fields-form').on('change', 'input[name$="[enabled]"]', function () {
-        $(this).closest('tr').toggleClass('enabled', $(this).is(':checked'));
-    }).on('submit', function (e) {
+    $('#fcrm-checkout-fields-form').on('submit', function (e) {
         e.preventDefault();
         var $btn = $(this).find('[type="submit"]'), $notice = $('#fcrm-settings-notice'), data = {};
         renumberFieldRows();
         $(this).find('input, select, textarea').each(function () {
             var name = $(this).attr('name');
             if (!name) { return; }
+            // FluentCRM fields left hidden are not saved (they are offered
+            // again next time): leave them out so a long CRM field list
+            // cannot push the request past PHP's max_input_vars.
+            var $tr = $(this).closest('tr.fcrm-field-auto');
+            if ($tr.length && !$tr.find('.fcrm-field-enabled').is(':checked')) { return; }
             if ($(this).is(':checkbox')) { if ($(this).is(':checked')) { data[name] = 1; } }
             else { data[name] = $(this).val(); } // disabled selects (built-in type) are sent too: jQuery reads them
         });

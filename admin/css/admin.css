@@ -614,6 +614,11 @@ tr.fcrm-row-suggested:hover td {
 .fcrm-details { margin-top: 8px; }
 .fcrm-details summary { cursor: pointer; color: #2271b1; }
 .fcrm-products-table tr.enabled td { background: #f4faf4; }
+.fcrm-fields-table tr.fcrm-field-section td { background: #eef3fb; border-top: 2px solid #c5d4ec; }
+.fcrm-fields-table tr.fcrm-field-section .fcrm-field-label { font-weight: 600; }
+.fcrm-fields-inactive tr.fcrm-field-row td { opacity: 0.85; }
+.fcrm-fields-inactive tr.fcrm-field-row:hover td { opacity: 1; }
+.fcrm-fields-table tr.fcrm-fields-subhead td { background: #f6f7f7; padding-top: 14px; }
 .fcrm-products-table input[type="date"] { min-width: 150px; }
 .fcrm-steps-table td { vertical-align: middle; }
 .fcrm-mig-report h3 { margin-top: 0; }

@@ -9,6 +9,26 @@
     margin: 0 0 16px;
     opacity: 0.85;
 }
+.my-iapsnj-section {
+    margin: 24px 0 0;
+}
+.my-iapsnj-section:first-of-type {
+    margin-top: 8px;
+}
+.my-iapsnj-section-title {
+    margin: 0 0 4px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+    font-size: 1.05em;
+}
+.my-iapsnj-section-intro {
+    margin: 0 0 12px;
+    font-size: 0.9em;
+    opacity: 0.8;
+}
+.my-iapsnj-section-title + .my-iapsnj-field {
+    margin-top: 12px;
+}
 .my-iapsnj-field {
     margin-bottom: 16px;
 }

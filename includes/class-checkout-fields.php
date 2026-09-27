@@ -56,10 +56,11 @@ class My_IAPSNJ_Checkout_Fields {
     const META_FORM    = '_my_iapsnj_checkout_form';        // order meta: checkout form id
     const META_APPLIED = '_my_iapsnj_application_applied';  // order meta: UTC datetime
     const PREFIX       = 'iapsnj_';                          // input name prefix
+    const FORM_INPUT   = 'iapsnj__form';                     // hidden input: form printed on the page
     const NEW_TARGET   = '__new__';                          // "create a CRM custom field" picker value
 
-    /** @var string[] */
-    const TYPES = [ 'text', 'textarea', 'select', 'radio', 'date', 'checkbox' ];
+    /** @var string[] 'section' is a heading row, not an input */
+    const TYPES = [ 'text', 'textarea', 'select', 'radio', 'date', 'checkbox', 'section' ];
 
     /** @var array<string,string> FluentCRM contact columns offered as targets */
     const DEFAULT_TARGETS = [
@@ -547,8 +548,11 @@ class My_IAPSNJ_Checkout_Fields {
      */
     private static function initial_store(): array {
         $legacy = get_option( self::OPTION, [] );
+        // Legacy rows are kept as saved (4.1 override or full-row shape):
+        // config() parses either, and the v7 / v8 steps still see which
+        // built-ins the list really lacks.
         $rows   = is_array( $legacy ) && $legacy
-            ? self::rows_from_config( self::parse_rows( $legacy ) )
+            ? $legacy
             : self::rows_from_config( self::parse_rows( [] ) );
         $settings = get_option( 'my_iapsnj_settings', [] );
         $settings = is_array( $settings ) ? $settings : [];
@@ -860,17 +864,19 @@ class My_IAPSNJ_Checkout_Fields {
             if ( $def['label'] === '' ) {
                 continue;
             }
-            $def['builtin'] = isset( $builtins[ $key ] );
-            $out[ $key ]    = $def;
+            $def['builtin']  = isset( $builtins[ $key ] );
+            $def['required'] = $def['required'] && $def['enabled'] && $def['type'] !== 'section';
+            $out[ $key ]     = $def;
         }
 
         // Built-ins missing from the saved list are kept, disabled, so they
         // can be switched on again from the screen.
         foreach ( $builtins as $key => $def ) {
             if ( ! isset( $out[ $key ] ) ) {
-                $def['enabled'] = $saved ? false : $def['enabled'];
-                $def['builtin'] = true;
-                $out[ $key ]    = $def;
+                $def['enabled']  = $saved ? false : $def['enabled'];
+                $def['required'] = $def['required'] && $def['enabled'];
+                $def['builtin']  = true;
+                $out[ $key ]     = $def;
             }
         }
 
@@ -894,6 +900,8 @@ class My_IAPSNJ_Checkout_Fields {
     }
 
     /**
+     * Shown rows of a form, section headings included, in display order.
+     *
      * @param string $form_id '' → the default (Regular) form
      * @return array<string,array>
      */
@@ -901,6 +909,132 @@ class My_IAPSNJ_Checkout_Fields {
         return array_filter( self::config( $form_id ), function ( $def ) {
             return ! empty( $def['enabled'] );
         } );
+    }
+
+    /**
+     * Shown inputs of a form (section headings left out): what the member
+     * fills in, what is validated and stored.
+     *
+     * @return array<string,array>
+     */
+    public static function input_fields( string $form_id = '' ): array {
+        return array_filter( self::enabled_fields( $form_id ), function ( $def ) {
+            return $def['type'] !== 'section';
+        } );
+    }
+
+    // -----------------------------------------------------------------------
+    // FluentCRM fields a form does not use yet
+    // -----------------------------------------------------------------------
+
+    /**
+     * FluentCRM custom fields (membership-state fields excluded): slug => definition.
+     *
+     * @return array<string,array>
+     */
+    public static function crm_custom_fields(): array {
+        $out    = [];
+        $system = My_IAPSNJ_Schema::system_fields();
+        $custom = function_exists( 'fluentcrm_get_option' ) ? fluentcrm_get_option( 'contact_custom_fields', [] ) : [];
+        foreach ( (array) $custom as $cf ) {
+            if ( ! is_array( $cf ) || empty( $cf['slug'] ) ) {
+                continue;
+            }
+            $slug = sanitize_key( (string) $cf['slug'] );
+            if ( $slug === '' || in_array( $slug, $system, true ) ) {
+                continue;
+            }
+            $out[ $slug ] = $cf;
+        }
+        return $out;
+    }
+
+    /**
+     * Checkout field type for a FluentCRM custom field type.
+     *
+     * @param string[] $options
+     */
+    public static function type_from_crm( string $crm_type, array $options ): string {
+        switch ( $crm_type ) {
+            case 'textarea':
+                return 'textarea';
+            case 'date':
+            case 'date_time':
+                return 'date';
+            case 'radio':
+                return $options ? 'radio' : 'text';
+            case 'select-one':
+            case 'select-multi':
+                return $options ? 'select' : 'text';
+            case 'checkbox':
+                // One option ("Yes") is a tick box; several are a choice.
+                return count( $options ) > 1 ? 'select' : 'checkbox';
+            default:
+                return 'text';
+        }
+    }
+
+    /**
+     * Every FluentCRM field no row of the form writes to, as a hidden row the
+     * admin can switch on: key => definition (+ 'auto' => true). Contact
+     * columns FluentCart already collects (name, email, phone, address) and
+     * the membership-state fields are not offered.
+     *
+     * @return array<string,array>
+     */
+    public static function crm_candidates( string $form_id = '' ): array {
+        $config  = self::config( $form_id );
+        $used    = [];
+        foreach ( $config as $def ) {
+            $used[ self::target_value( $def ) ] = true;
+        }
+        $taken = $config + self::definitions();
+        $key_for = function ( string $slug ) use ( &$taken ): string {
+            $key = sanitize_key( $slug );
+            if ( isset( $taken[ $key ] ) ) {
+                $key = 'crm_' . $key;
+            }
+            $taken[ $key ] = true;
+            return $key;
+        };
+        $out = [];
+        foreach ( self::DEFAULT_TARGETS as $column => $label ) {
+            if ( isset( $used[ 'default:' . $column ] ) ) {
+                continue;
+            }
+            $out[ $key_for( $column ) ] = [
+                'label'    => $label,
+                'help'     => '',
+                'type'     => $column === 'date_of_birth' ? 'date' : 'text',
+                'options'  => [],
+                'crm'      => $column,
+                'crm_kind' => 'default',
+                'enabled'  => false,
+                'required' => false,
+                'builtin'  => false,
+                'auto'     => true,
+            ];
+        }
+        foreach ( self::crm_custom_fields() as $slug => $cf ) {
+            if ( isset( $used[ 'custom:' . $slug ] ) ) {
+                continue;
+            }
+            $options = array_values( array_filter( array_map( 'strval', (array) ( $cf['options'] ?? [] ) ), 'strlen' ) );
+            $type    = self::type_from_crm( (string) ( $cf['type'] ?? 'text' ), $options );
+            $out[ $key_for( $slug ) ] = [
+                'label'    => (string) ( $cf['label'] ?? $slug ) !== '' ? (string) $cf['label'] : $slug,
+                'help'     => '',
+                'type'     => $type,
+                'options'  => in_array( $type, [ 'select', 'radio' ], true ) ? $options : [],
+                'crm'      => $slug,
+                'crm_kind' => 'custom',
+                'enabled'  => false,
+                'required' => false,
+                'builtin'  => false,
+                'auto'     => true,
+            ];
+        }
+        return $out;
     }
 
     /**
@@ -915,15 +1049,10 @@ class My_IAPSNJ_Checkout_Fields {
         foreach ( self::DEFAULT_TARGETS as $column => $label ) {
             $out[ 'default:' . $column ] = $label . ' ' . __( '(contact field)', 'my-iapsnj' );
         }
-        $custom = fluentcrm_get_option( 'contact_custom_fields', [] );
-        if ( is_array( $custom ) ) {
-            foreach ( $custom as $cf ) {
-                if ( empty( $cf['slug'] ) ) {
-                    continue;
-                }
-                $slug = sanitize_key( (string) $cf['slug'] );
-                $out[ 'custom:' . $slug ] = (string) ( $cf['label'] ?? $slug ) . ' (' . $slug . ')';
-            }
+        // Membership-state fields (member_type, paid_through …) are left
+        // out: only payments set them.
+        foreach ( self::crm_custom_fields() as $slug => $cf ) {
+            $out[ 'custom:' . $slug ] = (string) ( $cf['label'] ?? $slug ) . ' (' . $slug . ')';
         }
         $out[ self::NEW_TARGET ] = __( '+ Create a new CRM custom field for this field', 'my-iapsnj' );
         return $out;
@@ -966,6 +1095,11 @@ class My_IAPSNJ_Checkout_Fields {
         $clean = [];
         $used  = [];
         foreach ( $ordered as [ , , $row_id, $row ] ) {
+            // A FluentCRM field offered in "Inactive" and left hidden is not
+            // saved: it is offered again from the CRM on the next visit.
+            if ( ! empty( $row['auto'] ) && empty( $row['enabled'] ) ) {
+                continue;
+            }
             $label = sanitize_text_field( (string) ( $row['label'] ?? '' ) );
             $key   = sanitize_key( (string) ( $row['key'] ?? '' ) );
             $is_builtin = $key !== '' && isset( $builtins[ $key ] );
@@ -973,12 +1107,13 @@ class My_IAPSNJ_Checkout_Fields {
                 if ( $is_builtin ) {
                     $label = $builtins[ $key ]['label'];
                 } else {
-                    continue; // a custom field needs a label
+                    continue; // a custom field or section needs a label
                 }
             }
+            $is_section = ! $is_builtin && (string) ( $row['type'] ?? '' ) === 'section';
             if ( $key === '' ) {
-                $key = 'app_' . sanitize_key( str_replace( ' ', '_', strtolower( $label ) ) );
-                $key = substr( $key, 0, 40 ) ?: 'app_field';
+                $key = ( $is_section ? 'section_' : 'app_' ) . sanitize_key( str_replace( ' ', '_', strtolower( $label ) ) );
+                $key = substr( $key, 0, 40 ) ?: ( $is_section ? 'section' : 'app_field' );
             }
             $base_key = $key;
             $n        = 2;
@@ -1004,6 +1139,9 @@ class My_IAPSNJ_Checkout_Fields {
             if ( $target === '' && isset( $existing[ $key ] ) ) {
                 $target = self::target_value( $existing[ $key ] );
             }
+            if ( $type === 'section' ) {
+                $target = 'none';
+            }
             if ( $target === self::NEW_TARGET ) {
                 $slug = self::create_crm_field( $key, $label, $type, $options );
                 if ( $slug !== '' ) {
@@ -1020,10 +1158,12 @@ class My_IAPSNJ_Checkout_Fields {
                     $crm      = $column;
                 }
             }
-            if ( $crm === '' ) {
+            if ( $crm === '' || ( $crm_kind === 'custom' && in_array( $crm, My_IAPSNJ_Schema::system_fields(), true ) ) ) {
                 $crm_kind = 'none';
+                $crm      = '';
             }
 
+            $enabled = ! empty( $row['enabled'] );
             $clean[ $key ] = [
                 'key'      => $key,
                 'label'    => $label,
@@ -1032,8 +1172,9 @@ class My_IAPSNJ_Checkout_Fields {
                 'options'  => in_array( $type, [ 'select', 'radio' ], true ) ? $options : [],
                 'crm'      => $crm,
                 'crm_kind' => $crm_kind,
-                'enabled'  => ! empty( $row['enabled'] ),
-                'required' => ! empty( $row['required'] ),
+                'enabled'  => $enabled,
+                // A hidden field is never required; a heading never is.
+                'required' => $enabled && $type !== 'section' && ! empty( $row['required'] ),
             ];
         }
         $store = self::store();
@@ -1172,7 +1313,7 @@ class My_IAPSNJ_Checkout_Fields {
      */
     public static function collect( array $request, string $form_id = '' ): array {
         $out = [];
-        foreach ( self::enabled_fields( $form_id ) as $key => $def ) {
+        foreach ( self::input_fields( $form_id ) as $key => $def ) {
             $value = self::sanitize_value( $def, $request[ self::input_name( $key ) ] ?? null );
             if ( $value !== '' ) {
                 $out[ $key ] = $value;
@@ -1205,6 +1346,9 @@ class My_IAPSNJ_Checkout_Fields {
                 continue;
             }
             $def = $config[ $key ];
+            if ( $def['type'] === 'section' ) {
+                continue;
+            }
             if ( $def['type'] === 'checkbox' ) {
                 $out[ $def['label'] ] = __( 'Yes', 'my-iapsnj' );
             } elseif ( $def['type'] === 'date' ) {
@@ -1231,9 +1375,8 @@ class My_IAPSNJ_Checkout_Fields {
         if ( $form_id === '' ) {
             return; // no membership product in the cart: a plain store checkout
         }
-        $fields = self::enabled_fields( $form_id );
-        if ( ! $fields ) {
-            return;
+        if ( ! self::input_fields( $form_id ) ) {
+            return; // headings alone are not an application
         }
         $this->rendered = true;
         wp_enqueue_style( 'my-iapsnj-checkout', MY_IAPSNJ_URL . 'public/css/checkout-fields.css', [], MY_IAPSNJ_VERSION );
@@ -1248,10 +1391,47 @@ class My_IAPSNJ_Checkout_Fields {
         if ( $intro !== '' ) {
             echo '<p class="my-iapsnj-application-intro">' . esc_html( $intro ) . '</p>';
         }
-        foreach ( $fields as $key => $def ) {
-            $this->render_field( $key, $def, (string) ( $values[ $key ] ?? '' ) );
+        // Which form was printed: validate() refuses the order when the cart
+        // changed on the page to one that needs another form.
+        echo '<input type="hidden" name="' . esc_attr( self::FORM_INPUT ) . '" value="' . esc_attr( $form_id ) . '">';
+        foreach ( self::sections( $form_id ) as $section ) {
+            if ( ! $section['fields'] ) {
+                continue; // a heading with nothing shown under it
+            }
+            if ( $section['key'] !== '' ) {
+                $title_id = 'my-iapsnj-section-' . sanitize_html_class( $section['key'] );
+                echo '<div class="my-iapsnj-section" role="group" aria-labelledby="' . esc_attr( $title_id ) . '" data-my-iapsnj-section="' . esc_attr( $section['key'] ) . '">';
+                echo '<h4 class="my-iapsnj-section-title" id="' . esc_attr( $title_id ) . '">' . esc_html( $section['label'] ) . '</h4>';
+                if ( $section['help'] !== '' ) {
+                    echo '<p class="my-iapsnj-section-intro">' . esc_html( $section['help'] ) . '</p>';
+                }
+            }
+            foreach ( $section['fields'] as $key => $def ) {
+                $this->render_field( $key, $def, (string) ( $values[ $key ] ?? '' ) );
+            }
+            if ( $section['key'] !== '' ) {
+                echo '</div>';
+            }
         }
         echo '</div>';
+    }
+
+    /**
+     * A form's shown rows grouped under their section headings, in order.
+     * The first group ('key' => '') holds the inputs before any heading.
+     *
+     * @return array<int,array{key:string,label:string,help:string,fields:array<string,array>}>
+     */
+    public static function sections( string $form_id = '' ): array {
+        $groups = [ [ 'key' => '', 'label' => '', 'help' => '', 'fields' => [] ] ];
+        foreach ( self::enabled_fields( $form_id ) as $key => $def ) {
+            if ( $def['type'] === 'section' ) {
+                $groups[] = [ 'key' => (string) $key, 'label' => (string) $def['label'], 'help' => (string) $def['help'], 'fields' => [] ];
+                continue;
+            }
+            $groups[ count( $groups ) - 1 ]['fields'][ $key ] = $def;
+        }
+        return $groups;
     }
 
     private function render_field( string $key, array $def, string $value ): void {
@@ -1464,7 +1644,7 @@ class My_IAPSNJ_Checkout_Fields {
      */
     private function prefill_values( array $args, string $form_id ): array {
         $values = [];
-        $config = self::enabled_fields( $form_id );
+        $config = self::input_fields( $form_id );
 
         try {
             $subscriber = self::current_contact( $args['cart'] ?? null );
@@ -1555,8 +1735,20 @@ class My_IAPSNJ_Checkout_Fields {
         if ( $form_id === '' ) {
             return $errors; // no membership product: nothing of ours to require
         }
-        $data = is_array( $args ) && isset( $args['data'] ) && is_array( $args['data'] ) ? $args['data'] : [];
-        foreach ( self::enabled_fields( $form_id ) as $key => $def ) {
+        $data   = is_array( $args ) && isset( $args['data'] ) && is_array( $args['data'] ) ? $args['data'] : [];
+        $fields = self::input_fields( $form_id );
+        if ( ! $fields ) {
+            return $errors;
+        }
+        // The page printed another form (or none): the cart changed on the
+        // checkout page (order bump, item added). Per-field errors would name
+        // fields the member cannot see, so ask for a reload instead.
+        $printed = sanitize_key( (string) ( $data[ self::FORM_INPUT ] ?? '' ) );
+        if ( $printed !== $form_id ) {
+            $errors[ self::FORM_INPUT ]['changed'] = __( 'Your cart changed and needs a different membership application. Please reload the checkout page and complete the form shown.', 'my-iapsnj' );
+            return $errors;
+        }
+        foreach ( $fields as $key => $def ) {
             $name  = self::input_name( $key );
             $value = self::sanitize_value( $def, $data[ $name ] ?? null );
             $label = $def['type'] === 'checkbox' ? __( 'Certification', 'my-iapsnj' ) : $def['label'];
@@ -1608,6 +1800,20 @@ class My_IAPSNJ_Checkout_Fields {
             // cart); a cart without a membership product has none.
             $form_id = self::form_for_cart( $cart );
             if ( $form_id === '' ) {
+                // Application inputs posted but no mapped membership product:
+                // most likely the products were recreated and the variation
+                // ids in Membership Products are stale.
+                $posted = array_filter( array_keys( $request ), function ( $k ) {
+                    return is_string( $k ) && strpos( $k, self::PREFIX ) === 0;
+                } );
+                if ( $posted && method_exists( $order, 'addLog' ) ) {
+                    $order->addLog(
+                        'My IAPSNJ: application fields ignored (product not mapped)',
+                        'The checkout posted application fields but no item is configured in My IAPSNJ → Membership Products, so nothing was stored and no membership will be applied. Items: ' . self::order_item_ids( $order ),
+                        'warning',
+                        'My IAPSNJ'
+                    );
+                }
                 return;
             }
             $values = self::collect( $request, $form_id );
@@ -1804,16 +2010,26 @@ class My_IAPSNJ_Checkout_Fields {
         if ( ! is_array( $values ) || ! $values ) {
             return [];
         }
-        $custom   = [];
-        $defaults = [];
+        $custom    = [];
+        $defaults  = [];
+        $system    = My_IAPSNJ_Schema::system_fields();
+        $crm_defs  = self::crm_custom_fields();
         foreach ( self::field_defs( self::form_for_order( $order ) ) as $key => $def ) {
+            if ( $def['type'] === 'section' ) {
+                continue;
+            }
             $value = isset( $values[ $key ] ) ? self::sanitize_value( $def, $values[ $key ] ) : '';
             if ( $value === '' || $def['crm'] === '' ) {
                 continue;
             }
             if ( $def['crm_kind'] === 'custom' ) {
+                if ( in_array( $def['crm'], $system, true ) ) {
+                    continue; // member_type, paid_through … are set by payments only
+                }
                 if ( $def['type'] === 'checkbox' ) {
-                    $value = 'Yes';
+                    // The CRM field's own option text ("Yes" for the built-ins).
+                    $crm_options = array_values( array_filter( array_map( 'strval', (array) ( $crm_defs[ $def['crm'] ]['options'] ?? [] ) ), 'strlen' ) );
+                    $value       = $crm_options ? $crm_options[0] : 'Yes';
                 }
                 // FluentCRM stores checkbox / multi-select custom fields as
                 // an array of chosen options.
