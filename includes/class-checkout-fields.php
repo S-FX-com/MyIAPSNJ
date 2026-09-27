@@ -559,7 +559,7 @@ class My_IAPSNJ_Checkout_Fields {
         $settings = get_option( 'my_iapsnj_settings', [] );
         $settings = is_array( $settings ) ? $settings : [];
         $form     = [
-            'name'    => __( 'Membership application', 'my-iapsnj' ),
+            'name'    => __( 'Membership Application', 'my-iapsnj' ),
             'heading' => sanitize_text_field( (string) ( $settings['application_heading'] ?? '' ) ),
             'intro'   => sanitize_text_field( (string) ( $settings['application_intro'] ?? '' ) ),
             'fields'  => $rows,
@@ -941,7 +941,11 @@ class My_IAPSNJ_Checkout_Fields {
             $p    = $defs[ $parent ];
             $when = (array) ( $def['show_when'] ?? [] );
             if ( in_array( $p['type'], [ 'select', 'radio' ], true ) && ! empty( $p['options'] ) ) {
-                $when = array_values( array_intersect( $when, (array) $p['options'] ) );
+                $kept = array_values( array_intersect( $when, (array) $p['options'] ) );
+                // Answers that are no longer options keep the child hidden (and
+                // not required) instead of widening it to "any answer"; the
+                // editor asks for new ones.
+                $when = ( $when && ! $kept ) ? array_values( $when ) : $kept;
             } else {
                 $when = []; // tick box / free text: "is ticked" / "has an answer"
             }
@@ -1104,7 +1108,7 @@ class My_IAPSNJ_Checkout_Fields {
         $taken = $config + self::definitions();
         $key_for = function ( string $slug ) use ( &$taken ): string {
             $key = sanitize_key( $slug );
-            if ( isset( $taken[ $key ] ) ) {
+            while ( isset( $taken[ $key ] ) ) {
                 $key = 'crm_' . $key;
             }
             $taken[ $key ] = true;
@@ -1186,42 +1190,14 @@ class My_IAPSNJ_Checkout_Fields {
     }
 
     /**
-     * Labels of posted rows that write to a CRM field another posted row
-     * already writes to (FluentCRM field => labels). The editor prevents this;
-     * the save handler refuses it as a backstop. Rows offered from FluentCRM
-     * and left hidden are not saved, so they do not count.
+     * Persist the field list of one form. Refused (nothing saved, no CRM
+     * field created) when two rows would write the same FluentCRM field.
      *
-     * @param array<string|int,array> $rows posted rows
-     * @return array<string,string[]>
-     */
-    public static function duplicate_targets( array $rows ): array {
-        $by_target = [];
-        foreach ( $rows as $row ) {
-            if ( ! is_array( $row ) || ( ! empty( $row['auto'] ) && empty( $row['enabled'] ) ) || (string) ( $row['type'] ?? '' ) === 'section' ) {
-                continue;
-            }
-            $target = (string) ( $row['crm_target'] ?? '' );
-            if ( strpos( $target, 'custom:' ) !== 0 && strpos( $target, 'default:' ) !== 0 ) {
-                continue; // none, "create new" (its slug is the row's own key) or not posted
-            }
-            $by_target[ $target ][] = sanitize_text_field( (string) ( $row['label'] ?? '' ) );
-        }
-        $out = [];
-        foreach ( $by_target as $target => $labels ) {
-            if ( count( $labels ) > 1 ) {
-                $out[ substr( $target, strpos( $target, ':' ) + 1 ) ] = $labels;
-            }
-        }
-        return $out;
-    }
-
-    /**
-     * Persist the field list of one form.
-     *
-     * @param array<string|int,array> $rows Posted rows: ['key','label','help','type','options'(string|array),'crm_target','enabled','required','order']
+     * @param array<string|int,array> $rows Posted rows: ['key','label','help','type','options'(string|array),'crm_target','enabled','required','order','parent','show_when','auto']
      * @param string                  $form_id '' → the default (Regular) form
+     * @return true|WP_Error
      */
-    public static function save_config( array $rows, string $form_id = '' ): void {
+    public static function save_config( array $rows, string $form_id = '' ) {
         $form_id  = self::resolve_form_id( $form_id );
         $builtins = self::definitions();
         $existing = self::field_defs( $form_id );
@@ -1239,9 +1215,19 @@ class My_IAPSNJ_Checkout_Fields {
             return $a[0] === $b[0] ? $a[1] - $b[1] : $a[0] - $b[0];
         } );
 
-        $clean  = [];
-        $used   = [];
-        $row_to = []; // posted row id (a new row's temporary id) => saved key
+        $clean    = [];
+        $used     = [];
+        $row_to   = []; // posted row id (a new row's temporary id) => saved key
+        $create   = []; // key => [label, type, options]: "+ Create a new CRM custom field"
+        $reserved = []; // keys posted by existing rows: a new row never takes one
+        foreach ( $ordered as [ , , , $row ] ) {
+            if ( empty( $row['auto'] ) || ! empty( $row['enabled'] ) ) {
+                $posted_key = sanitize_key( (string) ( $row['key'] ?? '' ) );
+                if ( $posted_key !== '' ) {
+                    $reserved[ $posted_key ] = true;
+                }
+            }
+        }
         foreach ( $ordered as [ , , $row_id, $row ] ) {
             // A FluentCRM field offered in "Inactive" and left hidden is not
             // saved: it is offered again from the CRM on the next visit.
@@ -1259,18 +1245,19 @@ class My_IAPSNJ_Checkout_Fields {
                 }
             }
             $is_section = ! $is_builtin && (string) ( $row['type'] ?? '' ) === 'section';
-            if ( $key === '' ) {
+            $generated  = $key === '';
+            if ( $generated ) {
                 $key = ( $is_section ? 'section_' : 'app_' ) . sanitize_key( str_replace( ' ', '_', strtolower( $label ) ) );
                 $key = substr( $key, 0, 40 ) ?: ( $is_section ? 'section' : 'app_field' );
             }
             $base_key = $key;
             $n        = 2;
-            while ( isset( $used[ $key ] ) ) {
+            while ( isset( $used[ $key ] ) || ( $generated && isset( $reserved[ $key ] ) ) ) {
                 $key = $base_key . '_' . $n++;
             }
             $used[ $key ] = true;
 
-            $type = $is_builtin ? $builtins[ $key ]['type'] : (string) ( $row['type'] ?? 'text' );
+            $type = $is_builtin ? $builtins[ $base_key ]['type'] : (string) ( $row['type'] ?? 'text' );
             if ( ! in_array( $type, self::TYPES, true ) ) {
                 $type = 'text';
             }
@@ -1291,11 +1278,11 @@ class My_IAPSNJ_Checkout_Fields {
                 $target = 'none';
             }
             if ( $target === self::NEW_TARGET ) {
-                $slug = self::create_crm_field( $key, $label, $type, $options );
-                if ( $slug !== '' ) {
-                    $crm_kind = 'custom';
-                    $crm      = $slug;
-                }
+                // Created below, once the form is known to be valid; the slug
+                // is the row's key (create_crm_field()).
+                $crm_kind       = 'custom';
+                $crm            = sanitize_key( $key );
+                $create[ $key ] = [ $label, $type, $options ];
             } elseif ( strpos( $target, 'custom:' ) === 0 ) {
                 $crm_kind = 'custom';
                 $crm      = sanitize_key( substr( $target, 7 ) );
@@ -1329,6 +1316,33 @@ class My_IAPSNJ_Checkout_Fields {
                 'show_when' => self::clean_values( $row['show_when'] ?? [] ),
             ];
         }
+        // Two rows writing one CRM field would overwrite each other's answer.
+        $by_target = [];
+        foreach ( $clean as $def ) {
+            if ( $def['crm_kind'] !== 'none' && $def['crm'] !== '' && $def['type'] !== 'section' ) {
+                $by_target[ $def['crm_kind'] . ':' . $def['crm'] ][] = $def['label'];
+            }
+        }
+        $dupes = array_filter( $by_target, function ( $labels ) {
+            return count( $labels ) > 1;
+        } );
+        if ( $dupes ) {
+            $lines = [];
+            foreach ( $dupes as $target => $labels ) {
+                $lines[] = substr( $target, strpos( $target, ':' ) + 1 ) . ': ' . implode( ', ', $labels );
+            }
+            return new WP_Error( 'duplicate_crm_field', sprintf(
+                /* translators: %s: CRM field slug followed by the labels of the rows writing to it */
+                __( 'Not saved: several fields are stored in the same FluentCRM field (%s). Pick another "Stored in FluentCRM as" for all but one.', 'my-iapsnj' ),
+                implode( '; ', $lines )
+            ) );
+        }
+        foreach ( $create as $key => [ $label, $type, $options ] ) {
+            $slug = self::create_crm_field( $key, $label, $type, $options );
+            $clean[ $key ]['crm']      = $slug;
+            $clean[ $key ]['crm_kind'] = $slug !== '' ? 'custom' : 'none';
+        }
+
         foreach ( $clean as $key => $def ) {
             if ( $def['parent'] === '' ) {
                 continue;
@@ -1345,6 +1359,7 @@ class My_IAPSNJ_Checkout_Fields {
         $store = self::store();
         $store['forms'][ $form_id ]['fields'] = $clean;
         self::save_store( $store );
+        return true;
     }
 
     /**
@@ -1564,7 +1579,7 @@ class My_IAPSNJ_Checkout_Fields {
                 $form['name']
             ) ) . '</p>';
         }
-        echo '<h3 class="fct-section-title my-iapsnj-application-title">' . esc_html( $heading !== '' ? $heading : __( 'Membership application', 'my-iapsnj' ) ) . '</h3>';
+        echo '<h3 class="fct-section-title my-iapsnj-application-title">' . esc_html( $heading !== '' ? $heading : __( 'Membership Application', 'my-iapsnj' ) ) . '</h3>';
         if ( $intro !== '' ) {
             echo '<p class="my-iapsnj-application-intro">' . esc_html( $intro ) . '</p>';
         }
@@ -1591,7 +1606,7 @@ class My_IAPSNJ_Checkout_Fields {
             if ( $section['key'] !== '' ) {
                 $title_id = 'my-iapsnj-section-' . sanitize_html_class( $section['key'] );
                 echo '<div class="my-iapsnj-section" role="group" aria-labelledby="' . esc_attr( $title_id ) . '" data-my-iapsnj-section="' . esc_attr( $section['key'] ) . '"' . ( in_array( true, $shown, true ) ? '' : ' style="display:none"' ) . '>';
-                echo '<h4 class="my-iapsnj-section-title" id="' . esc_attr( $title_id ) . '">' . esc_html( $section['label'] ) . '</h4>';
+                echo '<h3 class="my-iapsnj-section-title" id="' . esc_attr( $title_id ) . '">' . esc_html( $section['label'] ) . '</h3>';
                 if ( $section['help'] !== '' ) {
                     echo '<p class="my-iapsnj-section-intro">' . esc_html( $section['help'] ) . '</p>';
                 }
@@ -1618,12 +1633,17 @@ class My_IAPSNJ_Checkout_Fields {
      */
     public static function preview_form_id(): string {
         // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- verified below
-        $form_id = isset( $_GET[ self::PREVIEW_PARAM ] ) ? sanitize_key( wp_unslash( (string) $_GET[ self::PREVIEW_PARAM ] ) ) : '';
-        if ( $form_id === '' || ! current_user_can( 'manage_options' ) || ! self::form_exists( $form_id ) ) {
+        $raw = $_GET[ self::PREVIEW_PARAM ] ?? '';
+        if ( ! is_string( $raw ) || $raw === '' || ! current_user_can( 'manage_options' ) ) {
+            return '';
+        }
+        $form_id = sanitize_key( wp_unslash( $raw ) );
+        if ( ! self::form_exists( $form_id ) ) {
             return '';
         }
         // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- verified here
-        $nonce = isset( $_GET[ self::PREVIEW_NONCE ] ) ? sanitize_text_field( wp_unslash( (string) $_GET[ self::PREVIEW_NONCE ] ) ) : '';
+        $nonce = $_GET[ self::PREVIEW_NONCE ] ?? '';
+        $nonce = is_string( $nonce ) ? sanitize_text_field( wp_unslash( $nonce ) ) : '';
         return wp_verify_nonce( $nonce, 'my_iapsnj_preview_' . $form_id ) ? $form_id : '';
     }
 
