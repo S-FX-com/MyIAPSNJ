@@ -111,7 +111,7 @@ Builder**.
   changed. Stored per row as `parent` (the parent's key) and `show_when`.
 * **Section headings.** *+ Add section heading* (or type *Section heading*)
   adds a heading row. On the checkout the fields after it, up to the next
-  heading, are grouped under it (`<h4>` plus the optional help text as a
+  heading, are grouped under it (`<h3>` plus the optional help text as a
   line under the heading). A heading with no shown field under it is not
   printed. Headings are never required and store nothing.
 * **Every other FluentCRM field.** Inactive also lists, under *Other

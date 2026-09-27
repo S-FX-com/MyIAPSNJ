@@ -1591,7 +1591,7 @@ class My_IAPSNJ_Checkout_Fields {
             if ( $section['key'] !== '' ) {
                 $title_id = 'my-iapsnj-section-' . sanitize_html_class( $section['key'] );
                 echo '<div class="my-iapsnj-section" role="group" aria-labelledby="' . esc_attr( $title_id ) . '" data-my-iapsnj-section="' . esc_attr( $section['key'] ) . '"' . ( in_array( true, $shown, true ) ? '' : ' style="display:none"' ) . '>';
-                echo '<h4 class="my-iapsnj-section-title" id="' . esc_attr( $title_id ) . '">' . esc_html( $section['label'] ) . '</h4>';
+                echo '<h3 class="my-iapsnj-section-title" id="' . esc_attr( $title_id ) . '">' . esc_html( $section['label'] ) . '</h3>';
                 if ( $section['help'] !== '' ) {
                     echo '<p class="my-iapsnj-section-intro">' . esc_html( $section['help'] ) . '</p>';
                 }
