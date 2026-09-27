@@ -41,7 +41,7 @@ class My_IAPSNJ_Admin {
         add_action( 'admin_init',            [ $this, 'redirect_legacy_slugs' ] );
         add_action( 'admin_notices',         [ $this, 'environment_notices' ] );
 
-        // Pin CRM / Users / FluentCart to the top of the sidebar (audit P4-9).
+        // Place My IAPSNJ right under Dashboard / FluentHub; nothing else moves.
         add_filter( 'custom_menu_order', '__return_true' );
         add_filter( 'menu_order',        [ $this, 'reorder_admin_menu' ] );
 
@@ -124,29 +124,49 @@ class My_IAPSNJ_Admin {
     }
 
     /**
+     * menu_order — move My IAPSNJ to just below FluentHub (the Fluent
+     * products hub) when it is a top-level menu, else just below Dashboard.
+     * Every other item keeps the position WordPress gave it.
+     *
      * @param mixed $menu_order
      * @return mixed
      */
     public function reorder_admin_menu( $menu_order ) {
-        if ( ! is_array( $menu_order ) ) {
+        if ( ! is_array( $menu_order ) || ! in_array( 'my-iapsnj', $menu_order, true ) ) {
             return $menu_order;
         }
-        $preferred = apply_filters( 'my_iapsnj_top_menu_slugs', [
-            'fluentcrm-admin', // CRM
-            'users.php',       // Users
-            'fluent-cart',     // FluentCart
-            'my-iapsnj',       // this plugin
-        ] );
-        $top = [];
-        foreach ( $preferred as $slug ) {
-            if ( in_array( $slug, $menu_order, true ) ) {
-                $top[] = $slug;
+        $order  = array_values( array_diff( $menu_order, [ 'my-iapsnj' ] ) );
+        $anchor = self::fluenthub_menu_slug( $order );
+        if ( $anchor === '' && in_array( 'index.php', $order, true ) ) {
+            $anchor = 'index.php';
+        }
+        if ( $anchor === '' ) {
+            return $menu_order;
+        }
+        $at = (int) array_search( $anchor, $order, true );
+        array_splice( $order, $at + 1, 0, [ 'my-iapsnj' ] );
+        return $order;
+    }
+
+    /**
+     * Slug of the FluentHub top-level menu ('' when absent), found by its
+     * title or slug so it does not depend on FluentHub's internal slug.
+     *
+     * @param string[] $menu_order
+     */
+    private static function fluenthub_menu_slug( array $menu_order ): string {
+        global $menu;
+        foreach ( (array) $menu as $item ) {
+            $slug  = (string) ( $item[2] ?? '' );
+            $title = wp_strip_all_tags( (string) ( $item[0] ?? '' ) );
+            if ( $slug === '' || ! in_array( $slug, $menu_order, true ) ) {
+                continue;
+            }
+            if ( stripos( $title, 'FluentHub' ) === 0 || preg_match( '/fluent[-_]?hub/i', $slug ) ) {
+                return $slug;
             }
         }
-        if ( ! $top ) {
-            return $menu_order;
-        }
-        return array_merge( $top, array_values( array_diff( $menu_order, $top ) ) );
+        return '';
     }
 
     public function environment_notices(): void {
