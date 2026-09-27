@@ -225,7 +225,7 @@ class My_IAPSNJ_Engine {
     }
 
     /**
-     * member_type => role slug from Sync & Settings ('' = leave the role alone).
+     * member_type => role slug from Settings → Profile Sync ('' = leave the role alone).
      *
      * @return array<string,string>
      */
@@ -235,7 +235,7 @@ class My_IAPSNJ_Engine {
     }
 
     /**
-     * Role an expired member drops to (Sync & Settings; default subscriber).
+     * Role an expired member drops to (Settings → Profile Sync; default subscriber).
      */
     public static function expired_role(): string {
         $role = sanitize_key( (string) ( My_IAPSNJ_Plugin::settings()['role_expired'] ?? 'subscriber' ) );

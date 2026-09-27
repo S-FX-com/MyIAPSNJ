@@ -156,6 +156,24 @@ slugs of the screens that existed before 4.11 are unchanged.
 | Settings | Profile Sync | `my-iapsnj-profile-sync` | mirror triggers, mirror all contacts now, WordPress role per member type |
 | Settings | Migrate PMPro | `my-iapsnj-migration` | PMPro → CRM steps (shown while PMPro tables exist) |
 
+### Member lists (4.12)
+
+**Members → Active Membership** and **Members → Lapsed Members** list FluentCRM
+contacts that have a `member_type`, split by the same rule as the daily expiry
+job (`My_IAPSNJ_Schema::is_active_state()`; the cutoff is today minus the grace
+period). Each list has views per member type, search (name, email, member
+number), filters (Active: not yet paid for next year, lapses within N days, comped;
+Lapsed: paid-through year or no date, lapsed in the last N days), sorting by
+name, member type and paid through, 25–200 rows per page, and
+**Export CSV** of the current filter (`wp_ajax_my_iapsnj_members_csv`, admins
+only; cells are formula-safe). Rows link to the CRM contact, the WordPress user
+and the last membership order.
+
+The Lapsed page also shows **data checks**: paid_through not `YYYY-MM-DD`,
+Member-Active tag on a contact with no member type, lapsed members still
+tagged Member-Active, and a Lifetime/Honorary tag without the matching type. A paid_through that is not strictly
+`YYYY-MM-DD` counts as lapsed in the list and is flagged there; fix it in the CRM.
+
 Legacy slugs (`fcrm-wp-sync*`, `my-iapsnj-mismatches`, `my-iapsnj-pmp`)
 redirect. My IAPSNJ sits in the admin sidebar just below FluentHub (or below
 Dashboard when FluentHub is not installed); no other menu is moved.
