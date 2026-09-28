@@ -61,7 +61,7 @@ class My_IAPSNJ_Admin {
             'refresh_field_list',
             'search_notes', 'get_tags', 'assign_tag',
             'checks_list', 'checks_mark_paid', 'search_members', 'record_check',
-            'save_products', 'apply_offline_labels', 'ensure_schema', 'run_expiry',
+            'save_products', 'apply_offline_labels', 'ensure_schema', 'run_expiry', 'normalize_phones',
             'migration_run', 'export_orders', 'download_export', 'report',
         ];
         foreach ( $ajax as $action ) {
@@ -988,6 +988,14 @@ class My_IAPSNJ_Admin {
             <div id="fcrm-schema-result"></div>
         </div>
 
+        <div class="fcrm-section" id="phones">
+            <h2><?php esc_html_e( 'Phone numbers', 'my-iapsnj' ); ?></h2>
+            <p class="description"><?php esc_html_e( 'New numbers are formatted at checkout: the contact Phone gets the US country code (+19084152478, which FluentCRM shows as +1 908-415-2478), and Work phone / Alternate phone, which are plain text fields, are stored as +1 908-415-2478. This brings the numbers already in the CRM to the same format. Numbers that cannot be read (too few digits, extensions, letters) are listed and left as they are. No automations fire.', 'my-iapsnj' ); ?></p>
+            <p><button class="button fcrm-normalize-phones" data-dry="1"><?php esc_html_e( 'Preview', 'my-iapsnj' ); ?></button>
+               <button class="button button-primary fcrm-normalize-phones" data-dry="0"><?php esc_html_e( 'Apply now', 'my-iapsnj' ); ?></button></p>
+            <div id="fcrm-phones-result"></div>
+        </div>
+
         <div class="fcrm-section">
             <h2><?php esc_html_e( 'Looking for another setting?', 'my-iapsnj' ); ?></h2>
             <p class="description"><?php esc_html_e( 'Settings now live next to the screen they affect:', 'my-iapsnj' ); ?></p>
@@ -1394,6 +1402,7 @@ class My_IAPSNJ_Admin {
         $target   = My_IAPSNJ_Checkout_Fields::target_value( $def );
         $types    = [
             'text'     => __( 'Text', 'my-iapsnj' ),
+            'phone'    => __( 'Phone (auto-formatted)', 'my-iapsnj' ),
             'textarea' => __( 'Paragraph', 'my-iapsnj' ),
             'select'   => __( 'Dropdown', 'my-iapsnj' ),
             'radio'    => __( 'Radio buttons', 'my-iapsnj' ),
@@ -1895,6 +1904,17 @@ class My_IAPSNJ_Admin {
                 My_IAPSNJ_Reports::flush_summary();
             }
             wp_send_json_success( $report );
+        } catch ( \Throwable $e ) {
+            wp_send_json_error( [ 'message' => $e->getMessage() ] );
+        }
+    }
+
+    public function ajax_normalize_phones(): void {
+        $this->ajax_guard();
+        $dry   = ! empty( $_POST['dry'] ); // phpcs:ignore
+        $limit = min( 1000, max( 1, (int) ( $_POST['limit'] ?? 500 ) ) ); // phpcs:ignore
+        try {
+            wp_send_json_success( My_IAPSNJ_Phone::normalize_contacts( $dry, $limit ) + [ 'dry' => $dry ] );
         } catch ( \Throwable $e ) {
             wp_send_json_error( [ 'message' => $e->getMessage() ] );
         }

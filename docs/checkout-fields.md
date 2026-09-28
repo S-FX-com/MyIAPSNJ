@@ -169,8 +169,8 @@ Field types: text, paragraph, dropdown, radio, date, checkbox, section heading.
 | `department` | dropdown | on, required | custom `department` | Options imported (see below); **no "N/A"**. Associate treatment still to confirm with the client (make it optional, or relabel "Employer / affiliation"). |
 | `rank_level` | dropdown | on, required | custom `rank_level` | Options imported; built-in NJ rank list as last resort. |
 | `retirement_date` | date | on, optional | custom `retirement_date` | |
-| `phone_work` | text | on, optional | custom `phone_work` | |
-| `phone2` | text | on, optional | custom `phone2` | alternate phone |
+| `phone_work` | phone | on, optional | custom `phone_work` | |
+| `phone2` | phone | on, optional | custom `phone2` | alternate phone |
 | `union_affiliation` | text | on, optional | custom `union_affiliation` | |
 | `union_position` | text | on, optional | custom `union_position` | |
 | `date_of_birth` | date | on, optional | contact `date_of_birth` | |
@@ -289,3 +289,32 @@ does not fire and the Welcome automation is skipped (Paid history exists).
 - [ ] Log in as a paid member → fields prefilled; `[iapsnj_renew_link]` points
       at the right product; after paying, kind is *renewal*, no new-member email
 - [ ] Reload the checkout half-way → typed answers still there
+
+## Phone numbers (4.13)
+
+Phone inputs are formatted as they are typed, on every FluentCart checkout
+(billing / shipping phone) and for the application's **Phone** fields: a US
+number becomes `+1 908-415-2478`. A number typed with `+` and another country
+code is left as typed. The server applies the same rule (`My_IAPSNJ_Phone`),
+so a number that reaches it unformatted is still stored correctly:
+
+| Where | Stored as | Why |
+|---|---|---|
+| Contact **Phone** (from the billing phone) | `+19084152478` (E.164) | what FluentCRM's own phone input saves; FluentCRM shows it as `+1 908-415-2478` with the flag |
+| **Work phone**, **Alternate phone**, any Phone-type field | `+1 908-415-2478` | plain CRM text fields, which FluentCRM does not format |
+
+A Phone field that is filled in must be a 10-digit US number (or 11 digits
+starting with 1) or an international number starting with `+`; otherwise the
+checkout shows an error. The billing phone is FluentCart's field and is never
+blocked, only formatted.
+
+The Checkout Builder offers the **Phone (auto-formatted)** type for new fields.
+A FluentCRM text field whose slug or label contains "phone", "mobile" or
+"cell" is offered as a Phone field. Work phone and Alternate phone are Phone
+fields in every form, including forms saved before 4.13.
+
+Numbers already in the CRM: **Settings → Configurations → Phone numbers →
+Preview / Apply now**, or `wp iapsnj phones [--dry-run]`. This reformats the
+contact Phone and the Work / Alternate phone fields to the formats above. It
+lists numbers it cannot read (too few digits, extensions, letters) and leaves
+them unchanged, and no FluentCRM automations fire.
