@@ -49,7 +49,7 @@ final class My_IAPSNJ_Phone {
      */
     public static function display( string $value ): string {
         $e164 = self::e164( $value );
-        if ( preg_match( '/^\+1(\d{3})(\d{3})(\d{4})$/', $e164, $m ) ) {
+        if ( preg_match( '/^\+1([2-9]\d{2})([2-9]\d{2})(\d{4})$/', $e164, $m ) ) {
             return '+1 ' . $m[1] . '-' . $m[2] . '-' . $m[3];
         }
         return $e164;
@@ -59,8 +59,11 @@ final class My_IAPSNJ_Phone {
      * True when the value reads as a phone number (US or international).
      */
     public static function is_valid( string $value ): bool {
-        // e164() returns unreadable input unchanged, which may itself start with +.
-        return (bool) preg_match( '/^\+\d{8,15}$/', self::e164( $value ) );
+        // e164() returns unreadable input unchanged, which may itself look
+        // like E.164 (e.g. "+13000000000"), so check the shape it produces:
+        // a real US number, or another country code (never 0 or 1).
+        $e164 = self::e164( $value );
+        return (bool) ( preg_match( '/^\+1[2-9]\d{2}[2-9]\d{6}$/', $e164 ) || preg_match( '/^\+[2-9]\d{7,14}$/', $e164 ) );
     }
 
     /**

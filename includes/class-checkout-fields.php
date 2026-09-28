@@ -2024,14 +2024,15 @@ class My_IAPSNJ_Checkout_Fields {
      * Format phone inputs as they are typed: FluentCart's billing / shipping
      * phone and the application's Phone fields. A US number (10 digits, or
      * 11 starting with 1) becomes "+1 908-415-2478"; a number starting with
-     * + and another country code is left as typed. The server applies the
+     * + and another country code, or more than 10 digits, is left as typed
+     * (never cut short, so validation can reject it). The server applies the
      * same rule (My_IAPSNJ_Phone), so this is only the typing experience.
      */
     private static function print_phone_script(): void {
         // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- static script
         echo '<script>(function(){'
             . 'var S=\'input[name="billing_phone"],input[name="shipping_phone"],input.my-iapsnj-phone\';'
-            . 'function fmt(v){var t=String(v||"").trim();if(!t){return"";}if(/[a-z]/i.test(t)){return v;}var d=t.replace(/\D/g,"");if(t.charAt(0)==="+"&&d.charAt(0)!=="1"){return v;}if(d.charAt(0)==="1"){d=d.slice(1);}d=d.slice(0,10);if(!d){return t.charAt(0)==="+"?t:"";}var o="+1 "+d.slice(0,3);if(d.length>3){o+="-"+d.slice(3,6);}if(d.length>6){o+="-"+d.slice(6);}return o;}'
+            . 'function fmt(v){var t=String(v||"").trim();if(!t){return"";}if(/[a-z]/i.test(t)){return v;}var d=t.replace(/\D/g,"");if(t.charAt(0)==="+"&&d.charAt(0)!=="1"){return v;}if(d.charAt(0)==="1"){d=d.slice(1);}if(d.length>10){return v;}if(!d){return t.charAt(0)==="+"?t:"";}var o="+1 "+d.slice(0,3);if(d.length>3){o+="-"+d.slice(3,6);}if(d.length>6){o+="-"+d.slice(6);}return o;}'
             . 'function apply(i){var v=i.value,n=fmt(v);if(n===v){return;}var c=i.selectionStart,end=c===null||c>=v.length;var ds=v.replace(/\D/g,""),k=v.slice(0,c||0).replace(/\D/g,"").length;if(ds.charAt(0)==="1"&&k>0){k--;}i.value=n;if(end||document.activeElement!==i){return;}var p=3,seen=0;while(p<n.length&&seen<k){if(/\d/.test(n.charAt(p))){seen++;}p++;}try{i.setSelectionRange(p,p);}catch(e){}}'
             . 'function on(e){var i=e.target;if(i&&i.matches&&i.matches(S)){apply(i);}}'
             . 'document.addEventListener("input",on,true);document.addEventListener("change",on,true);document.addEventListener("blur",on,true);'
