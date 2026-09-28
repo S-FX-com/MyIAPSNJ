@@ -549,7 +549,7 @@ class My_IAPSNJ_Membership {
         $state = self::state_of( $custom );
         $out   = [ 'state' => $state, 'tag' => '', 'role' => '' ];
         if ( $state === '' ) {
-            return $out;
+            return self::reconcile_non_member( $subscriber, $current_tags, $out );
         }
         $ids    = My_IAPSNJ_Schema::tag_ids( [ My_IAPSNJ_Schema::TAG_ACTIVE ] );
         $tag_id = (int) ( $ids[ My_IAPSNJ_Schema::TAG_ACTIVE ] ?? 0 );
@@ -582,6 +582,100 @@ class My_IAPSNJ_Membership {
             do_action( 'my_iapsnj/membership_expired', $subscriber, $custom );
         }
         return $out;
+    }
+
+    /**
+     * A contact with no member_type is not a member: it must not keep the
+     * Member-Active tag or a member role. This is the state a full refund of
+     * a first-ever payment leaves behind (the refund restores member_type to
+     * the pre-payment ''). The tag comes off and a managed member role drops
+     * to the expired role. my_iapsnj/membership_expired is not fired: no
+     * membership lapsed (the refund fires my_iapsnj/membership_refunded).
+     *
+     * @param string[]|null                               $current_tags pre-loaded managed tag slugs
+     * @param array{state:string,tag:string,role:string} $out
+     * @return array{state:string,tag:string,role:string}
+     */
+    private static function reconcile_non_member( Subscriber $subscriber, ?array $current_tags, array $out ): array {
+        if ( $current_tags === null ) {
+            $current_tags = My_IAPSNJ_Schema::managed_tag_slugs( $subscriber );
+        }
+        if ( in_array( My_IAPSNJ_Schema::TAG_ACTIVE, $current_tags, true ) ) {
+            $ids    = My_IAPSNJ_Schema::tag_ids( [ My_IAPSNJ_Schema::TAG_ACTIVE ] );
+            $tag_id = (int) ( $ids[ My_IAPSNJ_Schema::TAG_ACTIVE ] ?? 0 );
+            if ( $tag_id ) {
+                $subscriber->detachTags( [ $tag_id ] );
+                $out['tag'] = 'removed';
+            }
+        }
+        if ( ! empty( $subscriber->user_id ) ) {
+            try {
+                $out['role'] = self::drop_member_role( (int) $subscriber->user_id );
+            } catch ( \Throwable $e ) {
+                error_log( 'My IAPSNJ: role update failed for contact #' . (int) $subscriber->id . ': ' . $e->getMessage() );
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Move a user who holds a mapped member role to the expired role, with
+     * the managed-role rules of My_IAPSNJ_Engine::apply_role(): only users
+     * whose roles are all managed (mapped roles, subscriber, the expired
+     * role) are touched, so administrators, editors and any other staff or
+     * unmanaged account keep their role. A user holding no mapped role, or
+     * a site with no role map, is left alone.
+     *
+     * @return string the role set, '' when nothing changed
+     */
+    private static function drop_member_role( int $user_id ): string {
+        $map = My_IAPSNJ_Engine::role_map();
+        if ( ! $map ) {
+            return '';
+        }
+        $expired = My_IAPSNJ_Engine::expired_role();
+        if ( $expired === '' || $expired === 'administrator' || ! get_role( $expired ) ) {
+            return '';
+        }
+        $user = get_userdata( $user_id );
+        if ( ! $user ) {
+            return '';
+        }
+        $current = (array) $user->roles;
+        if ( $current === [ $expired ] ) {
+            return '';
+        }
+        $mapped  = array_values( array_unique( array_values( $map ) ) );
+        $managed = array_unique( array_filter( array_merge( $mapped, [ 'subscriber', $expired ] ), 'strlen' ) );
+        $holds   = false;
+        foreach ( $current as $r ) {
+            if ( ! in_array( $r, $managed, true ) ) {
+                return ''; // staff account: never touched
+            }
+            if ( $r !== $expired && in_array( $r, $mapped, true ) ) {
+                $holds = true;
+            }
+        }
+        if ( ! $holds ) {
+            return '';
+        }
+        $user->set_role( $expired );
+        return $expired;
+    }
+
+    /**
+     * One Preview / Apply sample line: "email → expire (paid through …)".
+     *
+     * @param array<string,string> $custom
+     */
+    private static function expiry_sample( string $email, array $custom, bool $expire ): string {
+        $pt = (string) ( $custom[ My_IAPSNJ_Schema::FIELD_PAID_THROUGH ] ?? '' );
+        return sprintf(
+            '%s → %s (paid through %s)',
+            $email,
+            $expire ? 'expire' : 'activate',
+            $pt !== '' ? My_IAPSNJ_Dates::ymd_display( $pt ) : 'n/a'
+        );
     }
 
     /**
@@ -639,6 +733,31 @@ class My_IAPSNJ_Membership {
             }
         }
 
+        if ( $dry ) {
+            // Report only: the counts are already known, so load contacts
+            // just for the samples shown (the first 50 that exist, within
+            // $limit) rather than one query per affected contact.
+            $want = $limit > 0 ? min( 50, $limit ) : 50;
+            foreach ( array_chunk( array_keys( $work ), 50 ) as $chunk ) {
+                if ( count( $report['samples'] ) >= $want ) {
+                    break;
+                }
+                $emails = [];
+                foreach ( Subscriber::whereIn( 'id', $chunk )->get() as $sub ) {
+                    $emails[ (int) $sub->id ] = (string) $sub->email;
+                }
+                foreach ( $chunk as $sid ) {
+                    if ( count( $report['samples'] ) >= $want ) {
+                        break;
+                    }
+                    if ( isset( $emails[ $sid ] ) ) {
+                        $report['samples'][] = self::expiry_sample( $emails[ $sid ], $work[ $sid ][0], ! empty( $work[ $sid ][1] ) );
+                    }
+                }
+            }
+            return $report;
+        }
+
         $done = 0;
         foreach ( $work as $sid => [ $custom, $tags ] ) {
             if ( $limit > 0 && $done >= $limit ) {
@@ -649,17 +768,9 @@ class My_IAPSNJ_Membership {
                 continue;
             }
             if ( count( $report['samples'] ) < 50 ) {
-                $report['samples'][] = sprintf(
-                    '%s → %s (paid through %s)',
-                    (string) $subscriber->email,
-                    $tags ? 'expire' : 'activate',
-                    (string) ( $custom[ My_IAPSNJ_Schema::FIELD_PAID_THROUGH ] ?? '' ) !== '' ? My_IAPSNJ_Dates::ymd_display( $custom[ My_IAPSNJ_Schema::FIELD_PAID_THROUGH ] ) : 'n/a'
-                );
+                $report['samples'][] = self::expiry_sample( (string) $subscriber->email, $custom, ! empty( $tags ) );
             }
             $done++;
-            if ( $dry ) {
-                continue;
-            }
             try {
                 $r = self::reconcile_contact( $subscriber, $custom, $tags );
             } catch ( \Throwable $e ) {

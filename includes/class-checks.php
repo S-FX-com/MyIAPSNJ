@@ -69,6 +69,20 @@ class My_IAPSNJ_Checks {
             }
         }
 
+        // Batched lookups: one query each for the order meta, the
+        // application rows and the member numbers, instead of ~5 per order.
+        $order_ids      = [];
+        foreach ( $orders as $order ) {
+            $order_ids[] = (int) $order->id;
+        }
+        $meta           = self::order_meta_map( $order_ids, [
+            My_IAPSNJ_Membership::META_SOURCE,
+            My_IAPSNJ_Checkout_Fields::META_FIELDS,
+            My_IAPSNJ_Checkout_Fields::META_FORM,
+        ] );
+        $apps           = My_IAPSNJ_Applications::get_by_orders( $order_ids );
+        $member_numbers = self::member_numbers( array_values( $subs_by_email ) );
+
         foreach ( $orders as $order ) {
             $plan = My_IAPSNJ_Membership::plan_for_order( $order );
             if ( $membership_only && ! $plan ) {
@@ -85,10 +99,25 @@ class My_IAPSNJ_Checks {
                 $items[] = trim( (string) ( $item->post_title ?? '' ) . ' ' . (string) ( $item->title ?? '' ) );
             }
             $customer = is_object( $order->customer ?? null ) ? $order->customer : null;
-            $app      = My_IAPSNJ_Applications::get_by_order( (int) $order->id );
+            $oid      = (int) $order->id;
+            $app      = $apps[ $oid ] ?? null;
             $summary  = [];
-            foreach ( My_IAPSNJ_Checkout_Fields::summary_for_order( $order ) as $label => $value ) {
+            $answers  = $meta === null
+                ? My_IAPSNJ_Checkout_Fields::summary_for_order( $order )
+                : self::application_summary( $meta[ $oid ] ?? [], $plan );
+            foreach ( $answers as $label => $value ) {
                 $summary[] = $label . ': ' . $value;
+            }
+            if ( $meta === null ) {
+                $source = $order->getMeta( My_IAPSNJ_Membership::META_SOURCE );
+            } else {
+                $source = $meta[ $oid ][ My_IAPSNJ_Membership::META_SOURCE ] ?? false;
+            }
+            $member_number = '';
+            if ( $sub instanceof Subscriber ) {
+                $member_number = $member_numbers === null
+                    ? My_IAPSNJ_Schema::field( $sub, My_IAPSNJ_Schema::FIELD_MEMBER_NUMBER )
+                    : (string) ( $member_numbers[ (int) $sub->id ] ?? '' );
             }
 
             $rows[] = [
@@ -105,16 +134,135 @@ class My_IAPSNJ_Checks {
                 'total_cents'    => (int) $order->total_amount,
                 'total'          => My_IAPSNJ_Membership::format_money( (int) $order->total_amount, (string) $order->currency ),
                 'currency'       => (string) $order->currency,
-                'member_number'  => $sub instanceof Subscriber ? My_IAPSNJ_Schema::field( $sub, My_IAPSNJ_Schema::FIELD_MEMBER_NUMBER ) : '',
+                'member_number'  => $member_number,
                 'subscriber_id'  => $sub instanceof Subscriber ? (int) $sub->id : 0,
                 'application_id' => $app ? (int) $app->id : 0,
                 'application'    => $summary,
-                'source'         => (string) ( $order->getMeta( My_IAPSNJ_Membership::META_SOURCE ) ?: 'checkout' ),
+                'source'         => (string) ( $source ?: 'checkout' ),
                 'admin_url'      => My_IAPSNJ_Membership::order_admin_url( $order ),
                 'crm_url'        => $sub instanceof Subscriber ? admin_url( 'admin.php?page=fluentcrm-admin#/subscribers/' . (int) $sub->id ) : '',
             ];
         }
         return $rows;
+    }
+
+    /**
+     * Order meta for many orders in one query, decoded exactly as
+     * Order::getMeta() decodes it (the OrderMeta accessor). The first row per
+     * order and key wins, as getMeta()'s ->first() does.
+     *
+     * @param int[]    $order_ids
+     * @param string[] $keys
+     * @return array<int,array<string,mixed>>|null order id => key => value; null when
+     *         the OrderMeta model is unavailable (callers fall back to getMeta()).
+     */
+    private static function order_meta_map( array $order_ids, array $keys ): ?array {
+        if ( ! class_exists( '\FluentCart\App\Models\OrderMeta' ) ) {
+            return null;
+        }
+        $out = [];
+        if ( ! $order_ids ) {
+            return $out;
+        }
+        try {
+            $rows = \FluentCart\App\Models\OrderMeta::query()
+                ->whereIn( 'order_id', $order_ids )
+                ->whereIn( 'meta_key', $keys )
+                ->orderBy( 'id', 'asc' )
+                ->get();
+        } catch ( \Throwable $e ) {
+            return null;
+        }
+        foreach ( $rows as $row ) {
+            $oid = (int) $row->order_id;
+            $key = (string) $row->meta_key;
+            if ( ! isset( $out[ $oid ] ) || ! array_key_exists( $key, $out[ $oid ] ) ) {
+                $out[ $oid ][ $key ] = $row->meta_value;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Same result as My_IAPSNJ_Checkout_Fields::summary_for_order(), from
+     * pre-loaded meta.
+     *
+     * @param array<string,mixed> $meta this order's pre-loaded meta (key => value)
+     * @param array|null          $plan plan_for_order( $order )
+     * @return array<string,string>
+     */
+    private static function application_summary( array $meta, ?array $plan ): array {
+        // Membership::meta_array() semantics.
+        $raw    = $meta[ My_IAPSNJ_Checkout_Fields::META_FIELDS ] ?? null;
+        $values = null;
+        if ( is_array( $raw ) ) {
+            $values = $raw;
+        } elseif ( is_string( $raw ) && $raw !== '' ) {
+            $decoded = json_decode( $raw, true );
+            $values  = is_array( $decoded ) ? $decoded : null;
+        }
+        if ( ! is_array( $values ) ) {
+            return [];
+        }
+        // Checkout_Fields::form_for_order() semantics.
+        $form = '';
+        try {
+            $stored = $meta[ My_IAPSNJ_Checkout_Fields::META_FORM ] ?? false;
+            $stored = sanitize_key( is_scalar( $stored ) ? (string) $stored : '' );
+            if ( My_IAPSNJ_Checkout_Fields::form_exists( $stored ) ) {
+                $form = $stored;
+            } elseif ( $plan ) {
+                $form = My_IAPSNJ_Checkout_Fields::form_for_member_type( (string) $plan['member_type'] );
+            }
+        } catch ( \Throwable $e ) {
+            $form = '';
+        }
+        return My_IAPSNJ_Checkout_Fields::summary( $values, $form );
+    }
+
+    /**
+     * member_number for many contacts in one query, with the semantics of
+     * My_IAPSNJ_Schema::field() (Subscriber::custom_fields(): only defined
+     * custom fields, the modify_custom_field_value filter, last row wins,
+     * arrays joined with ", ").
+     *
+     * @param Subscriber[] $subscribers
+     * @return array<int,string>|null subscriber id => number; null = fall back to Schema::field()
+     */
+    private static function member_numbers( array $subscribers ): ?array {
+        if ( ! class_exists( '\FluentCrm\App\Models\SubscriberMeta' ) || ! function_exists( 'fluentcrm_get_custom_contact_fields' ) ) {
+            return null;
+        }
+        $out = [];
+        $ids = [];
+        foreach ( $subscribers as $s ) {
+            $ids[] = (int) $s->id;
+        }
+        if ( ! $ids ) {
+            return $out;
+        }
+        $defined = fluentcrm_get_custom_contact_fields();
+        $slugs   = is_array( $defined ) ? array_column( $defined, 'slug' ) : [];
+        if ( ! in_array( My_IAPSNJ_Schema::FIELD_MEMBER_NUMBER, $slugs, true ) ) {
+            return $out; // custom_fields() would not return it either
+        }
+        try {
+            $rows = \FluentCrm\App\Models\SubscriberMeta::whereIn( 'subscriber_id', array_values( array_unique( $ids ) ) )
+                ->where( 'object_type', 'custom_field' )
+                ->where( 'key', My_IAPSNJ_Schema::FIELD_MEMBER_NUMBER )
+                ->orderBy( 'id', 'asc' )
+                ->get();
+        } catch ( \Throwable $e ) {
+            return null;
+        }
+        foreach ( $rows as $row ) {
+            $v = apply_filters( 'fluent_crm/modify_custom_field_value', $row->value );
+            if ( is_array( $v ) ) {
+                $v = implode( ', ', $v );
+            }
+            $out[ (int) $row->subscriber_id ] = (string) $v;
+        }
+        return $out;
     }
 
     // -----------------------------------------------------------------------
@@ -236,6 +384,7 @@ class My_IAPSNJ_Checks {
 
             // Fires fluent_cart/order_paid synchronously → membership applied.
             ( new \FluentCart\App\Helpers\StatusHelper( $order ) )->syncOrderStatuses( $transaction );
+            My_IAPSNJ_Reports::flush_summary();
 
             $fresh = \FluentCart\App\Models\Order::query()->find( $order_id );
             if ( ! $fresh || (string) $fresh->payment_status !== 'paid' ) {
@@ -388,6 +537,7 @@ class My_IAPSNJ_Checks {
             $order->note = $order_note;
             $order->save();
             $order->updateMeta( My_IAPSNJ_Membership::META_SOURCE, 'manual_check' );
+            My_IAPSNJ_Reports::flush_summary();
             if ( $received_date !== '' ) {
                 $order->updateMeta( '_my_iapsnj_received_date', $received_date );
             }

@@ -116,23 +116,34 @@ final class My_IAPSNJ_Schema {
     }
 
     /**
+     * First paid_through date (Y-m-d) that still counts as active today:
+     * today (site timezone) minus the grace period from the settings. A
+     * non-comped membership is active while paid_through >= this date, the
+     * same test as "paid_through + grace days is not before today". The
+     * member lists compare against it in SQL, so they use exactly the same
+     * boundary as the expiry job and the role code.
+     */
+    public static function active_cutoff(): string {
+        $today = My_IAPSNJ_Dates::today();
+        $grace = max( 0, (int) ( My_IAPSNJ_Plugin::settings()['expiry_grace_days'] ?? 0 ) );
+        if ( $grace === 0 ) {
+            return $today;
+        }
+        $ts = strtotime( $today . ' 00:00:00 UTC' );
+        return $ts !== false ? gmdate( 'Y-m-d', $ts - $grace * DAY_IN_SECONDS ) : $today;
+    }
+
+    /**
      * Is a membership in good standing? Comped types always; otherwise
-     * paid_through (plus the grace period from Sync & Settings) must be today
-     * or later. '' / invalid paid_through = not active.
+     * paid_through must be on or after active_cutoff() (today minus the
+     * grace period). '' / invalid paid_through = not active.
      */
     public static function is_active_state( string $type, string $paid_through ): bool {
         if ( self::is_comped_type( $type ) ) {
             return true;
         }
         $ymd = My_IAPSNJ_Dates::ymd( $paid_through );
-        if ( $ymd === '' ) {
-            return false;
-        }
-        $grace = (int) ( My_IAPSNJ_Plugin::settings()['expiry_grace_days'] ?? 0 );
-        if ( $grace > 0 ) {
-            $ymd = gmdate( 'Y-m-d', strtotime( $ymd . ' +' . $grace . ' days' ) );
-        }
-        return ! My_IAPSNJ_Dates::is_past( $ymd );
+        return $ymd !== '' && strcmp( $ymd, self::active_cutoff() ) >= 0;
     }
 
     /**

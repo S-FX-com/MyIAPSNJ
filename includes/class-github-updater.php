@@ -98,7 +98,7 @@ class My_IAPSNJ_Github_Updater {
                 'Accept'     => 'application/vnd.github+json',
                 'User-Agent' => 'WordPress/' . get_bloginfo( 'version' ) . '; ' . home_url(),
             ],
-            'timeout' => 15,
+            'timeout' => 5,
         ] );
 
         if ( is_wp_error( $response ) ) {

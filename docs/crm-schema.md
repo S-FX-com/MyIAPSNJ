@@ -17,7 +17,7 @@ in `includes/class-schema.php`.
 | `Checkout-Abandoned` | `checkout-abandoned` | email typed at the FluentCart checkout (`checkout/form_data_changed`) | `order_placed_offline`, `order_paid` | Checkout started, no payment — the follow-up list that did not exist before |
 | `Honorary` | `honorary` | migration (`migrate_comped`) / admin by hand | admin | Comped; **excluded from every dues automation** |
 | `Lifetime` | `lifetime` | migration (`migrate_comped`), Lifetime product paid | admin | Comped; **excluded from every dues automation** |
-| `Member-Active` | `member-active` | `order_paid` / `renewal_paid`, daily expiry job (`wp iapsnj expire`), Members → Lapsed Members → *Apply now* | daily expiry job when `paid_through` (+ grace days) is past; full refund that leaves the contact lapsed | **Status**, not history: present while in good standing (or comped). Drives the WordPress role (Sync & Settings) and is the tag to key "membership expired" automations on (Tag Removed). |
+| `Member-Active` | `member-active` | `order_paid` / `renewal_paid`, daily expiry job (`wp iapsnj expire`), Members → Lapsed Members → *Apply now* | daily expiry job when `paid_through` (+ grace days) is past; full refund that leaves the contact lapsed | **Status**, not history: present while in good standing (or comped). Drives the WordPress role (Settings → Profile Sync) and is the tag to key "membership expired" automations on (Tag Removed). |
 
 Honorary is **never a product**: it is admin-assigned (tag + `member_type`).
 
@@ -129,7 +129,9 @@ Members → Lapsed Members → Expirations → Preview / Apply now): lapsed cont
 contacts in good standing that lack the tag (migrated members, manual CRM
 edits) get it and their mapped role. Staff roles are never touched. A
 payment reactivates immediately (`reconcile_contact()` runs inside
-`order_paid`, and after a full refund). `Paid-YYYY` tags are never removed.
+`order_paid`, and after a full refund; a refund that leaves the contact with
+no member type removes `Member-Active` and moves a managed member role to the
+*when expired* role). `Paid-YYYY` tags are never removed.
 Action `my_iapsnj/membership_expired` fires per lapsed contact.
 
 Expiration dates: a 1-year payment before the cutover (default Oct 1) is

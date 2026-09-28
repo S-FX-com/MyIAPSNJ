@@ -146,7 +146,41 @@ class My_IAPSNJ_Migration {
         ];
     }
 
+    /** Transient caching tables_exist() across requests ('yes' / 'no'). */
+    const TABLES_TRANSIENT = 'my_iapsnj_pmpro_tables';
+
+    /** @var bool|null Per-request memo of tables_exist(). */
+    private static $tables_exist = null;
+
+    /**
+     * Are all three PMPro tables present? The admin menu asks on every
+     * wp-admin page, so the answer is memoised per request and cached (12
+     * hours when present, 10 minutes when not, so tables imported later show
+     * up soon); the migration itself re-checks (flush_tables_cache()).
+     */
     public static function tables_exist(): bool {
+        if ( self::$tables_exist !== null ) {
+            return self::$tables_exist;
+        }
+        $cached = get_transient( self::TABLES_TRANSIENT );
+        if ( $cached === 'yes' || $cached === 'no' ) {
+            self::$tables_exist = ( $cached === 'yes' );
+            return self::$tables_exist;
+        }
+        self::$tables_exist = self::detect_tables();
+        set_transient( self::TABLES_TRANSIENT, self::$tables_exist ? 'yes' : 'no', self::$tables_exist ? 12 * HOUR_IN_SECONDS : 10 * MINUTE_IN_SECONDS );
+        return self::$tables_exist;
+    }
+
+    /**
+     * Forget the cached PMPro table check (the next tables_exist() looks again).
+     */
+    public static function flush_tables_cache(): void {
+        self::$tables_exist = null;
+        delete_transient( self::TABLES_TRANSIENT );
+    }
+
+    private static function detect_tables(): bool {
         global $wpdb;
         foreach ( self::tables() as $t ) {
             // phpcs:ignore WordPress.DB.DirectDatabaseQuery
@@ -235,6 +269,9 @@ class My_IAPSNJ_Migration {
             $report['dry_run'] = true;
             $dry_run           = true;
         }
+        // The migration never trusts the cached answer: look at the tables now
+        // (this also refreshes the cache the admin menu reads).
+        self::flush_tables_cache();
         if ( ! self::tables_exist() && $step !== 'verify_logins' ) {
             $report['fatal'] = 'PMPro tables not found (pmpro_membership_levels / pmpro_memberships_users / pmpro_membership_orders). Nothing to migrate from.';
             return $report;
@@ -245,6 +282,9 @@ class My_IAPSNJ_Migration {
             self::$method( $report, $dry_run, $offset, max( 1, $limit ), $args );
         } catch ( \Throwable $e ) {
             $report['fatal'] = $e->getMessage();
+        }
+        if ( ! $dry_run ) {
+            My_IAPSNJ_Reports::flush_summary(); // CRM counts on the Dashboard changed
         }
         return $report;
     }
@@ -1095,6 +1135,7 @@ class My_IAPSNJ_Migration {
      */
     public static function export_orders_csv( string $path ) {
         global $wpdb;
+        self::flush_tables_cache();
         if ( ! self::tables_exist() ) {
             return new WP_Error( 'no_tables', 'PMPro tables not found.' );
         }

@@ -86,7 +86,7 @@ Label* / *Checkout Instructions*). So:
 * **No custom gateway is required.** Set the label to `Pay by Check` and the
   instructions to the mailing address + "write your member number on the memo
   line".
-* My IAPSNJ → Sync & Settings has an *Apply label & instructions* button that
+* My IAPSNJ → Dues → Checkout Builder (Pay by Check) has an *Apply label & instructions* button that
   writes the same two keys (`fct_meta`, key
   `fluent_cart_payment_settings_offline_payment`), and there is
   `wp iapsnj offline-label --label="Pay by Check" --instructions="…"`.
