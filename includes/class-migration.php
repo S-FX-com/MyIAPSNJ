@@ -705,6 +705,13 @@ class My_IAPSNJ_Migration {
             foreach ( [ 'address_line_1', 'address_line_2', 'city', 'state', 'postal_code', 'country', 'phone' ] as $field ) {
                 $new = trim( (string) ( $chosen[ $field ] ?? '' ) );
                 $cur = trim( (string) $sub->{ $field } );
+                if ( $field === 'phone' ) {
+                    // Same number in another format is not a change.
+                    $new = My_IAPSNJ_Phone::e164( $new );
+                    if ( $new === My_IAPSNJ_Phone::e164( $cur ) ) {
+                        continue;
+                    }
+                }
                 if ( $field === 'country' && $new === '' && $cur === '' ) {
                     $new = (string) $args['default_country'];
                 }

@@ -151,7 +151,7 @@ slugs of the screens that existed before 4.11 are unchanged.
 | Members | Lapsed Members | `my-iapsnj-lapsed` | lapsed members and data checks; grace period; expirations Preview / Apply now |
 | Members | Notes Search | `my-iapsnj-notes-search` | |
 | | Reports | `my-iapsnj-reports` | open applications, orphan orders, aging, WP↔CRM orphans; aging threshold, go-live date |
-| Settings | Configurations | `my-iapsnj-sync` | new-member notification, CRM schema (formerly "Sync & Settings") |
+| Settings | Configurations | `my-iapsnj-sync` | new-member notification, CRM schema, phone number format (formerly "Sync & Settings") |
 | Settings | Profile Mirror | `my-iapsnj-mapping` | CRM → WP field map with sample preview |
 | Settings | Profile Sync | `my-iapsnj-profile-sync` | mirror triggers, mirror all contacts now, WordPress role per member type |
 | Settings | Migrate PMPro | `my-iapsnj-migration` | PMPro → CRM steps (shown while PMPro tables exist) |
@@ -197,6 +197,7 @@ wp iapsnj verify-logins [--expected=4000]
 wp iapsnj reconcile
 wp iapsnj crm-schema [--years=2024-2032]
 wp iapsnj offline-label --label="Pay by Check" [--instructions="…"]
+wp iapsnj phones [--dry-run]
 ```
 
 Steps: `census`, `link_subscribers`, `consolidate_addresses`,

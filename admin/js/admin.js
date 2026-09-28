@@ -820,6 +820,41 @@
             .always(function () { resetBtn($btn); });
     });
 
+    $('.fcrm-normalize-phones').on('click', function () {
+        var $btn = $(this), dry = String($btn.data('dry')) === '1', $out = $('#fcrm-phones-result').html('<p>' + i18n.loading + '</p>');
+        if (!dry && !window.confirm('Reformat the phone numbers stored in the CRM now?')) { $out.empty(); return; }
+        setBtn($btn, i18n.loading, true);
+        var first = null, done = 0, rounds = 0;
+        function report(d) {
+            var html = '<p>' + (dry ? 'Preview' : 'Applied') + ': ' + first.checked + ' numbers checked · to reformat: ' + first.to_change + (dry ? '' : ' · done: ' + done) + ' · unreadable (left as they are): ' + first.unreadable + '</p>';
+            if ((first.samples || []).length) { html += '<ul style="margin-left:18px">' + first.samples.map(function (s) { return '<li>' + escHtml(s) + '</li>'; }).join('') + '</ul>'; }
+            if ((first.unreadable_samples || []).length) { html += '<p><strong>Fix by hand in FluentCRM:</strong></p><ul style="margin-left:18px">' + first.unreadable_samples.map(function (s) { return '<li>' + escHtml(s) + '</li>'; }).join('') + '</ul>'; }
+            $out.html(html);
+        }
+        function run() {
+            post('normalize_phones', { dry: dry ? 1 : 0, limit: 500 })
+                .done(function (resp) {
+                    if (!resp.success) { $out.html('<p class="fcrm-error">' + escHtml(errMsg(resp)) + '</p>'); resetBtn($btn); return; }
+                    var d = resp.data;
+                    if (!first) { first = d; }
+                    rounds++;
+                    if (!dry) {
+                        done += d.changed;
+                        // Each call re-reads the CRM; stop when a batch has nothing left or changes nothing.
+                        if (d.to_change > d.changed && d.changed > 0 && rounds < 200) {
+                            $out.html('<p>' + i18n.loading + ' ' + done + ' / ' + first.to_change + '</p>');
+                            run();
+                            return;
+                        }
+                    }
+                    report(d);
+                    resetBtn($btn);
+                })
+                .fail(function () { $out.html('<p class="fcrm-error">' + i18n.error + '</p>'); resetBtn($btn); });
+        }
+        run();
+    });
+
     $('.fcrm-run-expiry').on('click', function () {
         var $btn = $(this), dry = $btn.data('dry') === 1 || $btn.data('dry') === '1', $out = $('#fcrm-expiry-result').html('<p>' + i18n.loading + '</p>');
         if (!dry && !window.confirm('Apply expirations now? Lapsed members lose the Member-Active tag and their role; members in good standing get them.')) { $out.empty(); return; }

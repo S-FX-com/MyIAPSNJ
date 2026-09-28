@@ -62,7 +62,7 @@ class My_IAPSNJ_Checkout_Fields {
     const NEW_TARGET   = '__new__';                          // "create a CRM custom field" picker value
 
     /** @var string[] 'section' is a heading row, not an input */
-    const TYPES = [ 'text', 'textarea', 'select', 'radio', 'date', 'checkbox', 'section' ];
+    const TYPES = [ 'text', 'phone', 'textarea', 'select', 'radio', 'date', 'checkbox', 'section' ];
 
     /** @var array<string,string> FluentCRM contact columns offered as targets */
     const DEFAULT_TARGETS = [
@@ -75,6 +75,9 @@ class My_IAPSNJ_Checkout_Fields {
 
     /** @var bool The fields were printed on this request. */
     private bool $rendered = false;
+
+    /** @var bool A checkout page was rendered: print the phone formatter. */
+    private bool $phone_script = false;
 
     /** @var array<string,array<string,array>> per-request cache: form id => parsed fields */
     private static array $config_cache = [];
@@ -146,8 +149,8 @@ class My_IAPSNJ_Checkout_Fields {
             'department'      => $custom( __( 'Department', 'my-iapsnj' ), __( 'Your law-enforcement agency.', 'my-iapsnj' ), 'select', My_IAPSNJ_Schema::FIELD_DEPARTMENT, true, true ),
             'rank_level'      => $custom( __( 'Rank', 'my-iapsnj' ), '', 'select', My_IAPSNJ_Schema::FIELD_RANK, true, true ),
             'retirement_date' => $custom( __( 'Retirement date (if retired)', 'my-iapsnj' ), '', 'date', My_IAPSNJ_Schema::FIELD_RETIREMENT_DATE ),
-            'phone_work'      => $custom( __( 'Work phone', 'my-iapsnj' ), '', 'text', My_IAPSNJ_Schema::FIELD_PHONE_WORK ),
-            'phone2'          => $custom( __( 'Alternate phone', 'my-iapsnj' ), '', 'text', My_IAPSNJ_Schema::FIELD_PHONE2 ),
+            'phone_work'      => $custom( __( 'Work phone', 'my-iapsnj' ), '', 'phone', My_IAPSNJ_Schema::FIELD_PHONE_WORK ),
+            'phone2'          => $custom( __( 'Alternate phone', 'my-iapsnj' ), '', 'phone', My_IAPSNJ_Schema::FIELD_PHONE2 ),
             'union_affiliation' => $custom( __( 'Union affiliation', 'my-iapsnj' ), __( 'PBA, FOP, STFA … (optional)', 'my-iapsnj' ), 'text', My_IAPSNJ_Schema::FIELD_UNION_AFFILIATION ),
             'union_position'  => $custom( __( 'Union position', 'my-iapsnj' ), '', 'text', My_IAPSNJ_Schema::FIELD_UNION_POSITION ),
             // -- Personal ---------------------------------------------------
@@ -856,7 +859,10 @@ class My_IAPSNJ_Checkout_Fields {
             if ( isset( $row['options'] ) && is_array( $row['options'] ) ) {
                 $def['options'] = array_values( array_filter( array_map( 'trim', array_map( 'strval', $row['options'] ) ), 'strlen' ) );
             }
-            if ( isset( $row['type'] ) && in_array( $row['type'], self::TYPES, true ) ) {
+            // A built-in field's type comes from definitions() (its type
+            // picker is read-only), so a changed built-in type reaches forms
+            // saved before the change, e.g. Work phone → Phone in 4.13.
+            if ( ! isset( $builtins[ $key ] ) && isset( $row['type'] ) && in_array( $row['type'], self::TYPES, true ) ) {
                 $def['type'] = $row['type'];
             }
             if ( array_key_exists( 'crm_kind', $row ) && in_array( $row['crm_kind'], [ 'custom', 'default', 'none' ], true ) ) {
@@ -1067,7 +1073,7 @@ class My_IAPSNJ_Checkout_Fields {
      *
      * @param string[] $options
      */
-    public static function type_from_crm( string $crm_type, array $options ): string {
+    public static function type_from_crm( string $crm_type, array $options, string $name = '' ): string {
         switch ( $crm_type ) {
             case 'textarea':
                 return 'textarea';
@@ -1083,7 +1089,8 @@ class My_IAPSNJ_Checkout_Fields {
                 // One option ("Yes") is a tick box; several are a choice.
                 return count( $options ) > 1 ? 'select' : 'checkbox';
             default:
-                return 'text';
+                // A CRM text field named like a phone number is offered as one.
+                return preg_match( '/phone|mobile|cell|\bfax\b/i', $name ) ? 'phone' : 'text';
         }
     }
 
@@ -1140,7 +1147,7 @@ class My_IAPSNJ_Checkout_Fields {
                 continue;
             }
             $options = array_values( array_filter( array_map( 'strval', (array) ( $cf['options'] ?? [] ) ), 'strlen' ) );
-            $type    = self::type_from_crm( (string) ( $cf['type'] ?? 'text' ), $options );
+            $type    = self::type_from_crm( (string) ( $cf['type'] ?? 'text' ), $options, $slug . ' ' . (string) ( $cf['label'] ?? '' ) );
             $out[ $key_for( $slug ) ] = [
                 'used'     => $in_use,
                 'label'    => (string) ( $cf['label'] ?? $slug ) !== '' ? (string) $cf['label'] : $slug,
@@ -1384,6 +1391,7 @@ class My_IAPSNJ_Checkout_Fields {
         }
         $map = [
             'text'     => 'text',
+            'phone'    => 'text',
             'textarea' => 'textarea',
             'select'   => 'select-one',
             'radio'    => 'radio',
@@ -1480,6 +1488,10 @@ class My_IAPSNJ_Checkout_Fields {
                 return My_IAPSNJ_Dates::ymd( $raw );
             case 'textarea':
                 return sanitize_textarea_field( $raw );
+            case 'phone':
+                // Stored ready to read ("+1 908-415-2478"): CRM text fields
+                // are not formatted by FluentCRM.
+                return My_IAPSNJ_Phone::display( sanitize_text_field( $raw ) );
             default:
                 return sanitize_text_field( $raw );
         }
@@ -1760,6 +1772,8 @@ class My_IAPSNJ_Checkout_Fields {
                 echo '</select>';
             } elseif ( $type === 'textarea' ) {
                 echo '<textarea class="fct-input" id="' . esc_attr( $id ) . '" name="' . esc_attr( $name ) . '" rows="3"' . $req_attr . '>' . esc_textarea( $value ) . '</textarea>';
+            } elseif ( $type === 'phone' ) {
+                echo '<input type="tel" inputmode="tel" class="fct-input my-iapsnj-phone" id="' . esc_attr( $id ) . '" name="' . esc_attr( $name ) . '" value="' . esc_attr( My_IAPSNJ_Phone::display( $value ) ) . '" placeholder="+1 555-555-5555" autocomplete="off"' . $req_attr . '>';
             } else {
                 $input_type = $type === 'date' ? 'date' : 'text';
                 echo '<input type="' . esc_attr( $input_type ) . '" class="fct-input" id="' . esc_attr( $id ) . '" name="' . esc_attr( $name ) . '" value="' . esc_attr( $value ) . '"' . $req_attr . ( $input_type === 'text' ? ' autocomplete="off"' : '' ) . '>';
@@ -1857,6 +1871,8 @@ class My_IAPSNJ_Checkout_Fields {
         if ( ! is_array( $fields ) ) {
             return $fields;
         }
+        $this->phone_script = true; // a checkout page: format its phone inputs
+
         $contact = self::current_contact( is_array( $data ) ? ( $data['cart'] ?? null ) : null );
         if ( ! $contact instanceof Subscriber ) {
             return $fields;
@@ -1866,7 +1882,7 @@ class My_IAPSNJ_Checkout_Fields {
             'address_2' => (string) $contact->address_line_2,
             'city'      => (string) $contact->city,
             'postcode'  => (string) $contact->postal_code,
-            'phone'     => (string) $contact->phone,
+            'phone'     => My_IAPSNJ_Phone::display( (string) $contact->phone ),
             'country'   => (string) $contact->country,
             'state'     => (string) $contact->state,
         ];
@@ -1983,6 +1999,9 @@ class My_IAPSNJ_Checkout_Fields {
      * validate() / collect() apply the same rule on the server.
      */
     public function print_footer_script(): void {
+        if ( $this->rendered || $this->phone_script ) {
+            self::print_phone_script();
+        }
         if ( ! $this->rendered ) {
             return;
         }
@@ -1998,6 +2017,26 @@ class My_IAPSNJ_Checkout_Fields {
             . 'function watch(e){if(e.target&&e.target.name&&e.target.name.indexOf(P)===0){save();cond();}}'
             . 'document.addEventListener("change",watch,true);document.addEventListener("input",watch,true);'
             . 'restore();cond();var n=0,t=setInterval(function(){restore();cond();if(++n>120){clearInterval(t);}},1000);'
+            . '})();</script>' . "\n";
+    }
+
+    /**
+     * Format phone inputs as they are typed: FluentCart's billing / shipping
+     * phone and the application's Phone fields. A US number (10 digits, or
+     * 11 starting with 1) becomes "+1 908-415-2478"; a number starting with
+     * + and another country code, or more than 10 digits, is left as typed
+     * (never cut short, so validation can reject it). The server applies the
+     * same rule (My_IAPSNJ_Phone), so this is only the typing experience.
+     */
+    private static function print_phone_script(): void {
+        // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- static script
+        echo '<script>(function(){'
+            . 'var S=\'input[name="billing_phone"],input[name="shipping_phone"],input.my-iapsnj-phone\';'
+            . 'function fmt(v){var t=String(v||"").trim();if(!t){return"";}if(/[a-z]/i.test(t)){return v;}var d=t.replace(/\D/g,"");if(t.charAt(0)==="+"&&d.charAt(0)!=="1"){return v;}if(d.charAt(0)==="1"){d=d.slice(1);}if(d.length>10){return v;}if(!d){return t.charAt(0)==="+"?t:"";}var o="+1 "+d.slice(0,3);if(d.length>3){o+="-"+d.slice(3,6);}if(d.length>6){o+="-"+d.slice(6);}return o;}'
+            . 'function apply(i){var v=i.value,n=fmt(v);if(n===v){return;}var c=i.selectionStart,end=c===null||c>=v.length;var ds=v.replace(/\D/g,""),k=v.slice(0,c||0).replace(/\D/g,"").length;if(ds.charAt(0)==="1"&&k>0){k--;}i.value=n;if(end||document.activeElement!==i){return;}var p=3,seen=0;while(p<n.length&&seen<k){if(/\d/.test(n.charAt(p))){seen++;}p++;}try{i.setSelectionRange(p,p);}catch(e){}}'
+            . 'function on(e){var i=e.target;if(i&&i.matches&&i.matches(S)){apply(i);}}'
+            . 'document.addEventListener("input",on,true);document.addEventListener("change",on,true);document.addEventListener("blur",on,true);'
+            . 'function all(){document.querySelectorAll(S).forEach(apply);}all();var n=0,t=setInterval(function(){all();if(++n>20){clearInterval(t);}},1000);'
             . '})();</script>' . "\n";
     }
 
@@ -2055,6 +2094,9 @@ class My_IAPSNJ_Checkout_Fields {
                         : sprintf( /* translators: field label */ __( '%s is required.', 'my-iapsnj' ), $label );
                 }
                 continue;
+            }
+            if ( $def['type'] === 'phone' && ! My_IAPSNJ_Phone::is_valid( $value ) ) {
+                $errors[ $name ]['invalid'] = sprintf( /* translators: field label */ __( '%s: enter a 10-digit US phone number, or an international number starting with +.', 'my-iapsnj' ), $label );
             }
             if ( $def['type'] === 'date' && My_IAPSNJ_Dates::ymd( $value ) === '' ) {
                 $errors[ $name ]['invalid'] = sprintf( /* translators: field label */ __( '%s is not a valid date.', 'my-iapsnj' ), $label );

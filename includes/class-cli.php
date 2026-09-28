@@ -185,6 +185,33 @@ class My_IAPSNJ_CLI {
     }
 
     /**
+     * Format the phone numbers already in the CRM: contact Phone to E.164
+     * (+19084152478), Work / Alternate phone to "+1 908-415-2478". Numbers
+     * that cannot be read are listed and left alone.
+     *
+     * ## OPTIONS
+     *
+     * [--dry-run]
+     * : Report what would change without writing anything.
+     */
+    public function phones( $args, $assoc ) {
+        $dry = ! empty( $assoc['dry-run'] );
+        $r   = My_IAPSNJ_Phone::normalize_contacts( $dry, PHP_INT_MAX );
+        WP_CLI::log( sprintf( 'Checked: %d · To change: %d · Unreadable (left alone): %d', $r['checked'], $r['to_change'], $r['unreadable'] ) );
+        foreach ( $r['samples'] as $s ) {
+            WP_CLI::log( '  ' . $s );
+        }
+        foreach ( $r['unreadable_samples'] as $s ) {
+            WP_CLI::log( '  ? ' . $s );
+        }
+        if ( $dry ) {
+            WP_CLI::success( 'Dry run, nothing written.' );
+        } else {
+            WP_CLI::success( sprintf( 'Changed %d.', $r['changed'] ) );
+        }
+    }
+
+    /**
      * Expire lapsed memberships (Member-Active tag + WordPress role) and
      * activate members in good standing who lack them. The same job runs
      * daily by WP-Cron.
