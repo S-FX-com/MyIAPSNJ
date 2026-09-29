@@ -1283,35 +1283,69 @@ class My_IAPSNJ_Membership {
             __( 'FluentCart order', 'my-iapsnj' ) => self::order_admin_url( $order ),
         ];
 
-        $body = sprintf( __( 'A new IAPSNJ member has PAID (order #%d). Details below are from the CRM after payment.', 'my-iapsnj' ), (int) $order->id ) . "\n\n";
-        foreach ( $rows as $label => $value ) {
-            $value = is_array( $value ) ? implode( ', ', $value ) : (string) $value;
-            if ( strpos( $value, "\n" ) !== false ) {
-                $body .= $label . ":\n    " . str_replace( "\n", "\n    ", $value ) . "\n";
-            } else {
-                $body .= $label . ': ' . ( $value !== '' ? $value : '—' ) . "\n";
+        $intro = sprintf( __( 'A new IAPSNJ member has PAID (order #%d). Details below are from the CRM after payment.', 'my-iapsnj' ), (int) $order->id );
+        $note  = __( 'This notification is sent only after payment is confirmed; it never fires for an unpaid application.', 'my-iapsnj' );
+
+        if ( My_IAPSNJ_Emails::enabled() ) {
+            // Same design as every other site email (Configurations → Email design).
+            $body    = My_IAPSNJ_Emails::wrap( self::notification_html( $intro, $rows, $note ), $intro );
+            $headers = [ 'Content-Type: text/html; charset=UTF-8' ];
+        } else {
+            $body = $intro . "\n\n";
+            foreach ( $rows as $label => $value ) {
+                $value = is_array( $value ) ? implode( ', ', $value ) : (string) $value;
+                if ( strpos( $value, "\n" ) !== false ) {
+                    $body .= $label . ":\n    " . str_replace( "\n", "\n    ", $value ) . "\n";
+                } else {
+                    $body .= $label . ': ' . ( $value !== '' ? $value : '—' ) . "\n";
+                }
             }
+            $body   .= "\n" . $note . "\n";
+            $headers = [ 'Content-Type: text/plain; charset=UTF-8' ];
         }
-        $body .= "\n" . __( 'This notification is sent only after payment is confirmed; it never fires for an unpaid application.', 'my-iapsnj' ) . "\n";
 
         $subject = sprintf( __( '[IAPSNJ] New member paid: %s (%s)', 'my-iapsnj' ), $name !== '' ? $name : $subscriber->email, $applied['member_type'] );
 
         /**
          * Filter the new-member notification before it is sent.
          *
-         * @param array $mail ['to' => string[], 'subject' => string, 'body' => string, 'headers' => string[]]
+         * @param array $mail ['to' => string[], 'subject' => string, 'body' => string (HTML when the email design is on, else plain text), 'headers' => string[]]
          */
         $mail = apply_filters( 'my_iapsnj/new_member_notification', [
             'to'      => array_values( $recipients ),
             'subject' => $subject,
             'body'    => $body,
-            'headers' => [ 'Content-Type: text/plain; charset=UTF-8' ],
+            'headers' => $headers,
         ], $subscriber, $order, $applied );
 
         if ( ! empty( $mail['to'] ) ) {
             wp_mail( $mail['to'], $mail['subject'], $mail['body'], $mail['headers'] );
         }
         $order->updateMeta( self::META_NOTIFIED, My_IAPSNJ_Dates::now_utc() );
+    }
+
+    /**
+     * The new-member notice as HTML: intro, a label / value table (admin
+     * URLs as links, line breaks kept), closing note.
+     *
+     * @param array<string,string|string[]> $rows
+     */
+    private static function notification_html( string $intro, array $rows, string $note ): string {
+        $html = '<p>' . esc_html( $intro ) . '</p>'
+            . '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin:0 0 16px;">';
+        foreach ( $rows as $label => $value ) {
+            $value = is_array( $value ) ? implode( ', ', $value ) : (string) $value;
+            if ( $value === '' ) {
+                $cell = '—';
+            } elseif ( preg_match( '#^https?://\S+$#', $value ) ) {
+                $cell = '<a href="' . esc_url( $value ) . '">' . esc_html__( 'Open', 'my-iapsnj' ) . '</a>';
+            } else {
+                $cell = nl2br( esc_html( $value ) );
+            }
+            $html .= '<tr><td style="padding:6px 12px 6px 0;border-bottom:1px solid #eeeeee;vertical-align:top;white-space:nowrap;font-weight:600;">' . esc_html( (string) $label ) . '</td>'
+                . '<td style="padding:6px 0;border-bottom:1px solid #eeeeee;vertical-align:top;">' . $cell . '</td></tr>';
+        }
+        return $html . '</table><p style="font-size:13px;color:#666666;">' . esc_html( $note ) . '</p>';
     }
 
     // -----------------------------------------------------------------------

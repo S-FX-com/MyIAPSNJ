@@ -40,9 +40,16 @@ Documentation: [`docs/phase1-findings.md`](docs/phase1-findings.md) ·
   cutover (default Oct 1, Dues → Membership Products) covers through Dec 31 of that year;
   on/after it, through Dec 31 of the next year. Multi-year products add whole
   years. Checks count from the deposit date.
-* **New-member notification** — plain-text email on *payment* with name, full
+* **New-member notification** — email on *payment* with name, full
   mailing address, email, phone, department, rank, member number, product,
   amount and links. Never on application submitted.
+* **Email design** — WordPress account emails (login details / set
+  password, password reset, password or email changed, "New user
+  registration"), FluentCart emails (receipts, check instructions) and the
+  new-member notification are sent in the same FluentCRM design as the
+  automations and campaigns, with the IAPSNJ logo and the business name and
+  address as footer (Settings → Configurations → Email design: design, logo,
+  footer, Preview, Send test).
 * **Application inside the checkout** — the Join page is a set of buttons
   (one instant-checkout link per membership product). On the checkout page
   the plugin adds the application fields (the whole former onboarding form:

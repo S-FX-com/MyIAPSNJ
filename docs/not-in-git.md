@@ -15,6 +15,7 @@ re-created / imported on production (and kept as part of the project record).
 | FluentCRM tags | FluentCRM → Contacts → Tags | created by `crm-schema`; extra tags: FluentCRM export | `crm-schema` |
 | FluentCRM automations (A–G in `docs/automations.md`) and email sequences/templates | FluentCRM → Automations | FluentCRM Pro *Export* per automation (JSON) | Import; **re-check every exclusion condition and every referenced tag/field/form** |
 | Welcome email copy (client-supplied) | FluentCRM automation A | included in automation export | |
+| FluentCRM email styling and business details (name, address, logo) — also the design, logo and footer of the WordPress / FluentCart emails and the new-member notice (My IAPSNJ → Configurations → Email design) | FluentCRM → Settings → Email Styling, Business Settings | Screenshot both screens; values: business details in wp_options `fluentcrm-global-settings` (`business_settings`), email styles in `wp_fc_meta` (`global_email_style_config`) | Re-enter on production, then My IAPSNJ → Configurations → Email design → *Send test* |
 | My IAPSNJ options | wp_options | `wp option get my_iapsnj_settings --format=json`, `my_iapsnj_products`, `my_iapsnj_checkout_forms`, `my_iapsnj_field_mappings` | `wp option update … --format=json`; then fix product/variation ids (products and renewal products) |
 | Level map used for migration | CLI argument | write it here: `--level-map=__________________` | |
 | PMPro order history CSV | `wp iapsnj export-orders` | file | store with treasurer records, off-site |

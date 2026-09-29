@@ -820,6 +820,16 @@
             .always(function () { resetBtn($btn); });
     });
 
+    // Configurations → Email design → Send test (saved settings).
+    $('.fcrm-send-test-email').on('click', function () {
+        var $btn = $(this), $notice = $btn.closest('form').find('.fcrm-form-notice').first();
+        setBtn($btn, i18n.loading, true);
+        post('send_test_email', {})
+            .done(function (resp) { showNotice($notice, resp.success ? resp.data.message : errMsg(resp), resp.success ? 'success' : 'error'); })
+            .fail(function () { showNotice($notice, i18n.error, 'error'); })
+            .always(function () { resetBtn($btn); });
+    });
+
     $('.fcrm-normalize-phones').on('click', function () {
         var $btn = $(this), dry = String($btn.data('dry')) === '1', $out = $('#fcrm-phones-result').html('<p>' + i18n.loading + '</p>');
         if (!dry && !window.confirm('Reformat the phone numbers stored in the CRM now?')) { $out.empty(); return; }

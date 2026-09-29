@@ -15,7 +15,7 @@
  *    Notes Search         FluentCRM notes search with inline tagging
  *  Reports                open applications, orphan orders, aging checks, WP↔CRM orphans; report settings
  *  Settings
- *    Configurations       new-member notification, CRM schema (slug my-iapsnj-sync)
+ *    Configurations       new-member notification, email design, CRM schema, phones (slug my-iapsnj-sync)
  *    Profile Mirror       CRM → WP field map
  *    Profile Sync         mirror triggers, mirror all now, WordPress role per member type
  *    Migrate PMPro        PMPro → FluentCRM toolkit (only while PMPro tables exist)
@@ -61,7 +61,7 @@ class My_IAPSNJ_Admin {
             'refresh_field_list',
             'search_notes', 'get_tags', 'assign_tag',
             'checks_list', 'checks_mark_paid', 'search_members', 'record_check',
-            'save_products', 'apply_offline_labels', 'ensure_schema', 'run_expiry', 'normalize_phones',
+            'save_products', 'apply_offline_labels', 'ensure_schema', 'run_expiry', 'normalize_phones', 'send_test_email',
             'migration_run', 'export_orders', 'download_export', 'report',
         ];
         foreach ( $ajax as $action ) {
@@ -976,6 +976,45 @@ class My_IAPSNJ_Admin {
         </div>
         </form>
 
+        <?php
+        $logo_default   = My_IAPSNJ_Emails::default_logo_url();
+        $footer_default = My_IAPSNJ_Emails::default_footer();
+        $logo_now       = My_IAPSNJ_Emails::logo_url();
+        ?>
+        <form class="fcrm-settings-form" id="email-design">
+        <div class="fcrm-section">
+            <h2><?php esc_html_e( 'Email design', 'my-iapsnj' ); ?></h2>
+            <p class="description"><?php esc_html_e( 'FluentCRM emails (automations, campaigns) use the design in FluentCRM → Settings → Email Styling. With this on, the other site emails get the same design, the logo on top and the footer below: WordPress account emails (login details / set password, password reset, password or email changed, "New user registration" to the admin), FluentCart emails (receipts, Pay by Check instructions, admin order emails) and the new-member notification. FluentCart\'s own email preview still shows FluentCart\'s layout; use Preview / Send test here.', 'my-iapsnj' ); ?></p>
+            <div class="fcrm-notice fcrm-form-notice" style="display:none"></div>
+            <table class="form-table">
+                <tr><th><?php esc_html_e( 'Apply', 'my-iapsnj' ); ?></th><td><label><input type="checkbox" name="email_branding" value="1" <?php checked( ! empty( $settings['email_branding'] ) ); ?>> <?php esc_html_e( 'Send these emails in the FluentCRM design', 'my-iapsnj' ); ?></label></td></tr>
+                <tr><th><?php esc_html_e( 'FluentCRM design', 'my-iapsnj' ); ?></th><td>
+                    <select name="email_design">
+                        <?php foreach ( My_IAPSNJ_Emails::DESIGNS as $design => $label ) : ?>
+                            <option value="<?php echo esc_attr( $design ); ?>" <?php selected( My_IAPSNJ_Emails::design(), $design ); ?>><?php echo esc_html( $label ); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <p class="description"><?php esc_html_e( 'Pick the design your FluentCRM emails use (Simple Boxed = grey page, white box).', 'my-iapsnj' ); ?></p>
+                </td></tr>
+                <tr><th><?php esc_html_e( 'Logo URL', 'my-iapsnj' ); ?></th><td>
+                    <input type="url" name="email_logo_url" value="<?php echo esc_attr( (string) $settings['email_logo_url'] ); ?>" class="large-text" placeholder="<?php echo esc_attr( $logo_default ); ?>">
+                    <?php if ( $logo_now !== '' ) : ?><p><img src="<?php echo esc_url( $logo_now ); ?>" alt="" style="max-width:80px;height:auto;border:1px solid #dcdcde;background:#fff;padding:4px"></p><?php endif; ?>
+                    <p class="description"><?php esc_html_e( 'Empty = the business logo in FluentCRM → Settings → Business Settings, else the site logo. Use a PNG or JPG; many email programs do not show SVG or WebP.', 'my-iapsnj' ); ?></p>
+                </td></tr>
+                <tr><th><?php esc_html_e( 'Footer', 'my-iapsnj' ); ?></th><td>
+                    <textarea name="email_footer" rows="2" class="large-text" placeholder="<?php echo esc_attr( $footer_default ); ?>"><?php echo esc_textarea( (string) $settings['email_footer'] ); ?></textarea>
+                    <p class="description"><?php esc_html_e( 'Plain text. Empty = the business name and address from FluentCRM → Settings → Business Settings. No unsubscribe link: these are account and payment emails.', 'my-iapsnj' ); ?></p>
+                </td></tr>
+            </table>
+            <p>
+                <button type="submit" class="button button-primary"><?php esc_html_e( 'Save', 'my-iapsnj' ); ?></button>
+                <a class="button" href="<?php echo esc_url( My_IAPSNJ_Emails::preview_url() ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'Preview', 'my-iapsnj' ); ?></a>
+                <button type="button" class="button fcrm-send-test-email"><?php echo esc_html( sprintf( /* translators: %s: email address */ __( 'Send test to %s', 'my-iapsnj' ), wp_get_current_user()->user_email ) ); ?></button>
+            </p>
+            <p class="description"><?php esc_html_e( 'Preview and Send test use the saved settings (save first). The sample is the "Login details" email a new member receives. On staging, sending is simulated: find the test in FluentSMTP → Email Logs.', 'my-iapsnj' ); ?></p>
+        </div>
+        </form>
+
         <div class="fcrm-section" id="schema">
             <h2><?php esc_html_e( 'CRM schema', 'my-iapsnj' ); ?></h2>
             <p class="description"><?php echo esc_html( sprintf(
@@ -1590,7 +1629,7 @@ class My_IAPSNJ_Admin {
         $settings = My_IAPSNJ_Plugin::settings();
         $post     = wp_unslash( $_POST ); // phpcs:ignore
 
-        foreach ( [ 'sync_on_fcrm_update', 'link_on_user_register', 'sync_on_user_delete', 'notify_new_member' ] as $key ) {
+        foreach ( [ 'sync_on_fcrm_update', 'link_on_user_register', 'sync_on_user_delete', 'notify_new_member', 'email_branding' ] as $key ) {
             if ( array_key_exists( $key, $post ) ) {
                 $settings[ $key ] = ! empty( $post[ $key ] );
             }
@@ -1634,6 +1673,16 @@ class My_IAPSNJ_Admin {
         if ( array_key_exists( 'notify_emails', $post ) ) {
             $emails = array_filter( array_map( 'sanitize_email', preg_split( '/[\s,;]+/', (string) $post['notify_emails'] ) ) );
             $settings['notify_emails'] = implode( ', ', $emails );
+        }
+        if ( array_key_exists( 'email_design', $post ) ) {
+            $design                   = sanitize_key( (string) $post['email_design'] );
+            $settings['email_design'] = isset( My_IAPSNJ_Emails::DESIGNS[ $design ] ) ? $design : 'simple';
+        }
+        if ( array_key_exists( 'email_logo_url', $post ) ) {
+            $settings['email_logo_url'] = esc_url_raw( trim( (string) $post['email_logo_url'] ) );
+        }
+        if ( array_key_exists( 'email_footer', $post ) ) {
+            $settings['email_footer'] = sanitize_textarea_field( (string) $post['email_footer'] );
         }
         if ( array_key_exists( 'checkout_fill_address', $post ) ) {
             $settings['checkout_fill_address'] = $post['checkout_fill_address'] === 'overwrite' ? 'overwrite' : 'empty_only';
@@ -1907,6 +1956,23 @@ class My_IAPSNJ_Admin {
         } catch ( \Throwable $e ) {
             wp_send_json_error( [ 'message' => $e->getMessage() ] );
         }
+    }
+
+    /**
+     * Configurations → Email design → Send test: the sample email to the
+     * current admin, with the saved settings.
+     */
+    public function ajax_send_test_email(): void {
+        $this->ajax_guard();
+        $to = (string) wp_get_current_user()->user_email;
+        if ( ! is_email( $to ) ) {
+            wp_send_json_error( [ 'message' => __( 'Your WordPress user has no valid email address.', 'my-iapsnj' ) ] );
+        }
+        if ( ! My_IAPSNJ_Emails::send_test( $to ) ) {
+            wp_send_json_error( [ 'message' => __( 'WordPress could not send the email (see the mail log).', 'my-iapsnj' ) ] );
+        }
+        /* translators: %s: email address */
+        wp_send_json_success( [ 'message' => sprintf( __( 'Test sent to %s. On staging, sending is simulated: open it in FluentSMTP → Email Logs.', 'my-iapsnj' ), $to ) ] );
     }
 
     public function ajax_normalize_phones(): void {
