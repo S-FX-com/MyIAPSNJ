@@ -609,7 +609,7 @@ class My_IAPSNJ_Admin {
 
     public function render_products_page(): void {
         $this->guard();
-        $this->page_header( __( 'Membership Products', 'my-iapsnj' ), __( 'Map each FluentCart product (one-time or subscription) to the member type it grants and how many years it covers, then set the renewal products and the Join page. Honorary is never a product: set member_type Honorary on the contact in FluentCRM (the Honorary tag alone does not count).', 'my-iapsnj' ) );
+        $this->page_header( __( 'Membership Products', 'my-iapsnj' ), __( 'Map each FluentCart product (one-time or subscription) to the member type it grants (each payment covers one year), then set the renewal products and the Join page. Honorary is never a product: set member_type Honorary on the contact in FluentCRM (the Honorary tag alone does not count).', 'my-iapsnj' ) );
         $variations = My_IAPSNJ_Membership::all_variations();
         $raw        = get_option( My_IAPSNJ_Membership::OPTION_PRODUCTS, [] );
         $raw        = is_array( $raw ) ? $raw : [];
@@ -617,12 +617,11 @@ class My_IAPSNJ_Admin {
         $products   = My_IAPSNJ_Membership::products_config();
         $cutover    = My_IAPSNJ_Membership::renewal_cutover();
         $today      = My_IAPSNJ_Dates::today();
-        $example_1  = My_IAPSNJ_Dates::membership_term( $today, 1, $cutover );
-        $example_5  = My_IAPSNJ_Dates::membership_term( $today, 5, $cutover );
+        $example    = My_IAPSNJ_Dates::membership_term( $today, $cutover );
         ?>
         <div id="fcrm-products-notice" class="fcrm-notice" style="display:none"></div>
         <?php if ( ! $variations ) : ?>
-            <div class="fcrm-section"><p><?php esc_html_e( 'No FluentCart products found yet. Create the products in FluentCart first (Regular Membership, Associate Membership, Lifetime Membership, Multi-Year Membership), then return here.', 'my-iapsnj' ); ?></p></div></div>
+            <div class="fcrm-section"><p><?php esc_html_e( 'No FluentCart products found yet. Create the products in FluentCart first (Regular Membership, Associate Membership, Lifetime Membership), then return here.', 'my-iapsnj' ); ?></p></div></div>
             <?php return; ?>
         <?php endif; ?>
         <form id="fcrm-products-form">
@@ -634,16 +633,11 @@ class My_IAPSNJ_Admin {
                     <th><?php esc_html_e( 'FluentCart product / variation', 'my-iapsnj' ); ?></th>
                     <th><?php esc_html_e( 'Price', 'my-iapsnj' ); ?></th>
                     <th><?php esc_html_e( 'Member type', 'my-iapsnj' ); ?></th>
-                    <th><?php esc_html_e( 'Years covered per payment', 'my-iapsnj' ); ?></th>
                 </tr></thead>
                 <tbody>
                 <?php foreach ( $variations as $vid => $v ) :
-                    $cfg      = is_array( $raw[ $vid ] ?? null ) ? $raw[ $vid ] : [];
-                    $type     = (string) ( $cfg['member_type'] ?? '' );
-                    $duration = (int) ( $cfg['duration'] ?? 0 );
-                    if ( $duration <= 0 ) {
-                        $duration = max( 1, count( array_filter( array_map( 'intval', (array) ( $cfg['years'] ?? [] ) ) ) ) );
-                    }
+                    $cfg  = is_array( $raw[ $vid ] ?? null ) ? $raw[ $vid ] : [];
+                    $type = (string) ( $cfg['member_type'] ?? '' );
                 ?>
                     <tr class="<?php echo ! empty( $cfg['enabled'] ) ? 'enabled' : ''; ?>">
                         <td style="text-align:center"><input type="checkbox" name="products[<?php echo esc_attr( (string) $vid ); ?>][enabled]" value="1" <?php checked( ! empty( $cfg['enabled'] ) ); ?>>
@@ -656,8 +650,6 @@ class My_IAPSNJ_Admin {
                                 <option value="<?php echo esc_attr( $t ); ?>" <?php selected( $type, $t ); ?>><?php echo esc_html( $t ); ?></option>
                             <?php endforeach; ?>
                         </select></td>
-                        <td><input type="number" name="products[<?php echo esc_attr( (string) $vid ); ?>][duration]" value="<?php echo esc_attr( (string) $duration ); ?>" min="1" max="10" class="small-text" <?php disabled( $type === My_IAPSNJ_Schema::TYPE_LIFETIME ); ?>>
-                            <br><small class="fcrm-muted"><?php esc_html_e( '1 for annual, 5 for multi-year. Lifetime: no term.', 'my-iapsnj' ); ?></small></td>
                     </tr>
                 <?php endforeach; ?>
                 </tbody>
@@ -674,12 +666,11 @@ class My_IAPSNJ_Admin {
                 <tr><th><?php esc_html_e( 'Renewal season starts', 'my-iapsnj' ); ?></th><td>
                     <input type="text" name="renewal_cutover" value="<?php echo esc_attr( $cutover ); ?>" class="small-text" style="width:80px" placeholder="10-01" pattern="\d{2}-\d{2}"> <span class="fcrm-muted">MM-DD</span>
                     <p class="description"><?php echo esc_html( sprintf(
-                        /* translators: 1: cutover MM-DD, 2: today, 3: 1-year paid_through, 4: 5-year paid_through, 5: cutover date this year */
-                        __( 'The expiration date comes from the payment date, not the product: paid before %1$s → through Dec 31 of that year, on or after it → through Dec 31 of the next year (card payments, subscription renewals and checks by deposit date). A payment today (%2$s) covers through %3$s for a 1-year product and %4$s for a 5-year product; from %5$s it covers the following year. Paid-YYYY tags follow the same years. Lifetime → member_type Lifetime, paid_through deleted, Lifetime tag.', 'my-iapsnj' ),
+                        /* translators: 1: cutover MM-DD, 2: today, 3: paid_through of a payment today, 4: cutover date this year */
+                        __( 'Each payment covers one year and the expiration date comes from the payment date, not the product: paid before %1$s → through Dec 31 of that year, on or after it → through Dec 31 of the next year (card payments, subscription renewals and checks by deposit date). A payment today (%2$s) covers through %3$s; from %4$s it covers the following year. The Paid-YYYY tag follows the same year. Lifetime → member_type Lifetime, paid_through deleted, Lifetime tag.', 'my-iapsnj' ),
                         $cutover,
                         My_IAPSNJ_Dates::ymd_display( $today ),
-                        My_IAPSNJ_Dates::ymd_display( $example_1['paid_through'] ),
-                        My_IAPSNJ_Dates::ymd_display( $example_5['paid_through'] ),
+                        My_IAPSNJ_Dates::ymd_display( $example['paid_through'] ),
                         My_IAPSNJ_Dates::ymd_display( substr( $today, 0, 4 ) . '-' . $cutover )
                     ) ); ?></p>
                 </td></tr>
@@ -1918,7 +1909,6 @@ class My_IAPSNJ_Admin {
                 'label'       => (string) ( $cfg['label'] ?? '' ),
                 'enabled'     => ! empty( $cfg['enabled'] ),
                 'member_type' => (string) ( $cfg['member_type'] ?? '' ),
-                'duration'    => (int) ( $cfg['duration'] ?? 1 ),
             ];
         }
         My_IAPSNJ_Membership::save_products_config( $config );

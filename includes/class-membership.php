@@ -13,8 +13,8 @@
  * The term a payment buys is computed from the payment date, not from the
  * product (My_IAPSNJ_Dates::membership_term): through Dec 31 of the payment
  * year, or of the next year when paid on/after the renewal-season cutover
- * (default Oct 1). A product only says how many years it covers (1, 5 …) and
- * which member type it grants; Lifetime has no term.
+ * (default Oct 1). Every payment covers one year; a product only says which
+ * member type it grants, and Lifetime has no term.
  *
  * On order_paid the handler applies Paid-YYYY tags, sets member_type and
  * paid_through (never shortened), removes the pending tags, copies the
@@ -106,10 +106,10 @@ class My_IAPSNJ_Membership {
     }
 
     /**
-     * variation id → [ label, member_type, duration (years covered), lifetime ]
+     * variation id → [ label, member_type, lifetime ]
      *
-     * Older rows (4.0/4.1) stored a fixed paid_through and a list of years;
-     * they are read as duration = count(years). Lifetime has no duration.
+     * Every payment covers one year. A "years covered" value saved before
+     * 4.15 (multi-year products) is ignored.
      *
      * @return array<int,array>
      */
@@ -128,16 +128,10 @@ class My_IAPSNJ_Membership {
             if ( ! in_array( $type, My_IAPSNJ_Schema::member_types(), true ) ) {
                 continue;
             }
-            $duration = (int) ( $cfg['duration'] ?? 0 );
-            if ( $duration <= 0 ) {
-                $duration = max( 1, count( array_filter( array_map( 'intval', (array) ( $cfg['years'] ?? [] ) ) ) ) );
-            }
-            $lifetime = $type === My_IAPSNJ_Schema::TYPE_LIFETIME;
             $out[ $vid ] = [
                 'label'       => (string) ( $cfg['label'] ?? '' ),
                 'member_type' => $type,
-                'duration'    => $lifetime ? 0 : min( 10, $duration ),
-                'lifetime'    => $lifetime,
+                'lifetime'    => $type === My_IAPSNJ_Schema::TYPE_LIFETIME,
             ];
         }
         return $out;
@@ -154,14 +148,13 @@ class My_IAPSNJ_Membership {
         if ( ! empty( $cfg['lifetime'] ) ) {
             return My_IAPSNJ_Schema::TYPE_LIFETIME;
         }
-        $n = (int) ( $cfg['duration'] ?? 1 );
-        return (string) $cfg['member_type'] . ' · ' . sprintf( _n( '%d year', '%d years', $n, 'my-iapsnj' ), $n );
+        return (string) $cfg['member_type'] . ' · ' . __( '1 year', 'my-iapsnj' );
     }
 
     /**
      * Persist the product configuration (admin screen). Unknown keys dropped.
      *
-     * @param array<int,array> $config vid => ['label','enabled','member_type','duration']
+     * @param array<int,array> $config vid => ['label','enabled','member_type']
      */
     public static function save_products_config( array $config ): void {
         $clean = [];
@@ -170,12 +163,10 @@ class My_IAPSNJ_Membership {
             if ( $vid <= 0 || ! is_array( $cfg ) ) {
                 continue;
             }
-            $duration = (int) ( $cfg['duration'] ?? 1 );
             $clean[ $vid ] = [
                 'label'       => sanitize_text_field( (string) ( $cfg['label'] ?? '' ) ),
                 'enabled'     => ! empty( $cfg['enabled'] ),
                 'member_type' => sanitize_text_field( (string) ( $cfg['member_type'] ?? '' ) ),
-                'duration'    => min( 10, max( 1, $duration ) ),
             ];
         }
         update_option( self::OPTION_PRODUCTS, $clean );
@@ -234,7 +225,7 @@ class My_IAPSNJ_Membership {
      *
      * @param object $order FluentCart Order (order_items loaded)
      * @param string $as_of Payment date Y-m-d (site timezone); '' = today
-     * @return array{member_type:string,paid_through:string,years:int[],duration:int,items:array,lifetime:bool,as_of:string}|null
+     * @return array{member_type:string,paid_through:string,years:int[],items:array,lifetime:bool,as_of:string}|null
      */
     public static function plan_for_order( $order, string $as_of = '' ): ?array {
         $config = self::products_config();
@@ -252,7 +243,6 @@ class My_IAPSNJ_Membership {
             'member_type'  => '',
             'paid_through' => '',
             'years'        => [],
-            'duration'     => 0,
             'items'        => [],
             'lifetime'     => false,
             'as_of'        => My_IAPSNJ_Dates::ymd( $as_of ) ?: My_IAPSNJ_Dates::today(),
@@ -268,7 +258,6 @@ class My_IAPSNJ_Membership {
                 'title'        => trim( (string) ( $item->post_title ?? '' ) . ' ' . (string) ( $item->title ?? '' ) ),
                 'quantity'     => (int) ( $item->quantity ?? 1 ),
                 'member_type'  => $cfg['member_type'],
-                'duration'     => (int) $cfg['duration'],
             ];
             if ( My_IAPSNJ_Schema::member_type_rank( $cfg['member_type'] ) > My_IAPSNJ_Schema::member_type_rank( $plan['member_type'] ) ) {
                 $plan['member_type'] = $cfg['member_type'];
@@ -276,7 +265,6 @@ class My_IAPSNJ_Membership {
             if ( ! empty( $cfg['lifetime'] ) ) {
                 $plan['lifetime'] = true;
             }
-            $plan['duration'] = max( $plan['duration'], (int) $cfg['duration'] );
         }
         if ( ! $plan['items'] ) {
             return null;
@@ -284,10 +272,9 @@ class My_IAPSNJ_Membership {
         if ( $plan['lifetime'] ) {
             $plan['paid_through'] = '';
             $plan['years']        = [];
-            $plan['duration']     = 0;
             return $plan;
         }
-        $term                 = My_IAPSNJ_Dates::membership_term( $plan['as_of'], max( 1, $plan['duration'] ), self::renewal_cutover() );
+        $term                 = My_IAPSNJ_Dates::membership_term( $plan['as_of'], self::renewal_cutover() );
         $plan['paid_through'] = $term['paid_through'];
         $plan['years']        = $term['years'];
         return $plan;

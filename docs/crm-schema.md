@@ -134,9 +134,9 @@ no member type removes `Member-Active` and moves a managed member role to the
 *when expired* role). `Paid-YYYY` tags are never removed.
 Action `my_iapsnj/membership_expired` fires per lapsed contact.
 
-Expiration dates: a 1-year payment before the cutover (default Oct 1) is
-paid through **Dec 31 of the payment year**; on/after it, Dec 31 of the next
-year; multi-year products add whole years. So every membership lapses on
+Expiration dates: every payment covers one year. Paid before the cutover
+(default Oct 1) it is paid through **Dec 31 of the payment year**; on/after
+it, Dec 31 of the next year. So every membership lapses on
 Jan 1 (the daily run of Jan 1 removes the tag / role for anyone without
 `Paid-{new year}`), which is exactly the January renewal cycle. See the known
 gap with subscription anniversary billing below.
@@ -144,24 +144,24 @@ gap with subscription anniversary billing below.
 ## Products → membership state (FluentCart)
 
 Configured in My IAPSNJ → Membership Products (option `my_iapsnj_products`).
-Products carry **no year**: a product says which member type it grants and
-how many years one payment covers. Annual products are FluentCart yearly
-subscriptions (auto-renew); Lifetime and Multi-Year are one-time.
+Products carry **no year**: a product only says which member type it grants,
+and every payment covers one year. Annual products are FluentCart yearly
+subscriptions (auto-renew); Lifetime is one-time. There is no Multi-Year
+product (removed in 4.15).
 
-| Product | Price | member_type | Years covered | Billing |
-|---|---|---|---|---|
-| Regular Membership | $30 | Regular | 1 | yearly subscription |
-| Associate Membership | $50 | Associate | 1 | yearly subscription |
-| Lifetime Membership | $300 | Lifetime | — | one-time |
-| Multi-Year Membership | $120 | Regular | 5 | one-time |
+| Product | Price | member_type | Billing |
+|---|---|---|---|
+| Regular Membership | $30 | Regular | yearly subscription |
+| Associate Membership | $50 | Associate | yearly subscription |
+| Lifetime Membership | $300 | Lifetime | one-time |
 
 **Term rule** (`My_IAPSNJ_Dates::membership_term`, cutover in Dues → Membership Products,
 default `10-01`): the payment date decides the term, not the product.
 
-| Paid on | 1-year product | 5-year product |
-|---|---|---|
-| 2026-09-24 | through 2026-12-31, `Paid-2026` | through 2030-12-31, `Paid-2026…2030` |
-| 2026-10-01 or later | through 2027-12-31, `Paid-2027` | through 2031-12-31, `Paid-2027…2031` |
+| Paid on | Term |
+|---|---|
+| 2026-09-24 | through 2026-12-31, `Paid-2026` |
+| 2026-10-01 or later | through 2027-12-31, `Paid-2027` |
 
 For checks the deposit date is the payment date. Subscription renewal orders
 (type `renewal`, hook `fluent_cart/renewal_paid`) go through the same rule on

@@ -26,10 +26,10 @@ first step after the trigger, test with a Lifetime contact).
 
 `includes/class-membership.php::apply_paid_order()`:
 
-1. Compute the term from the payment date (deposit date for checks) and the
-   product's *years covered*: through Dec 31 of the payment year, or of the
-   next year when paid on/after the renewal-season cutover (default Oct 1).
-   Apply the matching `Paid-YYYY` tag(s).
+1. Compute the one-year term from the payment date (deposit date for
+   checks): through Dec 31 of the payment year, or of the next year when paid
+   on/after the renewal-season cutover (default Oct 1). Apply the matching
+   `Paid-YYYY` tag.
 2. Set `member_type` (never lowered) and `paid_through` (never shortened; null
    for Lifetime/Honorary).
 3. Remove `Payment-Pending-Check` and `Checkout-Abandoned`.

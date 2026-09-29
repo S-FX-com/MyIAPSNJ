@@ -929,12 +929,7 @@
     // Membership Products
     // =========================================================================
 
-    $('#fcrm-products-form').on('change', 'select[name$="[member_type]"]', function () {
-        var $duration = $(this).closest('tr').find('input[name$="[duration]"]');
-        var lifetime = $(this).val() === 'Lifetime';
-        $duration.prop('disabled', lifetime);
-        if (!lifetime && !$duration.val()) { $duration.val(1); }
-    }).on('change', 'input[type="checkbox"]', function () {
+    $('#fcrm-products-form').on('change', 'input[type="checkbox"]', function () {
         $(this).closest('tr').toggleClass('enabled', $(this).is(':checked'));
     }).on('submit', function (e) {
         e.preventDefault();

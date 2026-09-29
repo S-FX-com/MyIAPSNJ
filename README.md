@@ -36,10 +36,10 @@ Documentation: [`docs/phase1-findings.md`](docs/phase1-findings.md) ·
   shortened; null for Lifetime/Honorary), loses `Payment-Pending-Check` /
   `Checkout-Abandoned`, gets a WordPress login if it has none, and the
   application is closed. Full refunds revert exactly what the order applied.
-* **Term rule** — products carry no year. A payment before the renewal-season
-  cutover (default Oct 1, Dues → Membership Products) covers through Dec 31 of that year;
-  on/after it, through Dec 31 of the next year. Multi-year products add whole
-  years. Checks count from the deposit date.
+* **Term rule** — products carry no year and every payment covers one year. A
+  payment before the renewal-season cutover (default Oct 1, Dues → Membership
+  Products) covers through Dec 31 of that year; on/after it, through Dec 31 of
+  the next year. Checks count from the deposit date.
 * **New-member notification** — email on *payment* with name, full
   mailing address, email, phone, department, rank, member number, product,
   amount and links. Never on application submitted.
@@ -151,7 +151,7 @@ slugs of the screens that existed before 4.11 are unchanged.
 | Group | Screen | Slug | Purpose |
 |---|---|---|---|
 | | Dashboard | `my-iapsnj` | counts, members by type (active / lapsed), paid years, environment checklist |
-| Dues | Membership Products | `my-iapsnj-products` | FluentCart variation → member type / years covered; renewal season, renewal product per type, Join page URL, checkout links |
+| Dues | Membership Products | `my-iapsnj-products` | FluentCart variation → member type; renewal season, renewal product per type, Join page URL, checkout links |
 | Dues | Pending Checks | `my-iapsnj-checks` | batch mark paid; record a check |
 | Dues | Checkout Builder | `my-iapsnj-checkout` | checkout forms and the form per level; billing address → CRM; Pay by Check label & instructions |
 | Members | Active Membership | `my-iapsnj-members` | members in good standing: search, filters, sort, CSV |

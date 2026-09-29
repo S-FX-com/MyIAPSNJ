@@ -24,8 +24,8 @@ Checkout links**:
 https://SITE/?fluent-cart=instant_checkout&item_id={VARIATION_ID}&quantity=1
 ```
 
-Regular Membership · Associate Membership · Lifetime Membership · Multi-Year
-Membership. Set the page URL in **Dues → Membership Products → Join page URL**.
+Regular Membership · Associate Membership · Lifetime Membership. Set the page
+URL in **Dues → Membership Products → Join page URL**.
 
 Variation ids differ between staging and production — rebuild the buttons
 after the product import (`docs/not-in-git.md`).

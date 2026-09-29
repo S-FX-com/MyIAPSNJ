@@ -15,14 +15,14 @@ Fulfillment **digital** (no shipping) so paid orders auto-complete.
 | Regular Membership | $30 | subscription, every 1 year | auto-renews; each renewal payment extends the term |
 | Associate Membership | $50 | subscription, every 1 year | |
 | Lifetime Membership | $300 | one-time | |
-| Multi-Year Membership | $120 | one-time | covers 5 years |
 
-Honorary is **not** a product. No "Catch-Up" product: the term rule in
-`docs/crm-schema.md` gives a payment before the cutover the current year.
+Honorary is **not** a product. No "Multi-Year" product (every payment covers
+one year) and no "Catch-Up" product: the term rule in `docs/crm-schema.md`
+gives a payment before the cutover the current year.
 
-Then My IAPSNJ → Membership Products: enable each, set member type and *years
-covered per payment* (1, 1, —, 5). Set the renewal-season cutover (default
-`10-01`) in Dues → Membership Products.
+Then My IAPSNJ → Membership Products: enable each and set its member type.
+Set the renewal-season cutover (default `10-01`) in Dues → Membership
+Products.
 
 Subscriptions work in FluentCart free with Stripe; Pro is not required for
 them. Renewal reminder emails: FluentCart → Settings → Emails → Reminders.
