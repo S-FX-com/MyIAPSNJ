@@ -40,7 +40,8 @@ first step after the trigger, test with a Lifetime contact).
    password), link contact ↔ user ↔ FluentCart customer.
 6. Resolve and close the application row opened at checkout.
 7. **New member admin notification** (Sebbie's request, Billy's certificate
-   trigger): plain-text email to *Settings → Configurations → Recipients* containing
+   trigger): email (in the site's email design, Configurations → Email design;
+   plain text when that is off) to *Settings → Configurations → Recipients* containing
    name, member type, paid-through, product, payment method + amount, order
    number, **email, phone, full mailing address, department**, rank, member
    number, and links to the CRM contact and the FluentCart order. Sent only

@@ -990,7 +990,7 @@ class My_IAPSNJ_Admin {
                 <tr><th><?php esc_html_e( 'Apply', 'my-iapsnj' ); ?></th><td><label><input type="checkbox" name="email_branding" value="1" <?php checked( ! empty( $settings['email_branding'] ) ); ?>> <?php esc_html_e( 'Send these emails in the FluentCRM design', 'my-iapsnj' ); ?></label></td></tr>
                 <tr><th><?php esc_html_e( 'FluentCRM design', 'my-iapsnj' ); ?></th><td>
                     <select name="email_design">
-                        <?php foreach ( My_IAPSNJ_Emails::DESIGNS as $design => $label ) : ?>
+                        <?php foreach ( My_IAPSNJ_Emails::designs() as $design => $label ) : ?>
                             <option value="<?php echo esc_attr( $design ); ?>" <?php selected( My_IAPSNJ_Emails::design(), $design ); ?>><?php echo esc_html( $label ); ?></option>
                         <?php endforeach; ?>
                     </select>
@@ -1011,7 +1011,15 @@ class My_IAPSNJ_Admin {
                 <a class="button" href="<?php echo esc_url( My_IAPSNJ_Emails::preview_url() ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'Preview', 'my-iapsnj' ); ?></a>
                 <button type="button" class="button fcrm-send-test-email"><?php echo esc_html( sprintf( /* translators: %s: email address */ __( 'Send test to %s', 'my-iapsnj' ), wp_get_current_user()->user_email ) ); ?></button>
             </p>
-            <p class="description"><?php esc_html_e( 'Preview and Send test use the saved settings (save first). The sample is the "Login details" email a new member receives. On staging, sending is simulated: find the test in FluentSMTP → Email Logs.', 'my-iapsnj' ); ?></p>
+            <p class="description"><?php esc_html_e( 'Preview and Send test show the saved design, logo and footer (save first), even while Apply is off. The sample is the "Login details" email a new member receives. On staging, sending is simulated: find the test in FluentSMTP → Email Logs.', 'my-iapsnj' ); ?></p>
+            <?php if ( My_IAPSNJ_Membership::is_available() && ! My_IAPSNJ_Emails::fluentcart_supported() ) : ?>
+                <p class="description" style="color:#b32d2e"><?php echo esc_html( sprintf(
+                    /* translators: 1: installed FluentCart version, 2: required version */
+                    __( 'FluentCart %1$s is installed: its emails keep FluentCart\'s own layout until FluentCart is updated to %2$s or later. WordPress emails and the new-member notification already use this design.', 'my-iapsnj' ),
+                    defined( 'FLUENTCART_VERSION' ) ? (string) FLUENTCART_VERSION : '?',
+                    My_IAPSNJ_Emails::FLUENTCART_MIN
+                ) ); ?></p>
+            <?php endif; ?>
         </div>
         </form>
 
@@ -1676,7 +1684,7 @@ class My_IAPSNJ_Admin {
         }
         if ( array_key_exists( 'email_design', $post ) ) {
             $design                   = sanitize_key( (string) $post['email_design'] );
-            $settings['email_design'] = isset( My_IAPSNJ_Emails::DESIGNS[ $design ] ) ? $design : 'simple';
+            $settings['email_design'] = isset( My_IAPSNJ_Emails::designs()[ $design ] ) ? $design : 'simple';
         }
         if ( array_key_exists( 'email_logo_url', $post ) ) {
             $settings['email_logo_url'] = esc_url_raw( trim( (string) $post['email_logo_url'] ) );
