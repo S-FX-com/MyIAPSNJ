@@ -15,7 +15,7 @@
  *    Notes Search         FluentCRM notes search with inline tagging
  *  Reports                open applications, orphan orders, aging checks, WP↔CRM orphans; report settings
  *  Settings
- *    Configurations       new-member notification, email design, CRM schema, phones (slug my-iapsnj-sync)
+ *    Configurations       new-member notification, email design, CRM schema, phones, names & addresses (slug my-iapsnj-sync)
  *    Profile Mirror       CRM → WP field map
  *    Profile Sync         mirror triggers, mirror all now, WordPress role per member type
  *    Migrate PMPro        PMPro → FluentCRM toolkit (only while PMPro tables exist)
@@ -61,7 +61,7 @@ class My_IAPSNJ_Admin {
             'refresh_field_list',
             'search_notes', 'get_tags', 'assign_tag',
             'checks_list', 'checks_mark_paid', 'search_members', 'record_check',
-            'save_products', 'apply_offline_labels', 'ensure_schema', 'run_expiry', 'normalize_phones', 'send_test_email',
+            'save_products', 'apply_offline_labels', 'ensure_schema', 'run_expiry', 'normalize_phones', 'normalize_names', 'send_test_email',
             'migration_run', 'export_orders', 'download_export', 'report',
         ];
         foreach ( $ajax as $action ) {
@@ -1034,6 +1034,14 @@ class My_IAPSNJ_Admin {
             <div id="fcrm-phones-result"></div>
         </div>
 
+        <div class="fcrm-section" id="names">
+            <h2><?php esc_html_e( 'Names & addresses', 'my-iapsnj' ); ?></h2>
+            <p class="description"><?php esc_html_e( 'New names and addresses are capitalised at checkout, so mailing labels read "John McDonald, 12 Main St Apt 4B, Mt Laurel, NJ": words typed in lower case or all in capitals get a capital letter; words typed in mixed case (McDonald, DeLuca) are kept; Mc and O\' names, PO Box, unit letters (4B), suffixes (III, Jr) and NJ / US / CR are handled. This applies the same rule to the first name, last name, street, city and state already in the CRM. No automations fire and the WordPress profiles are not changed.', 'my-iapsnj' ); ?></p>
+            <p><button class="button fcrm-normalize-names" data-dry="1"><?php esc_html_e( 'Preview', 'my-iapsnj' ); ?></button>
+               <button class="button button-primary fcrm-normalize-names" data-dry="0"><?php esc_html_e( 'Apply now', 'my-iapsnj' ); ?></button></p>
+            <div id="fcrm-names-result"></div>
+        </div>
+
         <div class="fcrm-section">
             <h2><?php esc_html_e( 'Looking for another setting?', 'my-iapsnj' ); ?></h2>
             <p class="description"><?php esc_html_e( 'Settings now live next to the screen they affect:', 'my-iapsnj' ); ?></p>
@@ -1256,6 +1264,17 @@ class My_IAPSNJ_Admin {
         <div class="fcrm-section" id="checkout-settings">
             <h2><?php esc_html_e( 'Checkout settings', 'my-iapsnj' ); ?></h2>
             <p class="description"><?php esc_html_e( 'Name, email, phone, billing and shipping address are FluentCart fields, set once for the whole store in FluentCart → Settings → Checkout Fields. Keep them light (name + email required) so event and merchandise checkouts stay short; the shipping address appears automatically only for physical products.', 'my-iapsnj' ); ?></p>
+            <?php
+            $full_name_only = false;
+            try {
+                $full_name_only = class_exists( '\FluentCart\App\Services\Renderer\CheckoutFieldsSchema' )
+                    && \FluentCart\App\Services\Renderer\CheckoutFieldsSchema::isFullNameRequired();
+            } catch ( \Throwable $e ) {
+                $full_name_only = false;
+            }
+            if ( $full_name_only ) : ?>
+                <div class="notice notice-warning inline"><p><?php esc_html_e( 'The checkout asks for one "Name" field, so the CRM has to guess where the first name ends. Turn on First Name and Last Name in FluentCart → Settings → Store Settings → Checkout Fields; the plugin then stores exactly what the member typed in each (FluentCart itself re-splits the name at the last space, e.g. "Mary Van" / "Dyke").', 'my-iapsnj' ); ?></p></div>
+            <?php endif; ?>
             <form class="fcrm-settings-form">
                 <div class="fcrm-notice fcrm-form-notice" style="display:none"></div>
                 <table class="form-table">
@@ -1265,9 +1284,17 @@ class My_IAPSNJ_Admin {
                             <option value="overwrite" <?php selected( $settings['checkout_fill_address'], 'overwrite' ); ?>><?php esc_html_e( 'Overwrite the CRM address with the checkout billing address', 'my-iapsnj' ); ?></option>
                         </select>
                         <p class="description"><?php esc_html_e( 'Applied when a membership order is paid or placed by check. A FluentCart → FluentCRM integration feed, if one is set up, writes the address on its own.', 'my-iapsnj' ); ?></p>
-                        <p><button type="submit" class="button"><?php esc_html_e( 'Save', 'my-iapsnj' ); ?></button></p>
+                    </td></tr>
+                    <tr><th><?php esc_html_e( 'Note under Discount Code', 'my-iapsnj' ); ?></th><td>
+                        <textarea name="checkout_discount_note" rows="2" class="large-text"><?php echo esc_textarea( My_IAPSNJ_Checkout_Page::note( 'checkout_discount_note' ) ); ?></textarea>
+                        <p class="description"><?php esc_html_e( 'Shown under the Discount Code field on membership checkouts, while FluentCart shows that field (FluentCart → Settings → Store Settings → hide coupon field must be off). Links are allowed, e.g. <a href="/contact/">contact us</a>. Empty = no note.', 'my-iapsnj' ); ?></p>
+                    </td></tr>
+                    <tr><th><?php esc_html_e( 'Note under Pay by Check', 'my-iapsnj' ); ?></th><td>
+                        <textarea name="check_delay_note" rows="2" class="large-text"><?php echo esc_textarea( My_IAPSNJ_Checkout_Page::note( 'check_delay_note' ) ); ?></textarea>
+                        <p class="description"><?php esc_html_e( 'Shown right under the Pay by Check option on membership checkouts, before the member picks it. On those checkouts Pay by Check is always listed second, after the card, which stays preselected. The mailing instructions (Pay by Check below) still show once it is picked. Empty = no note.', 'my-iapsnj' ); ?></p>
                     </td></tr>
                 </table>
+                <p><button type="submit" class="button button-primary"><?php esc_html_e( 'Save', 'my-iapsnj' ); ?></button></p>
             </form>
 
             <h3 id="pay-by-check"><?php esc_html_e( 'Pay by Check (FluentCart\'s offline method)', 'my-iapsnj' ); ?></h3>
@@ -1686,6 +1713,12 @@ class My_IAPSNJ_Admin {
         if ( array_key_exists( 'checkout_fill_address', $post ) ) {
             $settings['checkout_fill_address'] = $post['checkout_fill_address'] === 'overwrite' ? 'overwrite' : 'empty_only';
         }
+        // Checkout notes: short text, links allowed; empty = no note.
+        foreach ( [ 'checkout_discount_note', 'check_delay_note' ] as $key ) {
+            if ( array_key_exists( $key, $post ) ) {
+                $settings[ $key ] = trim( wp_kses( (string) $post[ $key ], My_IAPSNJ_Checkout_Page::note_tags() ) );
+            }
+        }
         if ( array_key_exists( 'cutover_date', $post ) ) {
             $settings['cutover_date'] = My_IAPSNJ_Dates::ymd( $post['cutover_date'] );
         }
@@ -1979,6 +2012,17 @@ class My_IAPSNJ_Admin {
         $limit = min( 1000, max( 1, (int) ( $_POST['limit'] ?? 500 ) ) ); // phpcs:ignore
         try {
             wp_send_json_success( My_IAPSNJ_Phone::normalize_contacts( $dry, $limit ) + [ 'dry' => $dry ] );
+        } catch ( \Throwable $e ) {
+            wp_send_json_error( [ 'message' => $e->getMessage() ] );
+        }
+    }
+
+    public function ajax_normalize_names(): void {
+        $this->ajax_guard();
+        $dry   = ! empty( $_POST['dry'] ); // phpcs:ignore
+        $limit = min( 1000, max( 1, (int) ( $_POST['limit'] ?? 500 ) ) ); // phpcs:ignore
+        try {
+            wp_send_json_success( My_IAPSNJ_Capitalization::normalize_contacts( $dry, $limit ) + [ 'dry' => $dry ] );
         } catch ( \Throwable $e ) {
             wp_send_json_error( [ 'message' => $e->getMessage() ] );
         }

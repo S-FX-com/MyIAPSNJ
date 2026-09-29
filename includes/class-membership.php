@@ -1059,6 +1059,13 @@ class My_IAPSNJ_Membership {
 
         $first = $customer ? (string) $customer->first_name : '';
         $last  = $customer ? (string) $customer->last_name : '';
+        // The First / Last name typed at checkout (FluentCart re-splits them
+        // at the last space on its customer record: "Mary Van" / "Dyke").
+        $typed = self::meta_array( $order, My_IAPSNJ_Checkout_Fields::META_NAME );
+        if ( is_array( $typed ) && ( (string) ( $typed['first'] ?? '' ) !== '' || (string) ( $typed['last'] ?? '' ) !== '' ) ) {
+            $first = (string) ( $typed['first'] ?? '' );
+            $last  = (string) ( $typed['last'] ?? '' );
+        }
         if ( ( $first === '' || $last === '' ) && is_object( $billing ) && ! empty( $billing->name ) ) {
             $parts = preg_split( '/\s+/', trim( (string) $billing->name ) );
             if ( $first === '' ) {
@@ -1068,6 +1075,9 @@ class My_IAPSNJ_Membership {
                 $last = (string) implode( ' ', $parts );
             }
         }
+        // Stored capitalised for mailing labels (My_IAPSNJ_Capitalization).
+        $first = My_IAPSNJ_Capitalization::name( $first );
+        $last  = My_IAPSNJ_Capitalization::name( $last );
 
         $data = [ 'email' => $email ];
         if ( $existing instanceof Subscriber ) {
@@ -1096,10 +1106,10 @@ class My_IAPSNJ_Membership {
         $address = [];
         if ( is_object( $billing ) ) {
             $address = [
-                'address_line_1' => (string) ( $billing->address_1 ?? '' ),
-                'address_line_2' => (string) ( $billing->address_2 ?? '' ),
-                'city'           => (string) ( $billing->city ?? '' ),
-                'state'          => (string) ( $billing->state ?? '' ),
+                'address_line_1' => My_IAPSNJ_Capitalization::street( (string) ( $billing->address_1 ?? '' ) ),
+                'address_line_2' => My_IAPSNJ_Capitalization::street( (string) ( $billing->address_2 ?? '' ) ),
+                'city'           => My_IAPSNJ_Capitalization::city( (string) ( $billing->city ?? '' ) ),
+                'state'          => My_IAPSNJ_Capitalization::state( (string) ( $billing->state ?? '' ) ),
                 'postal_code'    => (string) ( $billing->postcode ?? '' ),
                 'country'        => (string) ( $billing->country ?? '' ),
             ];

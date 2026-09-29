@@ -212,6 +212,31 @@ class My_IAPSNJ_CLI {
     }
 
     /**
+     * Capitalise the names and addresses already in the CRM (first name,
+     * last name, street, city, state) with the checkout's rule: "JOHN
+     * MCDONALD, 12 MAIN ST APT 4B" → "John McDonald, 12 Main St Apt 4B".
+     * Words typed in mixed case are kept. No automations fire.
+     *
+     * ## OPTIONS
+     *
+     * [--dry-run]
+     * : Report what would change without writing anything.
+     */
+    public function capitalize( $args, $assoc ) {
+        $dry = ! empty( $assoc['dry-run'] );
+        $r   = My_IAPSNJ_Capitalization::normalize_contacts( $dry, PHP_INT_MAX );
+        WP_CLI::log( sprintf( 'Checked: %d · To change: %d', $r['checked'], $r['to_change'] ) );
+        foreach ( $r['samples'] as $s ) {
+            WP_CLI::log( '  ' . $s );
+        }
+        if ( $dry ) {
+            WP_CLI::success( 'Dry run, nothing written.' );
+        } else {
+            WP_CLI::success( sprintf( 'Changed %d.', $r['changed'] ) );
+        }
+    }
+
+    /**
      * Expire lapsed memberships (Member-Active tag + WordPress role) and
      * activate members in good standing who lack them. The same job runs
      * daily by WP-Cron.

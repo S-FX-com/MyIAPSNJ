@@ -28,6 +28,11 @@ email is blocked — verify emails in the mail log / catcher. Tick every row.
 | 19 | Plain store checkout | Buy an event registration or merchandise product only (not in Membership Products) | Order completes with FluentCart's fields only | No `Checkout-Abandoned`, no application fields written | No application section on the checkout; no application row | |
 | 20 | Conditional field | Checkout Builder: indent Spouse's name under Marital status (shown when Married), Save; checkout as a new member | Order completes with Single and no spouse; with Married the spouse is required | `spouse_name` written only when Married | Field appears / disappears as the answer changes; hidden field never blocks the order | |
 | 21 | View checkout | Checkout Builder → View checkout on the Associate form | Real checkout, Associate product in the cart | | Associate form with the Preview notice (administrators only) | |
+| 22 | Checkout page copy (4.16) | Join page → Regular checkout, on a phone and on a desktop | Page and browser tab titled *Membership Application*; one column; Order summary right under the application, above Payment; line reads "$30/year, billed automatically"; "Have a Discount Code?" and, under the field, the family-member note; an event checkout still says *Checkout* and keeps FluentCart's layout | | | |
+| 23 | Discount code messages | Apply a wrong code, then a valid one, then remove it | "No matching discount code found." / "Discount code applied" / "Discount code removed"; the word *coupon* appears nowhere on the page | | | |
+| 24 | Pay by Check | Same checkout | Card first and preselected, *Pay by Check* second with the USPS-delay note under it; the mailing instructions show once it is picked | | | |
+| 25 | Name split and capitals | FluentCart First Name + Last Name on; type `mary` / `van dyke jr`, street `12 main st apt 4b`, city `MT LAUREL` → leave each field | Fields turn into "Mary", "Van Dyke Jr", "12 Main St Apt 4B", "Mt Laurel" as you leave them; order address and customer the same | Contact first name `Mary`, last name `Van Dyke Jr` (not "Mary Van Dyke" / "Jr"), address as shown | | |
+| 26 | Date of birth required | Leave Date of birth empty, then pick a future date | Inline error each time; no order | | | |
 
 ## Client UAT (acceptance gate)
 

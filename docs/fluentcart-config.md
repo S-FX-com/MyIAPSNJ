@@ -42,17 +42,22 @@ choosing subscription billing.
   nowhere the member can see (payment list, thank-you page, receipt,
   emails). If any string still says cash, report it — a gettext override can be
   added to the plugin.
-* Drag the offline method **below** the card options.
+* Drag the offline method **below** the card options. On membership
+  checkouts the plugin puts it second anyway (4.16), with the USPS-delay note
+  under it (Checkout Builder → Checkout settings).
 
 ## Checkout
 
 * Settings → Cart & Checkout: **User account creation = automatic** (a
   WordPress login is created for new members; the plugin also creates one if
   missing). Guest checkout off.
-* Hide coupon field unless the client wants promo codes.
-* Checkout fields: name + email + phone required; billing address required
-  (this is the address that fills gaps in the CRM). No shipping section
-  (digital).
+* Keep the coupon field **on** (Store Settings → *hide coupon field* off):
+  the client gives discount codes to family members of regular members
+  (2026-09-29). Create them in FluentCart → Coupons. The storefront calls
+  them "Discount Code" (the plugin rewords FluentCart's text).
+* Checkout fields: **First Name + Last Name** switched on (not the single
+  Name field), email, phone required; billing address required (this is the
+  address that fills gaps in the CRM). No shipping section (digital).
 * Receipt numbering prefix e.g. `IAPSNJ-`.
 
 ## Tax

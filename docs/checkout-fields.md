@@ -173,14 +173,14 @@ Field types: text, paragraph, dropdown, radio, date, checkbox, section heading.
 | `phone2` | phone | on, optional | custom `phone2` | alternate phone |
 | `union_affiliation` | text | on, optional | custom `union_affiliation` | |
 | `union_position` | text | on, optional | custom `union_position` | |
-| `date_of_birth` | date | on, optional | contact `date_of_birth` | |
+| `date_of_birth` | date | on, **required** (4.16) | contact `date_of_birth` | Never in the future. Data version 11 requires it in every saved form (the added row writing `date_of_birth`, if a form has one). |
 | `marital_status` | dropdown | on, optional | custom `marital_status` | Single / Married / Divorced / Widowed / Separated (ACF choices win if present) |
-| `spouse_name` | text | on, optional | custom `spouse_name` | |
+| `spouse_name` | text | on, optional | custom `spouse_name` | capitalised like a name (below) |
 | `armed_service` | checkbox | on, optional | custom `armed_service` | stored as `["Yes"]` (FluentCRM checkbox field) |
 | `company_name` | text | on, optional | custom `company_name` | Associate members' employer |
 | `company_title` | text | on, optional | custom `company_title` | |
 | `company_type` | text | on, optional | custom `company_type` | |
-| `referred_by` | text | on, optional | custom `referred_by` | |
+| `referred_by` | text | on, optional | custom `referred_by` | capitalised like a name (below) |
 | `additional_information` | paragraph | on, optional | custom `additional_information` | |
 | `elo_title` | dropdown | **off** | custom `elo_title` | meaning unconfirmed with the client; switch on once the options are imported |
 | `certify` | checkbox | on, required | — | "I certify that the information I provided is accurate …" |
@@ -234,6 +234,57 @@ lists.
   gets the note "membership not applied". The Dashboard flags mapped
   variation ids that no longer exist in FluentCart (products recreated).
 * Record a Check (admin) never renders, validates or records an application.
+
+## 2b. The checkout page around the application (4.16)
+
+Client requests of 2026-09-29, in `My_IAPSNJ_Checkout_Page` (FluentCart
+1.6.5). "Membership checkout" means a cart with a product mapped in
+Membership Products; event and merchandise checkouts keep FluentCart's page.
+
+| Request | What the plugin does | Admin side |
+|---|---|---|
+| Title "Membership Application" | `the_title` / `document_title_parts` on FluentCart's checkout page (store setting `checkout_page_id`) for a membership cart. The WordPress page itself stays "Checkout". | The form's own section heading defaults to "Membership Application" too: give it another heading in the Checkout Builder (e.g. "Your details") if the repeat looks odd. |
+| Order summary below the application, mobile and desktop | The wrapper gets `my-iapsnj-membership-checkout` (`fluent_cart/checkout_page_css_classes`); the stylesheet makes it one column (FluentCart: 55 / 45 side by side, and under 767px of *checkout* width `column-reverse` puts the summary on top — a container query, so a narrow theme column shows it on top on desktop too). A footer script moves `.fct_checkout_summary` right after the application, before Payment; FluentCart's AJAX refreshes only replace the summary's contents, so it keeps working. Without scripts the summary comes after the form. | — |
+| "Coupon" → "Discount Code" everywhere | `gettext_fluent-cart` (also `_with_context`, `ngettext`): every storefront string with "coupon" (toggle "Have a Discount Code?", screen-reader label, AJAX error messages), plus exact wording for "Applied Successfully" → "Discount code applied", "Coupon removed!" → "Discount code removed", placeholder "Apply Here" → "Enter discount code", "No matching coupon found for this code." → "No matching discount code found.". FluentCart's admin screens (wp-admin pages, its REST API, admin-ajax called from wp-admin) keep "Coupon". The button stays "Apply". | Keep the coupon field on (FluentCart → Settings → Store Settings: *hide coupon field* off) and create the family-member codes in FluentCart → Coupons. |
+| Summary line "$30/year, billed automatically" | For a line that is a yearly membership subscription with no end date: FluentCart's "%1$s %2$s %3$s" / "per %s" / "until cancel" become "%1$s%2$s, %3$s" / "/%s" / "billed automatically" while that line is printed, and whole-dollar amounts lose ".00" in that line only. A recurring discount keeps FluentCart's strike-through ("~~$50~~ $40/year, billed automatically"). Lifetime (one-time) shows no billing line. Thank-you page and receipts keep FluentCart's text. | — |
+| Family-member note | Printed right after the Discount Code field (`fluent_cart/checkout/before_summary_total`) on membership checkouts, while FluentCart shows the field. Default: "If you are a family member of a regular member, contact us for a discount code." | Checkout Builder → Checkout settings → *Note under Discount Code* (links allowed, empty = none). |
+| Pay by Check second, with a USPS-delay preface | `fluent_cart/checkout_active_payment_methods` puts `offline_payment` second on membership checkouts (the first method, the card, stays preselected; the filter also runs at order submit with a single gateway, which it leaves alone). The note is printed as a `<template>` and a footer script places it right under the Pay by Check option, again after FluentCart refreshes the payment methods (FluentCart's per-method hook prints inside the label). Default: "Please note: mailing a check will considerably delay your application because of USPS mail delays. Pay by card to be approved sooner." | *Note under Pay by Check* in the same place. FluentCart's own order (Settings → Payments, drag and drop, option `fluent_cart_payment_methods_order`) still applies to other checkouts. |
+| First Name / Last Name | FluentCart setting, not code: Settings → Store Settings → Checkout Fields → turn on First Name and Last Name (the Checkout Builder warns while the single Name field is on). FluentCart then joins the two and splits them again at the last space on its customer and address records ("Mary" + "Van Dyke" → "Mary Van" / "Dyke"). The plugin keeps what was typed: the order carries `_my_iapsnj_typed_name`, the CRM contact and the application row use it, and the FluentCart customer is corrected in its `saving` event when its full name matches. | Switch the setting on. |
+| DOB required | Built-in default required; data version 11 requires it in every saved form; a future date is refused. | An admin can make it optional again in the Checkout Builder. |
+
+### Capitalisation of names and addresses
+
+`My_IAPSNJ_Capitalization` changes the stored value, not only how it looks
+(CSS `text-transform` would leave the exports as typed):
+
+* **Where:** as the member leaves a field on the checkout (billing and
+  shipping first / last / full name, street lines, city; Spouse's name and
+  Referred by), so the member sees it; in FluentCart's request object before
+  the place-order handler reads it (FluentCart copies `$_POST` when it
+  loads, so `$_POST` is not touched); in the `saving` events of FluentCart's
+  Customer, CustomerAddresses and OrderAddress models (saved addresses of a
+  logged-in customer replace the posted ones; these also catch admin and
+  customer-portal edits); before the CRM contact and the application row are
+  written.
+* **Rules:** a word typed in lower case, or any word of a value typed all
+  in capitals, gets a capital; a word typed in mixed case is kept (McDonald,
+  DeLuca, LaSalle); Mc and O' / D' / L' names (McDonald, O'Brien); each part
+  of a hyphenated name (Smith-Jones); suffixes II–VIII in capitals, Jr / Sr;
+  two consonants are initials (TJ) except Jr, Sr, St, Ng, Mc; "Mac" is left
+  alone (Mack, Macy). Streets: PO Box (from "po box", "P.O. BOX", "pobox"),
+  unit letters next to digits (4B, #12A, NJ-35) but ordinals stay 1st / 22nd,
+  PO / US / NJ / NY / PA / CR / RR / NE / NW / SE / SW in capitals, "of",
+  "the", "and" lower case after the first word. In a value typed in mixed
+  case, a street or city word of up to three capitals is taken as an acronym
+  and kept (JFK Blvd) unless it is a street word (APT, ST, AVE …). State: two
+  letters → capitals.
+* **Known limits:** a mixed-case prefix typed in lower case cannot be
+  guessed ("deluca" → "Deluca", "macdonald" → "Macdonald"); an all-caps
+  acronym typed in an all-caps address is lowered ("JFK BLVD" → "Jfk Blvd").
+* **Existing contacts:** Settings → Configurations → *Names & addresses* →
+  Preview / Apply now, or `wp iapsnj capitalize [--dry-run]`: first name,
+  last name, street lines, city and state of every CRM contact. Direct table
+  writes: no automations fire and WordPress profiles are not re-mirrored.
 
 ## 3. Renewal
 

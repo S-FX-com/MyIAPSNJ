@@ -3,7 +3,7 @@
  * Plugin Name:       My IAPSNJ
  * Plugin URI:        https://github.com/S-FX-com/MyIAPSNJ
  * Description:       Membership operations for the IAPSNJ website. FluentCRM is the single source of truth: the membership application is collected on the FluentCart checkout page, FluentCart payments set membership state (Paid-YYYY tags, member_type, paid_through), applications are tracked until they are paid, mailed checks are reconciled in batch, and WordPress user profiles are mirrored one way from the CRM. Includes the PMPro → FluentCRM migration toolkit.
- * Version:           4.15.0
+ * Version:           4.16.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Requires Plugins:  fluent-crm
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'MY_IAPSNJ_VERSION', '4.15.0' );
+define( 'MY_IAPSNJ_VERSION', '4.16.0' );
 define( 'MY_IAPSNJ_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'MY_IAPSNJ_URL',     plugin_dir_url( __FILE__ ) );
 define( 'MY_IAPSNJ_FILE',    __FILE__ );
@@ -98,6 +98,11 @@ final class My_IAPSNJ_Plugin {
         if ( My_IAPSNJ_Membership::is_available() ) {
             My_IAPSNJ_Membership::get_instance();
             My_IAPSNJ_Checkout_Fields::get_instance();
+            // Page title, one-column layout, Discount Code wording, billing
+            // line and payment notes around the application.
+            My_IAPSNJ_Checkout_Page::get_instance();
+            // Names and addresses stored capitalised in FluentCart's records.
+            My_IAPSNJ_Capitalization::register_fluentcart_hooks();
             My_IAPSNJ_Membership::ensure_cron();
         }
 
@@ -200,6 +205,10 @@ final class My_IAPSNJ_Plugin {
             'email_footer'            => '',
             // Checkout.
             'checkout_fill_address'   => 'empty_only', // empty_only | overwrite
+            // Notes under the Discount Code field and under Pay by Check
+            // (My_IAPSNJ_Checkout_Page). null = the built-in text, '' = none.
+            'checkout_discount_note'  => null,
+            'check_delay_note'        => null,
             // Reports.
             'aging_days'              => 30,
             'cutover_date'            => '',
@@ -226,7 +235,7 @@ final class My_IAPSNJ_Plugin {
      * below; it is independent of MY_IAPSNJ_VERSION so that ordinary releases
      * do not re-run migrations.
      */
-    const DATA_VERSION = 10;
+    const DATA_VERSION = 11;
 
     /**
      * Runs any migration steps this install has not seen yet.
@@ -456,6 +465,15 @@ final class My_IAPSNJ_Plugin {
             // are left in place (unused) so a rollback to 4.6 still works.
             if ( $installed < 10 ) {
                 My_IAPSNJ_Checkout_Fields::seed_defaults();
+            }
+
+            // ---- v11: date of birth required (client request, 4.16) --------
+            // Every checkout form shows and requires the field that writes
+            // the contact's date of birth. An admin can still make it
+            // optional again afterwards; this step runs once.
+            if ( $installed < 11 ) {
+                My_IAPSNJ_Checkout_Fields::seed_defaults();
+                My_IAPSNJ_Checkout_Fields::require_date_of_birth();
             }
 
             update_option( 'my_iapsnj_data_version', self::DATA_VERSION );
