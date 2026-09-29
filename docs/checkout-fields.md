@@ -269,18 +269,25 @@ Membership Products; event and merchandise checkouts keep FluentCart's page.
 * **Rules:** a word typed in lower case, or any word of a value typed all
   in capitals, gets a capital; a word typed in mixed case is kept (McDonald,
   DeLuca, LaSalle); Mc and O' / D' / L' names (McDonald, O'Brien); each part
-  of a hyphenated name (Smith-Jones); suffixes II–VIII in capitals, Jr / Sr;
-  two consonants are initials (TJ) except Jr, Sr, St, Ng, Mc; "Mac" is left
-  alone (Mack, Macy). Streets: PO Box (from "po box", "P.O. BOX", "pobox"),
+  of a hyphenated name (Smith-Jones); suffixes II–VIII in capitals after the
+  first word (a first name "Vi" stays "Vi"), Jr / Sr; two consonants are
+  initials (TJ) except Jr, Sr, St, Ng, Mc, Mr, Ms, Dr; "Mac" is left alone
+  (Mack, Macy). Streets: PO Box (from "po box", "P.O. BOX", "pobox"),
   unit letters next to digits (4B, #12A, NJ-35) but ordinals stay 1st / 22nd,
   PO / US / NJ / NY / PA / CR / RR / NE / NW / SE / SW in capitals, "of",
   "the", "and" lower case after the first word. In a value typed in mixed
   case, a street or city word of up to three capitals is taken as an acronym
-  and kept (JFK Blvd) unless it is a street word (APT, ST, AVE …). State: two
-  letters → capitals.
+  and kept (JFK Blvd) unless it is a street word (APT, ST, AVE …); unit
+  letters, PO and suffixes do not count as mixed-case typing. Applying the
+  rule twice changes nothing (it repeats until stable). State, CRM only: two
+  letters → capitals, any other single token kept (NSW); FluentCart's own
+  records keep its state codes untouched (shipping zones match on them).
+  Invalid UTF-8 is left as it is and a value is never blanked.
 * **Known limits:** a mixed-case prefix typed in lower case cannot be
   guessed ("deluca" → "Deluca", "macdonald" → "Macdonald"); an all-caps
-  acronym typed in an all-caps address is lowered ("JFK BLVD" → "Jfk Blvd").
+  acronym typed in an all-caps address is lowered ("JFK BLVD" → "Jfk Blvd");
+  without PHP's mbstring extension, words with accented letters are left as
+  typed.
 * **Existing contacts:** Settings → Configurations → *Names & addresses* →
   Preview / Apply now, or `wp iapsnj capitalize [--dry-run]`: first name,
   last name, street lines, city and state of every CRM contact. Direct table

@@ -19,8 +19,9 @@
  *   "O'Brien". "Mac" is not touched (Mack, Macy, Machado are not MacX).
  * - Every part of a hyphenated or dotted word starts with a capital:
  *   "smith-jones" → "Smith-Jones", "j.r." → "J.R.".
- * - Names: suffixes II, III, IV … in capitals, "jr" → "Jr"; two consonants
- *   are initials ("tj" → "TJ"), except Jr, Sr, St, Ng, Mc.
+ * - Names: suffixes II, III, IV … in capitals after the first word, "jr" →
+ *   "Jr"; two consonants are initials ("tj" → "TJ"), except Jr, Sr, St, Ng,
+ *   Mc, Mr, Ms, Dr.
  * - Streets: "po box" / "p.o. box" → "PO Box"; letters next to digits are a
  *   unit ("4b" → "4B", "#12a" → "#12A") except ordinals ("1st", "22nd");
  *   PO, US, NJ, CR, RR, NE, NW, SE, SW stay in capitals.
@@ -29,8 +30,9 @@
  * - In a value typed in mixed case, a word of up to three capitals is kept
  *   in a street or city (an acronym: JFK Blvd, MLK Ave) unless it is a
  *   street word (APT, ST, AVE …); in a name it is fixed ("John SMITH").
- * - State: two letters → capitals ("nj" → "NJ"); a spelled-out state is
- *   capitalised like a city.
+ * - State (CRM only; FluentCart keeps its own state codes): two letters →
+ *   capitals ("nj" → "NJ"), any other single token is kept (NSW), a
+ *   spelled-out state is capitalised like a city.
  *
  * @package MyIAPSNJ
  */
@@ -48,7 +50,7 @@ final class My_IAPSNJ_Capitalization {
     const NUMERALS = [ 'ii', 'iii', 'iv', 'vi', 'vii', 'viii' ];
 
     /** @var string[] two consonants that are a word, not initials */
-    const NOT_INITIALS = [ 'jr', 'sr', 'st', 'ng', 'mc' ];
+    const NOT_INITIALS = [ 'jr', 'sr', 'st', 'ng', 'mc', 'mr', 'ms', 'dr' ];
 
     /** @var string[] kept in capitals in a street address */
     const STREET_UPPER = [ 'po', 'us', 'nj', 'ny', 'pa', 'cr', 'rr', 'ne', 'nw', 'se', 'sw', 'apo', 'fpo' ];
@@ -77,23 +79,60 @@ final class My_IAPSNJ_Capitalization {
 
     /**
      * The value with the capitalisation rules of $kind applied; runs of
-     * spaces become one. '' stays ''.
+     * spaces become one. '' stays ''. Applying it again changes nothing.
+     * A value that is not valid UTF-8 is returned unchanged.
      */
     public static function apply( string $value, string $kind ): string {
+        if ( $value === '' || ! preg_match( '//u', $value ) ) {
+            return $value;
+        }
+        // One pass decides "typed in mixed case" before it upper-cases unit
+        // letters, initials and suffixes, so a second pass could see a value
+        // in capitals; repeat until nothing changes (two passes in practice).
+        $out = self::apply_once( $value, $kind );
+        for ( $i = 0; $i < 3; $i++ ) {
+            $next = self::apply_once( $out, $kind );
+            if ( $next === $out ) {
+                break;
+            }
+            $out = $next;
+        }
+        return $out;
+    }
+
+    private static function apply_once( string $value, string $kind ): string {
         $value = trim( (string) preg_replace( '/\s+/u', ' ', $value ) );
         if ( $value === '' ) {
             return '';
         }
         if ( $kind === self::STATE ) {
+            // FluentCart stores a state as a code from its list (NJ, NSW,
+            // QLD, maagd …): two letters are upper-cased, any other single
+            // token is kept; only a spelled-out name is capitalised.
             if ( preg_match( '/^[a-z]{2}$/i', $value ) ) {
                 return strtoupper( $value );
+            }
+            if ( strpos( $value, ' ' ) === false ) {
+                return $value;
             }
             $kind = self::CITY;
         }
         // A value typed all in capitals (or all in lower case) carries no
         // case information, so every word is rewritten. One typed in mixed
-        // case keeps the words the member capitalised on purpose.
-        $mixed = (bool) preg_match( '/\p{Lu}/u', $value ) && (bool) preg_match( '/\p{Ll}/u', $value );
+        // case keeps the words the member capitalised on purpose. Words the
+        // rules always put in capitals (4B, PO, III) do not count; the
+        // "PO Box" this pass writes is not the member's typing either.
+        $letters = '';
+        foreach ( explode( ' ', $value ) as $i => $word ) {
+            $bare = trim( self::lower( $word ), '.,#' );
+            if ( preg_match( '/\d/', $word )
+                || ( $kind === self::STREET && in_array( $bare, self::STREET_UPPER, true ) )
+                || ( $kind === self::NAME && $i > 0 && in_array( $bare, self::NUMERALS, true ) ) ) {
+                continue;
+            }
+            $letters .= $word;
+        }
+        $mixed = (bool) preg_match( '/\p{Lu}/u', $letters ) && (bool) preg_match( '/\p{Ll}/u', $letters );
         if ( $kind === self::STREET ) {
             $value = (string) preg_replace( '/\bp\.?\s*o\.?\s*box\b/i', 'PO Box', $value );
         }
@@ -107,6 +146,9 @@ final class My_IAPSNJ_Capitalization {
     private static function word( string $word, string $kind, bool $first, bool $mixed ): string {
         if ( ! preg_match( '/\p{L}/u', $word ) ) {
             return $word; // "12", "#", "&"
+        }
+        if ( ! function_exists( 'mb_strtolower' ) && preg_match( '/[^\x00-\x7F]/', $word ) ) {
+            return $word; // without mbstring, accented letters cannot be re-cased safely
         }
         if ( preg_match( '/\d/', $word ) ) {
             // "4b", "1st", "NJ-35": addresses only; a name with digits is left alone.
@@ -136,7 +178,8 @@ final class My_IAPSNJ_Capitalization {
     private static function fix( string $w, string $kind, bool $first ): string {
         $bare = trim( $w, '.,#' );
         if ( $kind === self::NAME ) {
-            if ( in_array( $bare, self::NUMERALS, true ) ) {
+            // A suffix follows the name ("Smith III"); a first word "Vi" is a name.
+            if ( ! $first && in_array( $bare, self::NUMERALS, true ) ) {
                 return self::upper( $w );
             }
             if ( preg_match( '/^[bcdfghjklmnpqrstvwxz]{2}$/', $bare ) && ! in_array( $bare, self::NOT_INITIALS, true ) ) {
@@ -270,7 +313,7 @@ final class My_IAPSNJ_Capitalization {
             foreach ( self::checkout_inputs() as $name => $kind ) {
                 if ( isset( $all[ $name ] ) && is_string( $all[ $name ] ) && trim( $all[ $name ] ) !== '' ) {
                     $to = self::apply( $all[ $name ], $kind );
-                    if ( $to !== $all[ $name ] ) {
+                    if ( $to !== $all[ $name ] && $to !== '' ) {
                         $fixed[ $name ] = $to;
                     }
                 }
@@ -292,10 +335,12 @@ final class My_IAPSNJ_Capitalization {
      * A listener never returns false (that would cancel the save).
      */
     public static function register_model_events(): void {
+        // No state here: FluentCart stores a code from its own list (NJ,
+        // NSW, maagd …) and matches shipping zones and names on it.
         $models = [
-            'FluentCart\App\Models\Customer'          => [ 'first_name' => self::NAME, 'last_name' => self::NAME, 'city' => self::CITY, 'state' => self::STATE ],
-            'FluentCart\App\Models\CustomerAddresses' => [ 'name' => self::NAME, 'address_1' => self::STREET, 'address_2' => self::STREET, 'city' => self::CITY, 'state' => self::STATE ],
-            'FluentCart\App\Models\OrderAddress'      => [ 'name' => self::NAME, 'address_1' => self::STREET, 'address_2' => self::STREET, 'city' => self::CITY, 'state' => self::STATE ],
+            'FluentCart\App\Models\Customer'          => [ 'first_name' => self::NAME, 'last_name' => self::NAME, 'city' => self::CITY ],
+            'FluentCart\App\Models\CustomerAddresses' => [ 'name' => self::NAME, 'address_1' => self::STREET, 'address_2' => self::STREET, 'city' => self::CITY ],
+            'FluentCart\App\Models\OrderAddress'      => [ 'name' => self::NAME, 'address_1' => self::STREET, 'address_2' => self::STREET, 'city' => self::CITY ],
         ];
         foreach ( $models as $class => $columns ) {
             if ( ! class_exists( $class ) || ! method_exists( $class, 'saving' ) ) {
@@ -308,7 +353,7 @@ final class My_IAPSNJ_Capitalization {
                         $value = $model->getAttribute( $col );
                         if ( is_string( $value ) && trim( $value ) !== '' ) {
                             $to = self::apply( $value, $kind );
-                            if ( $to !== $value ) {
+                            if ( $to !== $value && $to !== '' ) {
                                 $model->setAttribute( $col, $to );
                             }
                         }
@@ -393,7 +438,8 @@ final class My_IAPSNJ_Capitalization {
                     continue;
                 }
                 $to = self::apply( $from, $kind );
-                if ( $to !== $from ) {
+                // Never blank a stored value.
+                if ( $to !== $from && trim( $to ) !== '' ) {
                     $update[ $col ] = $to;
                     $lines[]        = $from . ' → ' . $to;
                 }
@@ -440,13 +486,17 @@ final class My_IAPSNJ_Capitalization {
             . 'function has(a,v){return a.indexOf(v)>-1;}'
             . 'function uc(s){return s?s.charAt(0).toUpperCase()+s.slice(1):s;}'
             . 'function part(p){var m;if(!p){return p;}m=/^(\\p{L})([\'\\u2019])(\\p{L}{2}.*)$/u.exec(p);if(m){return m[1].toUpperCase()+m[2]+uc(m[3]);}m=/^mc(\\p{L}{2}.*)$/u.exec(p);if(m){return "Mc"+uc(m[1]);}return uc(p);}'
-            . 'function fix(w,k,first){var b=w.replace(/^[.,#]+|[.,#]+$/g,"");if(k==="name"){if(has(L.num,b)){return w.toUpperCase();}if(/^[bcdfghjklmnpqrstvwxz]{2}$/.test(b)&&!has(L.noini,b)){return w.toUpperCase();}}else{if(k==="street"&&has(L.up,b)){return w.toUpperCase();}if(!first&&has(L.small,w)){return w;}}'
+            . 'function fix(w,k,first){var b=w.replace(/^[.,#]+|[.,#]+$/g,"");if(k==="name"){if(!first&&has(L.num,b)){return w.toUpperCase();}if(/^[bcdfghjklmnpqrstvwxz]{2}$/.test(b)&&!has(L.noini,b)){return w.toUpperCase();}}else{if(k==="street"&&has(L.up,b)){return w.toUpperCase();}if(!first&&has(L.small,w)){return w;}}'
             . 'return w.split(/([\\-\\/.])/).map(function(p,i){return i%2?p:part(p);}).join("");}'
             . 'function word(w,k,first,mixed){if(!/\\p{L}/u.test(w)){return w;}if(/\\d/.test(w)){if(k==="name"){return w;}var l=w.toLowerCase();return /^\\d+(st|nd|rd|th)[.,]?$/.test(l)?l:w.toUpperCase();}'
             . 'var lo=w.toLowerCase();if(w===lo){return fix(lo,k,first);}if(w!==w.toUpperCase()){return w;}'
             . 'if(mixed&&k!=="name"){var b=lo.replace(/^[.,#]+|[.,#]+$/g,"");if((w.match(/\\p{L}/gu)||[]).length<=3&&!has(L.sw,b)){return w;}}return fix(lo,k,first);}'
-            . 'function apply(v,k){v=String(v||"").replace(/\\s+/g," ").trim();if(!v){return v;}var mixed=/\\p{Lu}/u.test(v)&&/\\p{Ll}/u.test(v);'
+            . 'function once(v,k){v=String(v||"").replace(/\\s+/g," ").trim();if(!v){return v;}'
+            . 'var t=v.split(" ").filter(function(w,i){var b=w.toLowerCase().replace(/^[.,#]+|[.,#]+$/g,"");return !/\\d/.test(w)&&!(k==="street"&&has(L.up,b))&&!(k==="name"&&i>0&&has(L.num,b));}).join("");'
+            . 'var mixed=/\\p{Lu}/u.test(t)&&/\\p{Ll}/u.test(t);'
             . 'if(k==="street"){v=v.replace(/\\bp\\.?\\s*o\\.?\\s*box\\b/ig,"PO Box");}return v.split(" ").map(function(w,i){return word(w,k,i===0,mixed);}).join(" ");}'
+            // Repeat until stable, like apply() in PHP.
+            . 'function apply(v,k){var o=once(v,k);for(var n=0;n<3;n++){var x=once(o,k);if(x===o){break;}o=x;}return o;}'
             . 'function kind(i){if(!i||!i.name||i.tagName!=="INPUT"){return "";}return i.getAttribute("data-my-iapsnj-case")||F[i.name]||"";}'
             . 'function on(e){var i=e.target,k=kind(i);if(!k){return;}var n=apply(i.value,k);if(n===i.value){return;}i.value=n;'
             . 'if(e.type==="blur"){try{i.dispatchEvent(new Event("change",{bubbles:true}));}catch(x){}}}'
