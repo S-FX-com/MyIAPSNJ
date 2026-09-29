@@ -287,20 +287,23 @@ final class My_IAPSNJ_Emails {
      * An email another plugin already made HTML (by header, or by writing
      * tags into the message) is left alone.
      *
-     * @param mixed $email ['to','subject','message','headers']
+     * @param mixed  $email     ['to','subject','message','headers']
+     * @param string $preheader Preview text (sample() only; the filters pass one argument).
      * @return mixed
      */
-    public function brand_wp_email( $email ) {
+    public function brand_wp_email( $email, string $preheader = '' ) {
         if ( ! is_array( $email ) || ! isset( $email['message'] ) || self::is_html( $email['headers'] ?? '' ) ) {
             return $email;
         }
-        // Core's older "<https://…>" links are text, not tags.
+        // Core's older "<https://…>" links are text, not tags. Compared
+        // trimmed: wp_strip_all_tags() trims, and every core message ends
+        // with "\r\n" — comparing untrimmed skipped all of them.
         $probe = (string) preg_replace( '#<(https?://[^>\s]+)>#i', '$1', (string) $email['message'] );
-        if ( $probe !== wp_strip_all_tags( $probe ) ) {
+        if ( trim( $probe ) !== wp_strip_all_tags( $probe ) ) {
             return $email;
         }
         try {
-            $message          = self::wrap( self::text_to_html( (string) $email['message'] ) );
+            $message          = self::wrap( self::text_to_html( (string) $email['message'] ), $preheader );
             $email['headers'] = self::html_headers( $email['headers'] ?? '' );
             $email['message'] = $message;
         } catch ( \Throwable $e ) {
@@ -365,7 +368,10 @@ final class My_IAPSNJ_Emails {
     // -----------------------------------------------------------------------
 
     /**
-     * A sample of the member's "login details" email, as it will be sent.
+     * A sample of the member's "login details" email, as it will be sent:
+     * the message shaped as WordPress builds it (trailing "\r\n" included),
+     * put through the same filter callback as the real email, so the
+     * Preview shows what members get.
      *
      * @return array{subject:string,html:string}
      */
@@ -375,10 +381,17 @@ final class My_IAPSNJ_Emails {
             . __( 'To set your password, visit the following address:', 'my-iapsnj' ) . "\r\n\r\n"
             . network_site_url( 'wp-login.php?login=member&key=SAMPLE&action=rp', 'login' ) . "\r\n\r\n"
             . wp_login_url() . "\r\n";
+        /* translators: %s: site name */
+        $subject = sprintf( __( '[%s] Login Details', 'my-iapsnj' ), $site );
+        $email   = self::get_instance()->brand_wp_email( [
+            'to'      => '',
+            'subject' => $subject,
+            'message' => $message,
+            'headers' => '',
+        ], __( 'Your IAPSNJ account is ready.', 'my-iapsnj' ) );
         return [
-            /* translators: %s: site name */
-            'subject' => sprintf( __( '[%s] Login Details', 'my-iapsnj' ), $site ),
-            'html'    => self::wrap( self::text_to_html( $message ), __( 'Your IAPSNJ account is ready.', 'my-iapsnj' ) ),
+            'subject' => $subject,
+            'html'    => (string) $email['message'],
         ];
     }
 
