@@ -138,33 +138,29 @@ final class My_IAPSNJ_Dates {
     }
 
     /**
-     * The membership term a payment buys (the client's rule):
+     * The one-year membership term a payment buys (the client's rule):
      *
      *   paid before the renewal-season cutover (default Oct 1) → through
      *   Dec 31 of the payment year; paid on/after it → through Dec 31 of the
-     *   NEXT year. Multi-year products add whole years to that.
+     *   NEXT year.
      *
-     *   2026-09-24, 1 year → 2026-12-31 (Paid-2026)
-     *   2026-10-01, 1 year → 2027-12-31 (Paid-2027)
-     *   2026-10-15, 5 years → 2031-12-31 (Paid-2027 … Paid-2031)
+     *   2026-09-24 → 2026-12-31 (Paid-2026)
+     *   2026-10-01 → 2027-12-31 (Paid-2027)
      *
      * @param string $as_of   Payment date, Y-m-d in the site timezone ('' = today)
-     * @param int    $years   Years the product covers (≥ 1)
      * @param string $cutover "MM-DD"
      * @return array{base_year:int, years:int[], paid_through:string}
      */
-    public static function membership_term( string $as_of, int $years, string $cutover = '10-01' ): array {
+    public static function membership_term( string $as_of, string $cutover = '10-01' ): array {
         $as_of = self::ymd( $as_of ) ?: self::today();
-        $years = max( 1, $years );
         $year  = (int) substr( $as_of, 0, 4 );
         if ( strcmp( substr( $as_of, 5 ), self::month_day( $cutover ) ) >= 0 ) {
             $year++;
         }
-        $covered = range( $year, $year + $years - 1 );
         return [
             'base_year'    => $year,
-            'years'        => $covered,
-            'paid_through' => ( $year + $years - 1 ) . '-12-31',
+            'years'        => [ $year ],
+            'paid_through' => $year . '-12-31',
         ];
     }
 }

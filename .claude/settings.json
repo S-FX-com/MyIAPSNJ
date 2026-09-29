@@ -6,7 +6,12 @@
       "Bash(grep -n \"\\\\$[a-zA-Z_]*\" -o app/Views/emails/block_editor/block-styles.php)",
       "Bash(grep -n 'function settings\\\\|function default_settings\\\\|wp_parse_args\\\\|require_once\\\\|class-emails\\\\|spl_autoload\\\\|function boot\\\\|add_action\\( '\\\\''plugins_loaded'\\\\''\\\\|static $settings\\\\|function get_instance\\\\|DATA_VERSION' my-iapsnj.php)",
       "Bash(awk 'NR>=900 && NR<=980' includes/class-admin.php)",
-      "Bash(awk 'NR>=1624 && NR<=1720' includes/class-admin.php)"
+      "Bash(awk 'NR>=1624 && NR<=1720' includes/class-admin.php)",
+      "Bash(grep -v \"ShortCodeParser\\\\\\\\\\\\\\\\\\\\|namespace\")",
+      "Bash(gh run *)",
+      "Bash(gh release *)",
+      "Bash(awk 'NR>=340 && NR<=364' readme.txt)",
+      "Bash(git fetch *)"
     ]
   }
 }

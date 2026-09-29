@@ -29,12 +29,8 @@ final class My_IAPSNJ_Emails {
     /** @var self|null */
     private static ?self $instance = null;
 
-    /** @var array<string,string> FluentCRM design templates that wrap any HTML body => label */
-    const DESIGNS = [
-        'simple'  => 'Simple Boxed',
-        'plain'   => 'Plain Centered',
-        'classic' => 'Plain Left',
-    ];
+    /** @var string FluentCart release that added fluent_cart/email_notification/mailer */
+    const FLUENTCART_MIN = '1.6.4';
 
     /** @var string[] WordPress core filters of plain-text account emails */
     const WP_FILTERS = [
@@ -73,9 +69,31 @@ final class My_IAPSNJ_Emails {
         return ! empty( My_IAPSNJ_Plugin::settings()['email_branding'] );
     }
 
+    /**
+     * FluentCRM design templates that wrap any HTML body: key => label (the
+     * names FluentCRM shows in its email editor).
+     *
+     * @return array<string,string>
+     */
+    public static function designs(): array {
+        return [
+            'simple'  => __( 'Simple Boxed', 'my-iapsnj' ),
+            'plain'   => __( 'Plain Centered', 'my-iapsnj' ),
+            'classic' => __( 'Plain Left', 'my-iapsnj' ),
+        ];
+    }
+
     public static function design(): string {
         $design = (string) ( My_IAPSNJ_Plugin::settings()['email_design'] ?? 'simple' );
-        return isset( self::DESIGNS[ $design ] ) ? $design : 'simple';
+        return isset( self::designs()[ $design ] ) ? $design : 'simple';
+    }
+
+    /**
+     * Can FluentCart's emails be restyled? Needs the mailer filter
+     * (FluentCart 1.6.4+); older versions keep FluentCart's layout.
+     */
+    public static function fluentcart_supported(): bool {
+        return defined( 'FLUENTCART_VERSION' ) && version_compare( (string) FLUENTCART_VERSION, self::FLUENTCART_MIN, '>=' );
     }
 
     /**
@@ -266,13 +284,19 @@ final class My_IAPSNJ_Emails {
 
     /**
      * One of WordPress's plain-text account emails (WP_FILTERS) in the design.
-     * An email another plugin already made HTML is left alone.
+     * An email another plugin already made HTML (by header, or by writing
+     * tags into the message) is left alone.
      *
      * @param mixed $email ['to','subject','message','headers']
      * @return mixed
      */
     public function brand_wp_email( $email ) {
         if ( ! is_array( $email ) || ! isset( $email['message'] ) || self::is_html( $email['headers'] ?? '' ) ) {
+            return $email;
+        }
+        // Core's older "<https://…>" links are text, not tags.
+        $probe = (string) preg_replace( '#<(https?://[^>\s]+)>#i', '$1', (string) $email['message'] );
+        if ( $probe !== wp_strip_all_tags( $probe ) ) {
             return $email;
         }
         try {
@@ -320,6 +344,10 @@ final class My_IAPSNJ_Emails {
             $header = ( $order instanceof \FluentCart\App\Models\Order )
                 ? (string) \FluentCart\App\App::make( 'view' )->make( 'emails.parts.order_header', $data )
                 : '';
+            // The order header opens with FluentCart's store brand (its store
+            // logo when one is set): the logo is already on top, so the header
+            // gets the name as text — one logo per email.
+            $header = (string) preg_replace( '/\{\{\s*settings\.store_brand\s*\}\}/', esc_html( self::brand_name() ), $header );
             $content   = (string) $builder::make( $header . $raw, $data );
             $preheader = (string) $builder::make( (string) ( $notification['pre_header'] ?? '' ), $data );
             if ( trim( wp_strip_all_tags( $content ) ) === '' ) {

@@ -36,10 +36,10 @@ Documentation: [`docs/phase1-findings.md`](docs/phase1-findings.md) ·
   shortened; null for Lifetime/Honorary), loses `Payment-Pending-Check` /
   `Checkout-Abandoned`, gets a WordPress login if it has none, and the
   application is closed. Full refunds revert exactly what the order applied.
-* **Term rule** — products carry no year. A payment before the renewal-season
-  cutover (default Oct 1, Dues → Membership Products) covers through Dec 31 of that year;
-  on/after it, through Dec 31 of the next year. Multi-year products add whole
-  years. Checks count from the deposit date.
+* **Term rule** — products carry no year and every payment covers one year. A
+  payment before the renewal-season cutover (default Oct 1, Dues → Membership
+  Products) covers through Dec 31 of that year; on/after it, through Dec 31 of
+  the next year. Checks count from the deposit date.
 * **New-member notification** — email on *payment* with name, full
   mailing address, email, phone, department, rank, member number, product,
   amount and links. Never on application submitted.
@@ -71,6 +71,19 @@ Documentation: [`docs/phase1-findings.md`](docs/phase1-findings.md) ·
   *View checkout* button that opens the real checkout showing it. A cart without a membership product (events, merchandise) shows no
   application fields and checks out with FluentCart's own fields only. No
   Fluent Forms.
+* **Checkout page copy (4.16)** — on a membership checkout the page is titled
+  *Membership Application*, is one column with the order summary between the
+  application and Payment, the yearly line reads "$30/year, billed
+  automatically", a note under the Discount Code field tells family members
+  of a regular member to ask for a code, and Pay by Check is second with a
+  note on USPS delays. "Coupon" reads "Discount Code" on every storefront
+  checkout. Details: `docs/checkout-fields.md` §2b.
+* **Capitalised names and addresses** — first / last name, street and city
+  are stored capitalised ("John McDonald, 12 Main St Apt 4B") on the
+  checkout, in FluentCart's records and in the CRM, with the usual exceptions
+  (McDonald, O'Brien, PO Box, 4B, III, NJ). Settings → Configurations →
+  *Names & addresses* or `wp iapsnj capitalize` fixes the contacts already in
+  the CRM.
 * **Application tracking** — as soon as an email is typed at checkout the
   contact exists and is tagged `Checkout-Abandoned`, and an application row
   (join or renewal, decided from the contact's Paid history) is opened. The
@@ -141,7 +154,8 @@ membership rows (member status, expiration date, join date, member number)
 if missing. Data-version 10 (4.7) moves the checkout field list and the
 application heading / intro into the Checkout Builder as the form
 "Membership application", used by both levels (the checkout looks the same
-until the forms are changed).
+until the forms are changed). Data-version 11 (4.16) shows and requires the
+date of birth in every checkout form.
 
 ## Admin screens (My IAPSNJ menu, `manage_options`)
 
@@ -151,14 +165,14 @@ slugs of the screens that existed before 4.11 are unchanged.
 | Group | Screen | Slug | Purpose |
 |---|---|---|---|
 | | Dashboard | `my-iapsnj` | counts, members by type (active / lapsed), paid years, environment checklist |
-| Dues | Membership Products | `my-iapsnj-products` | FluentCart variation → member type / years covered; renewal season, renewal product per type, Join page URL, checkout links |
+| Dues | Membership Products | `my-iapsnj-products` | FluentCart variation → member type; renewal season, renewal product per type, Join page URL, checkout links |
 | Dues | Pending Checks | `my-iapsnj-checks` | batch mark paid; record a check |
-| Dues | Checkout Builder | `my-iapsnj-checkout` | checkout forms and the form per level; billing address → CRM; Pay by Check label & instructions |
+| Dues | Checkout Builder | `my-iapsnj-checkout` | checkout forms and the form per level; billing address → CRM; notes under Discount Code and Pay by Check; Pay by Check label & instructions |
 | Members | Active Membership | `my-iapsnj-members` | members in good standing: search, filters, sort, CSV |
 | Members | Lapsed Members | `my-iapsnj-lapsed` | lapsed members and data checks; grace period; expirations Preview / Apply now |
 | Members | Notes Search | `my-iapsnj-notes-search` | |
 | | Reports | `my-iapsnj-reports` | open applications, orphan orders, aging, WP↔CRM orphans; aging threshold, go-live date |
-| Settings | Configurations | `my-iapsnj-sync` | new-member notification, CRM schema, phone number format (formerly "Sync & Settings") |
+| Settings | Configurations | `my-iapsnj-sync` | new-member notification, email design, CRM schema, phone number format, names & addresses capitalisation (formerly "Sync & Settings") |
 | Settings | Profile Mirror | `my-iapsnj-mapping` | CRM → WP field map with sample preview |
 | Settings | Profile Sync | `my-iapsnj-profile-sync` | mirror triggers, mirror all contacts now, WordPress role per member type |
 | Settings | Migrate PMPro | `my-iapsnj-migration` | PMPro → CRM steps (shown while PMPro tables exist) |
@@ -205,6 +219,7 @@ wp iapsnj reconcile
 wp iapsnj crm-schema [--years=2024-2032]
 wp iapsnj offline-label --label="Pay by Check" [--instructions="…"]
 wp iapsnj phones [--dry-run]
+wp iapsnj capitalize [--dry-run]
 ```
 
 Steps: `census`, `link_subscribers`, `consolidate_addresses`,
@@ -233,7 +248,14 @@ FluentCart hooks consumed: `fluent_cart/order_paid`, `fluent_cart/renewal_paid`,
 `fluent_cart/checkout/validate_data`, `fluent_cart/checkout/prepare_other_data`,
 `fluent_cart/checkout/form_data_changed`, `fluent_cart/after_receipt_first_time`,
 `fluent_cart/checkout_page_name_fields_schema`, `fluent_cart/checkout_renderer/billing_fields`
-(CRM → checkout prefill), `fluent_cart/subscription_renewed`.
+(CRM → checkout prefill), `fluent_cart/subscription_renewed`; checkout page
+(4.16): `fluent_cart/checkout_page_css_classes`,
+`fluent_cart/checkout_active_payment_methods`,
+`fluent_cart/checkout/before_summary_total`,
+`fluent_cart/cart/line_item/before_main_title` / `after_main_title`,
+`gettext_fluent-cart`, `wp_ajax(_nopriv)_fluent_cart_place_order` (priority 1),
+`fluentcart_loaded` (model `saving` events on Customer, CustomerAddresses,
+OrderAddress); WordPress `the_title`, `document_title_parts`.
 
 ## Data
 
@@ -242,7 +264,7 @@ Options: `my_iapsnj_settings`, `my_iapsnj_products`, `my_iapsnj_checkout_forms`
 `my_iapsnj_field_mappings`, `my_iapsnj_last_bulk_sync`,
 `my_iapsnj_data_version`. Table: `{prefix}my_iapsnj_applications`. User meta:
 `_my_iapsnj_subscriber_id`. FluentCart order meta: `_my_iapsnj_application`,
-`_my_iapsnj_application_applied`, `_my_iapsnj_checkout_form`, `_my_iapsnj_applied`, `_my_iapsnj_snapshot`,
+`_my_iapsnj_application_applied`, `_my_iapsnj_checkout_form`, `_my_iapsnj_typed_name`, `_my_iapsnj_applied`, `_my_iapsnj_snapshot`,
 `_my_iapsnj_source`, `_my_iapsnj_check_number`, `_my_iapsnj_deposit_date`,
 `_my_iapsnj_pending_check`, `_my_iapsnj_refunded`, `_my_iapsnj_notified`.
 Deactivation deletes nothing.
@@ -255,6 +277,9 @@ includes/class-schema.php         CRM tags/fields/member types + ensure_crm_sche
 includes/class-dates.php          Timezone-safe date helpers (P1-4)
 includes/class-membership.php     FluentCart → CRM membership state, notification
 includes/class-checkout-fields.php Checkout Builder forms on the FluentCart checkout, renewal link
+includes/class-checkout-page.php  Checkout page title, layout, Discount Code wording, notes
+includes/class-capitalization.php Name / address capitalisation (checkout, FluentCart, CRM tool)
+includes/class-phone.php          Phone number format (checkout, CRM tool)
 includes/class-applications.php   Applications table (checkout → paid)
 includes/class-checks.php         Pending checks, batch mark paid, record a check
 includes/class-reports.php        Orphans, aging, summary

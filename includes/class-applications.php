@@ -175,8 +175,8 @@ class My_IAPSNJ_Applications {
         if ( ! is_email( $email ) || ! self::table_exists() ) {
             return null;
         }
-        $first     = sanitize_text_field( $first );
-        $last      = sanitize_text_field( $last );
+        $first     = My_IAPSNJ_Capitalization::name( sanitize_text_field( $first ) );
+        $last      = My_IAPSNJ_Capitalization::name( sanitize_text_field( $last ) );
         $cart_hash = is_object( $cart ) && ! empty( $cart->cart_hash ) ? (string) $cart->cart_hash : '';
         $order_id  = is_object( $order ) && ! empty( $order->id ) ? (int) $order->id : 0;
 

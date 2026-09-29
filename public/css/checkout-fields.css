@@ -117,3 +117,50 @@
     line-height: 1.4;
     opacity: 0.8;
 }
+
+/* Membership checkout: one column, the order summary below the application
+   on every width (My_IAPSNJ_Checkout_Page). FluentCart sets the form and
+   summary side by side (55% / 45%) and, under 767px of checkout width,
+   column-reverse puts the summary on top. Two classes win over FluentCart's
+   one, inside or outside its container query. The footer script then moves
+   the summary between the application and the payment methods; without it
+   the summary still comes after the form. */
+.my-iapsnj-membership-checkout .fct_checkout_inner {
+    flex-direction: column;
+    gap: 30px;
+}
+.my-iapsnj-membership-checkout .fct_checkout_inner .fct_checkout_form,
+.my-iapsnj-membership-checkout .fct_checkout_inner .fct_checkout_summary,
+.my-iapsnj-membership-checkout .fct_checkout_summary.my-iapsnj-summary {
+    width: 100%;
+}
+.my-iapsnj-membership-checkout .fct_checkout_summary.my-iapsnj-summary {
+    margin: 0 0 24px;
+}
+
+/* Note under the Discount Code field (inside FluentCart's summary list). */
+.fct_summary_items_list li.my-iapsnj-discount-note {
+    display: block;
+}
+.fct_summary_items_list li.my-iapsnj-discount-note p {
+    margin: 4px 0 8px;
+    font-size: 13px;
+    line-height: 1.4;
+    opacity: 0.85;
+}
+
+/* Note under Pay by Check: a full row even when FluentCart lays the
+   methods out as tiles. */
+.fct_payment_methods_list > .my-iapsnj-check-note {
+    flex-basis: 100%;
+    width: 100%;
+    box-sizing: border-box;
+}
+.my-iapsnj-check-note {
+    margin: 6px 0 4px;
+    padding: 8px 10px;
+    border-left: 3px solid #dba617;
+    background: #fcf9e8;
+    font-size: 13px;
+    line-height: 1.4;
+}

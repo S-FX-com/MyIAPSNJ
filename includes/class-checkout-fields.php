@@ -55,6 +55,7 @@ class My_IAPSNJ_Checkout_Fields {
     const META_FIELDS  = '_my_iapsnj_application';          // order meta: key => value
     const META_FORM    = '_my_iapsnj_checkout_form';        // order meta: checkout form id
     const META_APPLIED = '_my_iapsnj_application_applied';  // order meta: UTC datetime
+    const META_NAME    = '_my_iapsnj_typed_name';           // order meta: ['first','last'] as typed at checkout
     const PREFIX       = 'iapsnj_';                          // input name prefix
     const FORM_INPUT   = 'iapsnj__form';                     // hidden input: form printed on the page
     const PREVIEW_PARAM = 'iapsnj_preview';                  // "View checkout": form to show an administrator
@@ -109,6 +110,11 @@ class My_IAPSNJ_Checkout_Fields {
         self::$suppress = $state;
     }
 
+    /** Were the application fields printed on this request? */
+    public function was_rendered(): bool {
+        return $this->rendered;
+    }
+
     // -----------------------------------------------------------------------
     // Built-in fields
     // -----------------------------------------------------------------------
@@ -154,6 +160,7 @@ class My_IAPSNJ_Checkout_Fields {
             'union_affiliation' => $custom( __( 'Union affiliation', 'my-iapsnj' ), __( 'PBA, FOP, STFA … (optional)', 'my-iapsnj' ), 'text', My_IAPSNJ_Schema::FIELD_UNION_AFFILIATION ),
             'union_position'  => $custom( __( 'Union position', 'my-iapsnj' ), '', 'text', My_IAPSNJ_Schema::FIELD_UNION_POSITION ),
             // -- Personal ---------------------------------------------------
+            // Required since 4.16 (client request); data v11 requires it in saved forms.
             'date_of_birth'   => [
                 'label'    => __( 'Date of birth', 'my-iapsnj' ),
                 'help'     => '',
@@ -162,7 +169,7 @@ class My_IAPSNJ_Checkout_Fields {
                 'crm'      => 'date_of_birth',
                 'crm_kind' => 'default',
                 'enabled'  => true,
-                'required' => false,
+                'required' => true,
             ],
             'marital_status'  => $custom( __( 'Marital status', 'my-iapsnj' ), '', 'select', My_IAPSNJ_Schema::FIELD_MARITAL_STATUS ),
             'spouse_name'     => $custom( __( 'Spouse\'s name', 'my-iapsnj' ), '', 'text', My_IAPSNJ_Schema::FIELD_SPOUSE_NAME ),
@@ -188,6 +195,11 @@ class My_IAPSNJ_Checkout_Fields {
                 'required' => true,
             ],
         ];
+        // People's names are stored capitalised like the member's own name
+        // (My_IAPSNJ_Capitalization): "mcdonald" → "McDonald".
+        foreach ( [ 'spouse_name', 'referred_by' ] as $key ) {
+            $fields[ $key ]['case'] = My_IAPSNJ_Capitalization::NAME;
+        }
         return $fields;
     }
 
@@ -1463,6 +1475,58 @@ class My_IAPSNJ_Checkout_Fields {
         }
     }
 
+    /**
+     * Show and require the field that writes the contact's date of birth,
+     * in every form (data migration v11). A form whose shown row writing
+     * date_of_birth is an added field gets that row required; otherwise the
+     * built-in Date of birth row is shown and required. Idempotent.
+     *
+     * @return int rows changed
+     */
+    public static function require_date_of_birth(): int {
+        self::add_missing_builtins();
+        $store   = self::store();
+        $changed = 0;
+        foreach ( array_keys( $store['forms'] ) as $id ) {
+            $defs = self::config( (string) $id );
+            $keys = [];
+            foreach ( $defs as $key => $def ) {
+                if ( ! empty( $def['enabled'] ) && $def['type'] !== 'section' && self::target_value( $def ) === 'default:date_of_birth' ) {
+                    $keys[] = (string) $key;
+                }
+            }
+            if ( ! $keys && isset( $defs['date_of_birth'] ) ) {
+                $keys = [ 'date_of_birth' ];
+            }
+            $rows = (array) $store['forms'][ $id ]['fields'];
+            foreach ( $keys as $key ) {
+                $slot = null;
+                foreach ( $rows as $k => $row ) {
+                    if ( is_array( $row ) && sanitize_key( (string) ( $row['key'] ?? $k ) ) === $key ) {
+                        $slot = $k;
+                        break;
+                    }
+                }
+                if ( $slot === null ) {
+                    $def = $defs[ $key ];
+                    unset( $def['builtin'] );
+                    $slot          = $key;
+                    $rows[ $slot ] = array_merge( [ 'key' => $key ], $def );
+                }
+                if ( empty( $rows[ $slot ]['enabled'] ) || empty( $rows[ $slot ]['required'] ) ) {
+                    $rows[ $slot ]['enabled']  = true;
+                    $rows[ $slot ]['required'] = true;
+                    $changed++;
+                }
+            }
+            $store['forms'][ $id ]['fields'] = $rows;
+        }
+        if ( $changed ) {
+            self::save_store( $store );
+        }
+        return $changed;
+    }
+
     public static function input_name( string $key ): string {
         return self::PREFIX . $key;
     }
@@ -1493,7 +1557,9 @@ class My_IAPSNJ_Checkout_Fields {
                 // are not formatted by FluentCRM.
                 return My_IAPSNJ_Phone::display( sanitize_text_field( $raw ) );
             default:
-                return sanitize_text_field( $raw );
+                $value = sanitize_text_field( $raw );
+                $case  = (string) ( $def['case'] ?? '' );
+                return $case !== '' ? My_IAPSNJ_Capitalization::apply( $value, $case ) : $value;
         }
     }
 
@@ -1776,7 +1842,16 @@ class My_IAPSNJ_Checkout_Fields {
                 echo '<input type="tel" inputmode="tel" class="fct-input my-iapsnj-phone" id="' . esc_attr( $id ) . '" name="' . esc_attr( $name ) . '" value="' . esc_attr( My_IAPSNJ_Phone::display( $value ) ) . '" placeholder="+1 555-555-5555" autocomplete="off"' . $req_attr . '>';
             } else {
                 $input_type = $type === 'date' ? 'date' : 'text';
-                echo '<input type="' . esc_attr( $input_type ) . '" class="fct-input" id="' . esc_attr( $id ) . '" name="' . esc_attr( $name ) . '" value="' . esc_attr( $value ) . '"' . $req_attr . ( $input_type === 'text' ? ' autocomplete="off"' : '' ) . '>';
+                $case       = $input_type === 'text' ? (string) ( $def['case'] ?? '' ) : '';
+                $extra      = $input_type === 'text' ? ' autocomplete="off"' : '';
+                if ( $case !== '' ) {
+                    // Capitalised as the member leaves the field (My_IAPSNJ_Capitalization::print_script()).
+                    $extra .= ' data-my-iapsnj-case="' . esc_attr( $case ) . '"';
+                }
+                if ( $input_type === 'date' && ( $def['crm'] ?? '' ) === 'date_of_birth' ) {
+                    $extra .= ' max="' . esc_attr( My_IAPSNJ_Dates::today() ) . '"'; // a birth date is in the past
+                }
+                echo '<input type="' . esc_attr( $input_type ) . '" class="fct-input" id="' . esc_attr( $id ) . '" name="' . esc_attr( $name ) . '" value="' . esc_attr( $value ) . '"' . $req_attr . $extra . '>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- attributes escaped above
             }
         }
         if ( $help !== '' ) {
@@ -2001,6 +2076,7 @@ class My_IAPSNJ_Checkout_Fields {
     public function print_footer_script(): void {
         if ( $this->rendered || $this->phone_script ) {
             self::print_phone_script();
+            My_IAPSNJ_Capitalization::print_script();
         }
         if ( ! $this->rendered ) {
             return;
@@ -2100,6 +2176,8 @@ class My_IAPSNJ_Checkout_Fields {
             }
             if ( $def['type'] === 'date' && My_IAPSNJ_Dates::ymd( $value ) === '' ) {
                 $errors[ $name ]['invalid'] = sprintf( /* translators: field label */ __( '%s is not a valid date.', 'my-iapsnj' ), $label );
+            } elseif ( $def['type'] === 'date' && ( $def['crm'] ?? '' ) === 'date_of_birth' && $value > My_IAPSNJ_Dates::today() ) {
+                $errors[ $name ]['invalid'] = sprintf( /* translators: field label */ __( '%s cannot be in the future.', 'my-iapsnj' ), $label );
             }
             if ( in_array( $def['type'], [ 'select', 'radio' ], true ) && ! empty( $def['options'] ) && ! in_array( $value, $def['options'], true ) ) {
                 $errors[ $name ]['invalid'] = sprintf( /* translators: field label */ __( 'Please choose a valid %s.', 'my-iapsnj' ), $label );
@@ -2184,7 +2262,15 @@ class My_IAPSNJ_Checkout_Fields {
             if ( ! is_email( $email ) ) {
                 $email = (string) ( $request['billing_email'] ?? '' );
             }
-            if ( $first === '' && $last === '' ) {
+            // The First name / Last name the member typed win over the
+            // FluentCart customer: FluentCart joins the two and splits them
+            // again at the last space ("Mary" + "Van Dyke" → "Mary Van" /
+            // "Dyke"). Kept on the order for the CRM contact on payment.
+            $typed = self::typed_names( $request );
+            if ( $typed ) {
+                [ $first, $last ] = $typed;
+                $order->updateMeta( self::META_NAME, [ 'first' => $first, 'last' => $last ] );
+            } elseif ( $first === '' && $last === '' ) {
                 [ $first, $last ] = self::names_from_checkout( $request );
             }
             $app = My_IAPSNJ_Applications::record_checkout( $cart, $order, $email, $first, $last, $values );
@@ -2265,17 +2351,35 @@ class My_IAPSNJ_Checkout_Fields {
      * @return array{0:string,1:string}
      */
     public static function names_from_checkout( array $cd ): array {
+        $typed = self::typed_names( $cd );
+        if ( $typed ) {
+            return $typed;
+        }
+        $first = '';
+        $last  = '';
+        $full  = sanitize_text_field( (string) ( $cd['billing_full_name'] ?? ( $cd['full_name'] ?? '' ) ) );
+        if ( $full !== '' ) {
+            $parts = preg_split( '/\s+/', trim( My_IAPSNJ_Capitalization::name( $full ) ) );
+            $first = (string) array_shift( $parts );
+            $last  = (string) implode( ' ', $parts );
+        }
+        return [ $first, $last ];
+    }
+
+    /**
+     * The separate First name / Last name posted by the checkout (FluentCart
+     * → Settings → Checkout Fields → First / Last name), capitalised; null
+     * when the checkout asked for one full name instead.
+     *
+     * @return array{0:string,1:string}|null
+     */
+    public static function typed_names( array $cd ): ?array {
         $first = sanitize_text_field( (string) ( $cd['billing_first_name'] ?? ( $cd['first_name'] ?? '' ) ) );
         $last  = sanitize_text_field( (string) ( $cd['billing_last_name'] ?? ( $cd['last_name'] ?? '' ) ) );
         if ( $first === '' && $last === '' ) {
-            $full = sanitize_text_field( (string) ( $cd['billing_full_name'] ?? ( $cd['full_name'] ?? '' ) ) );
-            if ( $full !== '' ) {
-                $parts = preg_split( '/\s+/', trim( $full ) );
-                $first = (string) array_shift( $parts );
-                $last  = (string) implode( ' ', $parts );
-            }
+            return null;
         }
-        return [ $first, $last ];
+        return [ My_IAPSNJ_Capitalization::name( $first ), My_IAPSNJ_Capitalization::name( $last ) ];
     }
 
     /**

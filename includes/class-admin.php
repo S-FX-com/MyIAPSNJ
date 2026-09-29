@@ -15,7 +15,7 @@
  *    Notes Search         FluentCRM notes search with inline tagging
  *  Reports                open applications, orphan orders, aging checks, WP↔CRM orphans; report settings
  *  Settings
- *    Configurations       new-member notification, email design, CRM schema, phones (slug my-iapsnj-sync)
+ *    Configurations       new-member notification, email design, CRM schema, phones, names & addresses (slug my-iapsnj-sync)
  *    Profile Mirror       CRM → WP field map
  *    Profile Sync         mirror triggers, mirror all now, WordPress role per member type
  *    Migrate PMPro        PMPro → FluentCRM toolkit (only while PMPro tables exist)
@@ -61,7 +61,7 @@ class My_IAPSNJ_Admin {
             'refresh_field_list',
             'search_notes', 'get_tags', 'assign_tag',
             'checks_list', 'checks_mark_paid', 'search_members', 'record_check',
-            'save_products', 'apply_offline_labels', 'ensure_schema', 'run_expiry', 'normalize_phones', 'send_test_email',
+            'save_products', 'apply_offline_labels', 'ensure_schema', 'run_expiry', 'normalize_phones', 'normalize_names', 'send_test_email',
             'migration_run', 'export_orders', 'download_export', 'report',
         ];
         foreach ( $ajax as $action ) {
@@ -609,7 +609,7 @@ class My_IAPSNJ_Admin {
 
     public function render_products_page(): void {
         $this->guard();
-        $this->page_header( __( 'Membership Products', 'my-iapsnj' ), __( 'Map each FluentCart product (one-time or subscription) to the member type it grants and how many years it covers, then set the renewal products and the Join page. Honorary is never a product: set member_type Honorary on the contact in FluentCRM (the Honorary tag alone does not count).', 'my-iapsnj' ) );
+        $this->page_header( __( 'Membership Products', 'my-iapsnj' ), __( 'Map each FluentCart product (one-time or subscription) to the member type it grants (each payment covers one year), then set the renewal products and the Join page. Honorary is never a product: set member_type Honorary on the contact in FluentCRM (the Honorary tag alone does not count).', 'my-iapsnj' ) );
         $variations = My_IAPSNJ_Membership::all_variations();
         $raw        = get_option( My_IAPSNJ_Membership::OPTION_PRODUCTS, [] );
         $raw        = is_array( $raw ) ? $raw : [];
@@ -617,12 +617,11 @@ class My_IAPSNJ_Admin {
         $products   = My_IAPSNJ_Membership::products_config();
         $cutover    = My_IAPSNJ_Membership::renewal_cutover();
         $today      = My_IAPSNJ_Dates::today();
-        $example_1  = My_IAPSNJ_Dates::membership_term( $today, 1, $cutover );
-        $example_5  = My_IAPSNJ_Dates::membership_term( $today, 5, $cutover );
+        $example    = My_IAPSNJ_Dates::membership_term( $today, $cutover );
         ?>
         <div id="fcrm-products-notice" class="fcrm-notice" style="display:none"></div>
         <?php if ( ! $variations ) : ?>
-            <div class="fcrm-section"><p><?php esc_html_e( 'No FluentCart products found yet. Create the products in FluentCart first (Regular Membership, Associate Membership, Lifetime Membership, Multi-Year Membership), then return here.', 'my-iapsnj' ); ?></p></div></div>
+            <div class="fcrm-section"><p><?php esc_html_e( 'No FluentCart products found yet. Create the products in FluentCart first (Regular Membership, Associate Membership, Lifetime Membership), then return here.', 'my-iapsnj' ); ?></p></div></div>
             <?php return; ?>
         <?php endif; ?>
         <form id="fcrm-products-form">
@@ -634,16 +633,11 @@ class My_IAPSNJ_Admin {
                     <th><?php esc_html_e( 'FluentCart product / variation', 'my-iapsnj' ); ?></th>
                     <th><?php esc_html_e( 'Price', 'my-iapsnj' ); ?></th>
                     <th><?php esc_html_e( 'Member type', 'my-iapsnj' ); ?></th>
-                    <th><?php esc_html_e( 'Years covered per payment', 'my-iapsnj' ); ?></th>
                 </tr></thead>
                 <tbody>
                 <?php foreach ( $variations as $vid => $v ) :
-                    $cfg      = is_array( $raw[ $vid ] ?? null ) ? $raw[ $vid ] : [];
-                    $type     = (string) ( $cfg['member_type'] ?? '' );
-                    $duration = (int) ( $cfg['duration'] ?? 0 );
-                    if ( $duration <= 0 ) {
-                        $duration = max( 1, count( array_filter( array_map( 'intval', (array) ( $cfg['years'] ?? [] ) ) ) ) );
-                    }
+                    $cfg  = is_array( $raw[ $vid ] ?? null ) ? $raw[ $vid ] : [];
+                    $type = (string) ( $cfg['member_type'] ?? '' );
                 ?>
                     <tr class="<?php echo ! empty( $cfg['enabled'] ) ? 'enabled' : ''; ?>">
                         <td style="text-align:center"><input type="checkbox" name="products[<?php echo esc_attr( (string) $vid ); ?>][enabled]" value="1" <?php checked( ! empty( $cfg['enabled'] ) ); ?>>
@@ -656,8 +650,6 @@ class My_IAPSNJ_Admin {
                                 <option value="<?php echo esc_attr( $t ); ?>" <?php selected( $type, $t ); ?>><?php echo esc_html( $t ); ?></option>
                             <?php endforeach; ?>
                         </select></td>
-                        <td><input type="number" name="products[<?php echo esc_attr( (string) $vid ); ?>][duration]" value="<?php echo esc_attr( (string) $duration ); ?>" min="1" max="10" class="small-text" <?php disabled( $type === My_IAPSNJ_Schema::TYPE_LIFETIME ); ?>>
-                            <br><small class="fcrm-muted"><?php esc_html_e( '1 for annual, 5 for multi-year. Lifetime: no term.', 'my-iapsnj' ); ?></small></td>
                     </tr>
                 <?php endforeach; ?>
                 </tbody>
@@ -674,12 +666,11 @@ class My_IAPSNJ_Admin {
                 <tr><th><?php esc_html_e( 'Renewal season starts', 'my-iapsnj' ); ?></th><td>
                     <input type="text" name="renewal_cutover" value="<?php echo esc_attr( $cutover ); ?>" class="small-text" style="width:80px" placeholder="10-01" pattern="\d{2}-\d{2}"> <span class="fcrm-muted">MM-DD</span>
                     <p class="description"><?php echo esc_html( sprintf(
-                        /* translators: 1: cutover MM-DD, 2: today, 3: 1-year paid_through, 4: 5-year paid_through, 5: cutover date this year */
-                        __( 'The expiration date comes from the payment date, not the product: paid before %1$s → through Dec 31 of that year, on or after it → through Dec 31 of the next year (card payments, subscription renewals and checks by deposit date). A payment today (%2$s) covers through %3$s for a 1-year product and %4$s for a 5-year product; from %5$s it covers the following year. Paid-YYYY tags follow the same years. Lifetime → member_type Lifetime, paid_through deleted, Lifetime tag.', 'my-iapsnj' ),
+                        /* translators: 1: cutover MM-DD, 2: today, 3: paid_through of a payment today, 4: cutover date this year */
+                        __( 'Each payment covers one year and the expiration date comes from the payment date, not the product: paid before %1$s → through Dec 31 of that year, on or after it → through Dec 31 of the next year (card payments, subscription renewals and checks by deposit date). A payment today (%2$s) covers through %3$s; from %4$s it covers the following year. The Paid-YYYY tag follows the same year. Lifetime → member_type Lifetime, paid_through deleted, Lifetime tag.', 'my-iapsnj' ),
                         $cutover,
                         My_IAPSNJ_Dates::ymd_display( $today ),
-                        My_IAPSNJ_Dates::ymd_display( $example_1['paid_through'] ),
-                        My_IAPSNJ_Dates::ymd_display( $example_5['paid_through'] ),
+                        My_IAPSNJ_Dates::ymd_display( $example['paid_through'] ),
                         My_IAPSNJ_Dates::ymd_display( substr( $today, 0, 4 ) . '-' . $cutover )
                     ) ); ?></p>
                 </td></tr>
@@ -990,7 +981,7 @@ class My_IAPSNJ_Admin {
                 <tr><th><?php esc_html_e( 'Apply', 'my-iapsnj' ); ?></th><td><label><input type="checkbox" name="email_branding" value="1" <?php checked( ! empty( $settings['email_branding'] ) ); ?>> <?php esc_html_e( 'Send these emails in the FluentCRM design', 'my-iapsnj' ); ?></label></td></tr>
                 <tr><th><?php esc_html_e( 'FluentCRM design', 'my-iapsnj' ); ?></th><td>
                     <select name="email_design">
-                        <?php foreach ( My_IAPSNJ_Emails::DESIGNS as $design => $label ) : ?>
+                        <?php foreach ( My_IAPSNJ_Emails::designs() as $design => $label ) : ?>
                             <option value="<?php echo esc_attr( $design ); ?>" <?php selected( My_IAPSNJ_Emails::design(), $design ); ?>><?php echo esc_html( $label ); ?></option>
                         <?php endforeach; ?>
                     </select>
@@ -1011,7 +1002,15 @@ class My_IAPSNJ_Admin {
                 <a class="button" href="<?php echo esc_url( My_IAPSNJ_Emails::preview_url() ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'Preview', 'my-iapsnj' ); ?></a>
                 <button type="button" class="button fcrm-send-test-email"><?php echo esc_html( sprintf( /* translators: %s: email address */ __( 'Send test to %s', 'my-iapsnj' ), wp_get_current_user()->user_email ) ); ?></button>
             </p>
-            <p class="description"><?php esc_html_e( 'Preview and Send test use the saved settings (save first). The sample is the "Login details" email a new member receives. On staging, sending is simulated: find the test in FluentSMTP → Email Logs.', 'my-iapsnj' ); ?></p>
+            <p class="description"><?php esc_html_e( 'Preview and Send test show the saved design, logo and footer (save first), even while Apply is off. The sample is the "Login details" email a new member receives. On staging, sending is simulated: find the test in FluentSMTP → Email Logs.', 'my-iapsnj' ); ?></p>
+            <?php if ( My_IAPSNJ_Membership::is_available() && ! My_IAPSNJ_Emails::fluentcart_supported() ) : ?>
+                <p class="description" style="color:#b32d2e"><?php echo esc_html( sprintf(
+                    /* translators: 1: installed FluentCart version, 2: required version */
+                    __( 'FluentCart %1$s is installed: its emails keep FluentCart\'s own layout until FluentCart is updated to %2$s or later. WordPress emails and the new-member notification already use this design.', 'my-iapsnj' ),
+                    defined( 'FLUENTCART_VERSION' ) ? (string) FLUENTCART_VERSION : '?',
+                    My_IAPSNJ_Emails::FLUENTCART_MIN
+                ) ); ?></p>
+            <?php endif; ?>
         </div>
         </form>
 
@@ -1033,6 +1032,14 @@ class My_IAPSNJ_Admin {
             <p><button class="button fcrm-normalize-phones" data-dry="1"><?php esc_html_e( 'Preview', 'my-iapsnj' ); ?></button>
                <button class="button button-primary fcrm-normalize-phones" data-dry="0"><?php esc_html_e( 'Apply now', 'my-iapsnj' ); ?></button></p>
             <div id="fcrm-phones-result"></div>
+        </div>
+
+        <div class="fcrm-section" id="names">
+            <h2><?php esc_html_e( 'Names & addresses', 'my-iapsnj' ); ?></h2>
+            <p class="description"><?php esc_html_e( 'New names and addresses are capitalised at checkout, so mailing labels read "John McDonald, 12 Main St Apt 4B, Mt Laurel, NJ": words typed in lower case or all in capitals get a capital letter; words typed in mixed case (McDonald, DeLuca) are kept; Mc and O\' names, PO Box, unit letters (4B), suffixes (III, Jr) and NJ / US / CR are handled. This applies the same rule to the first name, last name, street, city and state already in the CRM. No automations fire and the WordPress profiles are not changed.', 'my-iapsnj' ); ?></p>
+            <p><button class="button fcrm-normalize-names" data-dry="1"><?php esc_html_e( 'Preview', 'my-iapsnj' ); ?></button>
+               <button class="button button-primary fcrm-normalize-names" data-dry="0"><?php esc_html_e( 'Apply now', 'my-iapsnj' ); ?></button></p>
+            <div id="fcrm-names-result"></div>
         </div>
 
         <div class="fcrm-section">
@@ -1257,6 +1264,17 @@ class My_IAPSNJ_Admin {
         <div class="fcrm-section" id="checkout-settings">
             <h2><?php esc_html_e( 'Checkout settings', 'my-iapsnj' ); ?></h2>
             <p class="description"><?php esc_html_e( 'Name, email, phone, billing and shipping address are FluentCart fields, set once for the whole store in FluentCart → Settings → Checkout Fields. Keep them light (name + email required) so event and merchandise checkouts stay short; the shipping address appears automatically only for physical products.', 'my-iapsnj' ); ?></p>
+            <?php
+            $full_name_only = false;
+            try {
+                $full_name_only = class_exists( '\FluentCart\App\Services\Renderer\CheckoutFieldsSchema' )
+                    && \FluentCart\App\Services\Renderer\CheckoutFieldsSchema::isFullNameRequired();
+            } catch ( \Throwable $e ) {
+                $full_name_only = false;
+            }
+            if ( $full_name_only ) : ?>
+                <div class="notice notice-warning inline"><p><?php esc_html_e( 'The checkout asks for one "Name" field, so the CRM has to guess where the first name ends. Turn on First Name and Last Name in FluentCart → Settings → Store Settings → Checkout Fields; the plugin then stores exactly what the member typed in each (FluentCart itself re-splits the name at the last space, e.g. "Mary Van" / "Dyke").', 'my-iapsnj' ); ?></p></div>
+            <?php endif; ?>
             <form class="fcrm-settings-form">
                 <div class="fcrm-notice fcrm-form-notice" style="display:none"></div>
                 <table class="form-table">
@@ -1266,9 +1284,17 @@ class My_IAPSNJ_Admin {
                             <option value="overwrite" <?php selected( $settings['checkout_fill_address'], 'overwrite' ); ?>><?php esc_html_e( 'Overwrite the CRM address with the checkout billing address', 'my-iapsnj' ); ?></option>
                         </select>
                         <p class="description"><?php esc_html_e( 'Applied when a membership order is paid or placed by check. A FluentCart → FluentCRM integration feed, if one is set up, writes the address on its own.', 'my-iapsnj' ); ?></p>
-                        <p><button type="submit" class="button"><?php esc_html_e( 'Save', 'my-iapsnj' ); ?></button></p>
+                    </td></tr>
+                    <tr><th><?php esc_html_e( 'Note under Discount Code', 'my-iapsnj' ); ?></th><td>
+                        <textarea name="checkout_discount_note" rows="2" class="large-text"><?php echo esc_textarea( My_IAPSNJ_Checkout_Page::note( 'checkout_discount_note' ) ); ?></textarea>
+                        <p class="description"><?php esc_html_e( 'Shown under the Discount Code field on membership checkouts, while FluentCart shows that field (FluentCart → Settings → Store Settings → hide coupon field must be off). Links are allowed, e.g. <a href="/contact/">contact us</a>. Empty = no note.', 'my-iapsnj' ); ?></p>
+                    </td></tr>
+                    <tr><th><?php esc_html_e( 'Note under Pay by Check', 'my-iapsnj' ); ?></th><td>
+                        <textarea name="check_delay_note" rows="2" class="large-text"><?php echo esc_textarea( My_IAPSNJ_Checkout_Page::note( 'check_delay_note' ) ); ?></textarea>
+                        <p class="description"><?php esc_html_e( 'Shown right under the Pay by Check option on membership checkouts, before the member picks it. On those checkouts Pay by Check is always listed second, after the card, which stays preselected. The mailing instructions (Pay by Check below) still show once it is picked. Empty = no note.', 'my-iapsnj' ); ?></p>
                     </td></tr>
                 </table>
+                <p><button type="submit" class="button button-primary"><?php esc_html_e( 'Save', 'my-iapsnj' ); ?></button></p>
             </form>
 
             <h3 id="pay-by-check"><?php esc_html_e( 'Pay by Check (FluentCart\'s offline method)', 'my-iapsnj' ); ?></h3>
@@ -1676,7 +1702,7 @@ class My_IAPSNJ_Admin {
         }
         if ( array_key_exists( 'email_design', $post ) ) {
             $design                   = sanitize_key( (string) $post['email_design'] );
-            $settings['email_design'] = isset( My_IAPSNJ_Emails::DESIGNS[ $design ] ) ? $design : 'simple';
+            $settings['email_design'] = isset( My_IAPSNJ_Emails::designs()[ $design ] ) ? $design : 'simple';
         }
         if ( array_key_exists( 'email_logo_url', $post ) ) {
             $settings['email_logo_url'] = esc_url_raw( trim( (string) $post['email_logo_url'] ) );
@@ -1686,6 +1712,12 @@ class My_IAPSNJ_Admin {
         }
         if ( array_key_exists( 'checkout_fill_address', $post ) ) {
             $settings['checkout_fill_address'] = $post['checkout_fill_address'] === 'overwrite' ? 'overwrite' : 'empty_only';
+        }
+        // Checkout notes: short text, links allowed; empty = no note.
+        foreach ( [ 'checkout_discount_note', 'check_delay_note' ] as $key ) {
+            if ( array_key_exists( $key, $post ) ) {
+                $settings[ $key ] = trim( wp_kses( (string) $post[ $key ], My_IAPSNJ_Checkout_Page::note_tags() ) );
+            }
         }
         if ( array_key_exists( 'cutover_date', $post ) ) {
             $settings['cutover_date'] = My_IAPSNJ_Dates::ymd( $post['cutover_date'] );
@@ -1910,7 +1942,6 @@ class My_IAPSNJ_Admin {
                 'label'       => (string) ( $cfg['label'] ?? '' ),
                 'enabled'     => ! empty( $cfg['enabled'] ),
                 'member_type' => (string) ( $cfg['member_type'] ?? '' ),
-                'duration'    => (int) ( $cfg['duration'] ?? 1 ),
             ];
         }
         My_IAPSNJ_Membership::save_products_config( $config );
@@ -1981,6 +2012,17 @@ class My_IAPSNJ_Admin {
         $limit = min( 1000, max( 1, (int) ( $_POST['limit'] ?? 500 ) ) ); // phpcs:ignore
         try {
             wp_send_json_success( My_IAPSNJ_Phone::normalize_contacts( $dry, $limit ) + [ 'dry' => $dry ] );
+        } catch ( \Throwable $e ) {
+            wp_send_json_error( [ 'message' => $e->getMessage() ] );
+        }
+    }
+
+    public function ajax_normalize_names(): void {
+        $this->ajax_guard();
+        $dry   = ! empty( $_POST['dry'] ); // phpcs:ignore
+        $limit = min( 1000, max( 1, (int) ( $_POST['limit'] ?? 500 ) ) ); // phpcs:ignore
+        try {
+            wp_send_json_success( My_IAPSNJ_Capitalization::normalize_contacts( $dry, $limit ) + [ 'dry' => $dry ] );
         } catch ( \Throwable $e ) {
             wp_send_json_error( [ 'message' => $e->getMessage() ] );
         }

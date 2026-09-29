@@ -15,14 +15,14 @@ Fulfillment **digital** (no shipping) so paid orders auto-complete.
 | Regular Membership | $30 | subscription, every 1 year | auto-renews; each renewal payment extends the term |
 | Associate Membership | $50 | subscription, every 1 year | |
 | Lifetime Membership | $300 | one-time | |
-| Multi-Year Membership | $120 | one-time | covers 5 years |
 
-Honorary is **not** a product. No "Catch-Up" product: the term rule in
-`docs/crm-schema.md` gives a payment before the cutover the current year.
+Honorary is **not** a product. No "Multi-Year" product (every payment covers
+one year) and no "Catch-Up" product: the term rule in `docs/crm-schema.md`
+gives a payment before the cutover the current year.
 
-Then My IAPSNJ → Membership Products: enable each, set member type and *years
-covered per payment* (1, 1, —, 5). Set the renewal-season cutover (default
-`10-01`) in Dues → Membership Products.
+Then My IAPSNJ → Membership Products: enable each and set its member type.
+Set the renewal-season cutover (default `10-01`) in Dues → Membership
+Products.
 
 Subscriptions work in FluentCart free with Stripe; Pro is not required for
 them. Renewal reminder emails: FluentCart → Settings → Emails → Reminders.
@@ -42,17 +42,22 @@ choosing subscription billing.
   nowhere the member can see (payment list, thank-you page, receipt,
   emails). If any string still says cash, report it — a gettext override can be
   added to the plugin.
-* Drag the offline method **below** the card options.
+* Drag the offline method **below** the card options. On membership
+  checkouts the plugin puts it second anyway (4.16), with the USPS-delay note
+  under it (Checkout Builder → Checkout settings).
 
 ## Checkout
 
 * Settings → Cart & Checkout: **User account creation = automatic** (a
   WordPress login is created for new members; the plugin also creates one if
   missing). Guest checkout off.
-* Hide coupon field unless the client wants promo codes.
-* Checkout fields: name + email + phone required; billing address required
-  (this is the address that fills gaps in the CRM). No shipping section
-  (digital).
+* Keep the coupon field **on** (Store Settings → *hide coupon field* off):
+  the client gives discount codes to family members of regular members
+  (2026-09-29). Create them in FluentCart → Coupons. The storefront calls
+  them "Discount Code" (the plugin rewords FluentCart's text).
+* Checkout fields: **First Name + Last Name** switched on (not the single
+  Name field), email, phone required; billing address required (this is the
+  address that fills gaps in the CRM). No shipping section (digital).
 * Receipt numbering prefix e.g. `IAPSNJ-`.
 
 ## Tax

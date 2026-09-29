@@ -865,6 +865,41 @@
         run();
     });
 
+    // Configurations → Names & addresses: same loop as the phone tool.
+    $('.fcrm-normalize-names').on('click', function () {
+        var $btn = $(this), dry = String($btn.data('dry')) === '1', $out = $('#fcrm-names-result').html('<p>' + i18n.loading + '</p>');
+        if (!dry && !window.confirm('Capitalise the names and addresses stored in the CRM now?')) { $out.empty(); return; }
+        setBtn($btn, i18n.loading, true);
+        var first = null, done = 0, rounds = 0;
+        function report() {
+            var html = '<p>' + (dry ? 'Preview' : 'Applied') + ': ' + first.checked + ' contacts checked · to change: ' + first.to_change + (dry ? '' : ' · done: ' + done) + '</p>';
+            if ((first.samples || []).length) { html += '<ul style="margin-left:18px">' + first.samples.map(function (s) { return '<li>' + escHtml(s) + '</li>'; }).join('') + '</ul>'; }
+            $out.html(html);
+        }
+        function run() {
+            post('normalize_names', { dry: dry ? 1 : 0, limit: 500 })
+                .done(function (resp) {
+                    if (!resp.success) { $out.html('<p class="fcrm-error">' + escHtml(errMsg(resp)) + '</p>'); resetBtn($btn); return; }
+                    var d = resp.data;
+                    if (!first) { first = d; }
+                    rounds++;
+                    if (!dry) {
+                        done += d.changed;
+                        // Each call re-reads the CRM; stop when a batch has nothing left or changes nothing.
+                        if (d.to_change > d.changed && d.changed > 0 && rounds < 200) {
+                            $out.html('<p>' + i18n.loading + ' ' + done + ' / ' + first.to_change + '</p>');
+                            run();
+                            return;
+                        }
+                    }
+                    report();
+                    resetBtn($btn);
+                })
+                .fail(function () { $out.html('<p class="fcrm-error">' + i18n.error + '</p>'); resetBtn($btn); });
+        }
+        run();
+    });
+
     $('.fcrm-run-expiry').on('click', function () {
         var $btn = $(this), dry = $btn.data('dry') === 1 || $btn.data('dry') === '1', $out = $('#fcrm-expiry-result').html('<p>' + i18n.loading + '</p>');
         if (!dry && !window.confirm('Apply expirations now? Lapsed members lose the Member-Active tag and their role; members in good standing get them.')) { $out.empty(); return; }
@@ -929,12 +964,7 @@
     // Membership Products
     // =========================================================================
 
-    $('#fcrm-products-form').on('change', 'select[name$="[member_type]"]', function () {
-        var $duration = $(this).closest('tr').find('input[name$="[duration]"]');
-        var lifetime = $(this).val() === 'Lifetime';
-        $duration.prop('disabled', lifetime);
-        if (!lifetime && !$duration.val()) { $duration.val(1); }
-    }).on('change', 'input[type="checkbox"]', function () {
+    $('#fcrm-products-form').on('change', 'input[type="checkbox"]', function () {
         $(this).closest('tr').toggleClass('enabled', $(this).is(':checked'));
     }).on('submit', function (e) {
         e.preventDefault();
