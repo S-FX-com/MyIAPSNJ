@@ -801,21 +801,23 @@ class My_IAPSNJ_Checkout_Fields {
 
     /**
      * Title of the application, read by the page title and the heading
-     * above the fields: the form's heading when the Checkout Builder sets
-     * one, else the member type's name ("Associate Member Application").
+     * above the fields: the name of the member type in the cart
+     * ("Lifetime Member Application"). A form serves several types
+     * (Lifetime uses the Regular form), so the form's heading from the
+     * Checkout Builder is only the fallback when the type is unknown.
      */
     public static function application_title( string $form_id, string $member_type ): string {
-        $heading = self::form_exists( $form_id ) ? trim( self::forms()[ $form_id ]['heading'] ) : '';
-        if ( $heading !== '' ) {
-            return $heading;
-        }
         $titles = [
             My_IAPSNJ_Schema::TYPE_REGULAR   => __( 'Regular Member Application', 'my-iapsnj' ),
             My_IAPSNJ_Schema::TYPE_ASSOCIATE => __( 'Associate Member Application', 'my-iapsnj' ),
             My_IAPSNJ_Schema::TYPE_LIFETIME  => __( 'Lifetime Member Application', 'my-iapsnj' ),
             My_IAPSNJ_Schema::TYPE_HONORARY  => __( 'Honorary Member Application', 'my-iapsnj' ),
         ];
-        return $titles[ $member_type ] ?? __( 'Membership Application', 'my-iapsnj' );
+        if ( isset( $titles[ $member_type ] ) ) {
+            return $titles[ $member_type ];
+        }
+        $heading = self::form_exists( $form_id ) ? trim( self::forms()[ $form_id ]['heading'] ) : '';
+        return $heading !== '' ? $heading : __( 'Membership Application', 'my-iapsnj' );
     }
 
     /**

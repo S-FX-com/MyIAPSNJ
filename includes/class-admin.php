@@ -1332,8 +1332,8 @@ class My_IAPSNJ_Admin {
             <h2><?php esc_html_e( 'Form', 'my-iapsnj' ); ?></h2>
             <table class="form-table">
                 <tr><th><?php esc_html_e( 'Form name (admin only)', 'my-iapsnj' ); ?></th><td><input type="text" name="form_name" value="<?php echo esc_attr( $form['name'] ); ?>" class="regular-text" required></td></tr>
-                <tr><th><?php esc_html_e( 'Application heading', 'my-iapsnj' ); ?></th><td><input type="text" name="form_heading" value="<?php echo esc_attr( $form['heading'] ); ?>" class="regular-text" placeholder="<?php esc_attr_e( 'Automatic: Regular Member Application, Associate Member Application …', 'my-iapsnj' ); ?>">
-                    <p class="description"><?php esc_html_e( 'Shown as the checkout page title and above the fields. Leave empty to use the name of the membership in the cart (a Lifetime purchase reads "Lifetime Member Application").', 'my-iapsnj' ); ?></p></td></tr>
+                <tr><th><?php esc_html_e( 'Application heading', 'my-iapsnj' ); ?></th><td><input type="text" name="form_heading" value="<?php echo esc_attr( $form['heading'] ); ?>" class="regular-text" placeholder="<?php esc_attr_e( 'Membership Application', 'my-iapsnj' ); ?>">
+                    <p class="description"><?php esc_html_e( 'The checkout page title and the heading above the fields name the membership in the cart: "Regular Member Application", "Associate Member Application", "Lifetime Member Application". This heading is shown only when that cannot be told (e.g. a preview of a form no level uses).', 'my-iapsnj' ); ?></p></td></tr>
                 <tr><th><?php esc_html_e( 'Intro text', 'my-iapsnj' ); ?></th><td><input type="text" name="form_intro" value="<?php echo esc_attr( $form['intro'] ); ?>" class="large-text" placeholder="<?php esc_attr_e( 'Optional sentence shown above the fields.', 'my-iapsnj' ); ?>"></td></tr>
                 <tr><th><?php esc_html_e( 'Used by', 'my-iapsnj' ); ?></th><td>
                     <?php if ( $used_by ) : ?>

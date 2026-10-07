@@ -7,7 +7,7 @@
  * FluentCart's own page around them (FluentCart 1.6.5 source):
  *
  *  - Page title "Regular Member Application", "Associate Member
- *    Application" … (the member type in the cart, or the form's heading)
+ *    Application" … (the member type in the cart)
  *    instead of "Checkout" while the cart holds a membership product. The
  *    page is shared with event and merchandise checkouts, which keep
  *    FluentCart's title.
