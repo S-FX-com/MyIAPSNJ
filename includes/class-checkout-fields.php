@@ -154,7 +154,24 @@ class My_IAPSNJ_Checkout_Fields {
             // -- Law-enforcement profile ------------------------------------
             'department'      => $custom( __( 'Department', 'my-iapsnj' ), __( 'Your law-enforcement agency.', 'my-iapsnj' ), 'select', My_IAPSNJ_Schema::FIELD_DEPARTMENT, true, true ),
             'rank_level'      => $custom( __( 'Rank', 'my-iapsnj' ), '', 'select', My_IAPSNJ_Schema::FIELD_RANK, true, true ),
-            'retirement_date' => $custom( __( 'Retirement date (if retired)', 'my-iapsnj' ), '', 'date', My_IAPSNJ_Schema::FIELD_RETIREMENT_DATE ),
+            // The date is asked only of a member who ticks "I am retired"
+            // (4.17, client request: an always-shown "if retired" date looked
+            // mandatory). The box itself is not stored: it is ticked again
+            // from the contact's retirement date on a renewal.
+            'retired'         => [
+                'label'    => __( 'I am retired', 'my-iapsnj' ),
+                'help'     => '',
+                'type'     => 'checkbox',
+                'options'  => [],
+                'crm'      => '',
+                'crm_kind' => 'none',
+                'enabled'  => true,
+                'required' => false,
+            ],
+            'retirement_date' => array_merge(
+                $custom( __( 'Retirement date', 'my-iapsnj' ), '', 'date', My_IAPSNJ_Schema::FIELD_RETIREMENT_DATE, true, true ),
+                [ 'parent' => 'retired' ]
+            ),
             'phone_work'      => $custom( __( 'Work phone', 'my-iapsnj' ), '', 'phone', My_IAPSNJ_Schema::FIELD_PHONE_WORK ),
             'phone2'          => $custom( __( 'Alternate phone', 'my-iapsnj' ), '', 'phone', My_IAPSNJ_Schema::FIELD_PHONE2 ),
             'union_affiliation' => $custom( __( 'Union affiliation', 'my-iapsnj' ), __( 'PBA, FOP, STFA … (optional)', 'my-iapsnj' ), 'text', My_IAPSNJ_Schema::FIELD_UNION_AFFILIATION ),
@@ -767,6 +784,41 @@ class My_IAPSNJ_Checkout_Fields {
     }
 
     /**
+     * Member type the checkout page is showing an application for: the
+     * level of the form an administrator previews, else the highest type in
+     * the cart ('' when none).
+     *
+     * @param object|null $cart FluentCart Cart
+     */
+    public static function member_type_for_checkout( $cart ): string {
+        $preview = self::preview_form_id();
+        if ( $preview !== '' ) {
+            $levels = self::levels_for_form( $preview );
+            return $levels ? (string) $levels[0] : '';
+        }
+        return self::member_type_for_variations( self::cart_variation_ids( $cart ) ?: [] );
+    }
+
+    /**
+     * Title of the application, read by the page title and the heading
+     * above the fields: the form's heading when the Checkout Builder sets
+     * one, else the member type's name ("Associate Member Application").
+     */
+    public static function application_title( string $form_id, string $member_type ): string {
+        $heading = self::form_exists( $form_id ) ? trim( self::forms()[ $form_id ]['heading'] ) : '';
+        if ( $heading !== '' ) {
+            return $heading;
+        }
+        $titles = [
+            My_IAPSNJ_Schema::TYPE_REGULAR   => __( 'Regular Member Application', 'my-iapsnj' ),
+            My_IAPSNJ_Schema::TYPE_ASSOCIATE => __( 'Associate Member Application', 'my-iapsnj' ),
+            My_IAPSNJ_Schema::TYPE_LIFETIME  => __( 'Lifetime Member Application', 'my-iapsnj' ),
+            My_IAPSNJ_Schema::TYPE_HONORARY  => __( 'Honorary Member Application', 'my-iapsnj' ),
+        ];
+        return $titles[ $member_type ] ?? __( 'Membership Application', 'my-iapsnj' );
+    }
+
+    /**
      * The checkout form an order was placed with: the id stored on the order,
      * else the form of the membership it buys, else ''.
      *
@@ -898,7 +950,7 @@ class My_IAPSNJ_Checkout_Fields {
                 $def['enabled']   = $saved ? false : $def['enabled'];
                 $def['required']  = $def['required'] && $def['enabled'];
                 $def['builtin']   = true;
-                $def['parent']    = '';
+                $def['parent']    = $saved ? '' : (string) ( $def['parent'] ?? '' );
                 $def['show_when'] = [];
                 $out[ $key ]      = $def;
             }
@@ -1527,6 +1579,75 @@ class My_IAPSNJ_Checkout_Fields {
         return $changed;
     }
 
+    /**
+     * Put the "I am retired" box directly above Retirement date in every
+     * form and make the date its conditional, required child (data
+     * migration v12). Where Retirement date is hidden, or already shown
+     * under another condition, the box is placed there hidden. A label still
+     * reading "Retirement date (if retired)" becomes "Retirement date".
+     * Idempotent.
+     *
+     * @return int forms changed
+     */
+    public static function pair_retirement_fields(): int {
+        $defs    = self::definitions();
+        $store   = self::store();
+        $changed = 0;
+        foreach ( $store['forms'] as $id => $form ) {
+            $before  = (array) ( $form['fields'] ?? [] );
+            $list    = [];
+            $box     = null;
+            $date_at = null;
+            foreach ( $before as $k => $row ) {
+                $key = sanitize_key( (string) ( is_array( $row ) && isset( $row['key'] ) ? $row['key'] : $k ) );
+                if ( $key === 'retired' ) {
+                    $box = [ $k, $row ];
+                    continue;
+                }
+                if ( $key === 'retirement_date' && is_array( $row ) ) {
+                    $date_at = count( $list );
+                }
+                $list[] = [ $k, $row ];
+            }
+            if ( $date_at === null ) {
+                continue; // parse_rows() adds both built-ins hidden
+            }
+            $box_key = $box ? $box[0] : 'retired';
+            $box_row = $box && is_array( $box[1] ) ? $box[1] : array_merge( [ 'key' => 'retired' ], $defs['retired'] );
+            $date    = $list[ $date_at ][1];
+            $own     = sanitize_key( (string) ( $date['parent'] ?? '' ) );
+            $pair    = ! empty( $date['enabled'] ) && ( $own === '' || $own === 'retired' );
+
+            $box_row['enabled']   = $pair;
+            $box_row['required']  = false;
+            $box_row['parent']    = '';
+            $box_row['show_when'] = [];
+            if ( $pair ) {
+                $date['parent']    = 'retired';
+                $date['show_when'] = [];
+                $date['required']  = true;
+                if ( trim( (string) ( $date['label'] ?? '' ) ) === 'Retirement date (if retired)' ) {
+                    $date['label'] = $defs['retirement_date']['label'];
+                }
+                $list[ $date_at ][1] = $date;
+            }
+            array_splice( $list, $date_at, 0, [ [ $box_key, $box_row ] ] );
+
+            $rows = [];
+            foreach ( $list as $pair_row ) {
+                $rows[ $pair_row[0] ] = $pair_row[1];
+            }
+            if ( $rows !== $before ) {
+                $store['forms'][ $id ]['fields'] = $rows;
+                $changed++;
+            }
+        }
+        if ( $changed ) {
+            self::save_store( $store );
+        }
+        return $changed;
+    }
+
     public static function input_name( string $key ): string {
         return self::PREFIX . $key;
     }
@@ -1646,7 +1767,7 @@ class My_IAPSNJ_Checkout_Fields {
 
         $values  = $this->prefill_values( $args, $form_id );
         $form    = self::forms()[ $form_id ];
-        $heading = $form['heading'];
+        $heading = self::application_title( $form_id, self::member_type_for_checkout( $args['cart'] ?? null ) );
         $intro   = $form['intro'];
 
         echo '<div class="fct-checkout-section my-iapsnj-application" id="my-iapsnj-application" data-my-iapsnj-form="' . esc_attr( $form_id ) . '">';
@@ -1657,7 +1778,7 @@ class My_IAPSNJ_Checkout_Fields {
                 $form['name']
             ) ) . '</p>';
         }
-        echo '<h3 class="fct-section-title my-iapsnj-application-title">' . esc_html( $heading !== '' ? $heading : __( 'Membership Application', 'my-iapsnj' ) ) . '</h3>';
+        echo '<h3 class="fct-section-title my-iapsnj-application-title">' . esc_html( $heading ) . '</h3>';
         if ( $intro !== '' ) {
             echo '<p class="my-iapsnj-application-intro">' . esc_html( $intro ) . '</p>';
         }
@@ -1848,8 +1969,8 @@ class My_IAPSNJ_Checkout_Fields {
                     // Capitalised as the member leaves the field (My_IAPSNJ_Capitalization::print_script()).
                     $extra .= ' data-my-iapsnj-case="' . esc_attr( $case ) . '"';
                 }
-                if ( $input_type === 'date' && ( $def['crm'] ?? '' ) === 'date_of_birth' ) {
-                    $extra .= ' max="' . esc_attr( My_IAPSNJ_Dates::today() ) . '"'; // a birth date is in the past
+                if ( $input_type === 'date' && in_array( (string) ( $def['crm'] ?? '' ), [ 'date_of_birth', My_IAPSNJ_Schema::FIELD_RETIREMENT_DATE ], true ) ) {
+                    $extra .= ' max="' . esc_attr( My_IAPSNJ_Dates::today() ) . '"'; // a birth / retirement date is in the past
                 }
                 echo '<input type="' . esc_attr( $input_type ) . '" class="fct-input" id="' . esc_attr( $id ) . '" name="' . esc_attr( $name ) . '" value="' . esc_attr( $value ) . '"' . $req_attr . $extra . '>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- attributes escaped above
             }
@@ -2057,6 +2178,12 @@ class My_IAPSNJ_Checkout_Fields {
             } catch ( \Throwable $e ) {
                 // ignore
             }
+        }
+
+        // "I am retired" is not stored: a member with a retirement date on
+        // file sees it ticked, so the date shows prefilled.
+        if ( isset( $config['retired'] ) && ! isset( $values['retired'] ) && (string) ( $values['retirement_date'] ?? '' ) !== '' ) {
+            $values['retired'] = 'yes';
         }
 
         foreach ( $values as $key => $v ) {

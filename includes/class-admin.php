@@ -1305,7 +1305,7 @@ class My_IAPSNJ_Admin {
                     ? sprintf( __( 'Current label: "%1$s" · method %2$s. This edits the same label and instructions as FluentCart → Settings → Payments → Cash on Delivery → Manage.', 'my-iapsnj' ), $offline['label'] !== '' ? $offline['label'] : 'Cash', $offline['active'] ? __( 'active', 'my-iapsnj' ) : __( 'NOT active', 'my-iapsnj' ) )
                     : __( 'The offline method has never been saved in FluentCart. Enable it once in FluentCart → Settings → Payments → Cash on Delivery → Manage, then come back.', 'my-iapsnj' ) ); ?></p>
                 <p><input type="text" id="fcrm-offline-label" class="regular-text" value="<?php echo esc_attr( $offline['label'] !== '' && stripos( $offline['label'], 'cash' ) === false ? $offline['label'] : 'Pay by Check' ); ?>"></p>
-                <p><textarea id="fcrm-offline-instructions" class="large-text" rows="4"><?php echo esc_textarea( $offline['instructions'] !== '' ? $offline['instructions'] : "Mail your check payable to IAPSNJ to:\nIAPSNJ, P.O. Box ____, ____, NJ _____\nWrite your member number on the memo line. Your membership is activated when the check is deposited." ); ?></textarea></p>
+                <p><textarea id="fcrm-offline-instructions" class="large-text" rows="4"><?php echo esc_textarea( $offline['instructions'] !== '' ? $offline['instructions'] : My_IAPSNJ_Membership::default_offline_instructions() ); ?></textarea></p>
                 <button id="fcrm-apply-offline-labels" class="button" <?php disabled( ! $offline['configured'] ); ?>><?php esc_html_e( 'Apply label & instructions', 'my-iapsnj' ); ?></button>
             <?php endif; ?>
         </div>
@@ -1332,7 +1332,8 @@ class My_IAPSNJ_Admin {
             <h2><?php esc_html_e( 'Form', 'my-iapsnj' ); ?></h2>
             <table class="form-table">
                 <tr><th><?php esc_html_e( 'Form name (admin only)', 'my-iapsnj' ); ?></th><td><input type="text" name="form_name" value="<?php echo esc_attr( $form['name'] ); ?>" class="regular-text" required></td></tr>
-                <tr><th><?php esc_html_e( 'Application heading', 'my-iapsnj' ); ?></th><td><input type="text" name="form_heading" value="<?php echo esc_attr( $form['heading'] ); ?>" class="regular-text" placeholder="<?php esc_attr_e( 'Membership Application', 'my-iapsnj' ); ?>"></td></tr>
+                <tr><th><?php esc_html_e( 'Application heading', 'my-iapsnj' ); ?></th><td><input type="text" name="form_heading" value="<?php echo esc_attr( $form['heading'] ); ?>" class="regular-text" placeholder="<?php esc_attr_e( 'Automatic: Regular Member Application, Associate Member Application …', 'my-iapsnj' ); ?>">
+                    <p class="description"><?php esc_html_e( 'Shown as the checkout page title and above the fields. Leave empty to use the name of the membership in the cart (a Lifetime purchase reads "Lifetime Member Application").', 'my-iapsnj' ); ?></p></td></tr>
                 <tr><th><?php esc_html_e( 'Intro text', 'my-iapsnj' ); ?></th><td><input type="text" name="form_intro" value="<?php echo esc_attr( $form['intro'] ); ?>" class="large-text" placeholder="<?php esc_attr_e( 'Optional sentence shown above the fields.', 'my-iapsnj' ); ?>"></td></tr>
                 <tr><th><?php esc_html_e( 'Used by', 'my-iapsnj' ); ?></th><td>
                     <?php if ( $used_by ) : ?>

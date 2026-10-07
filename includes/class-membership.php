@@ -981,6 +981,30 @@ class My_IAPSNJ_Membership {
     }
 
     /**
+     * Default instructions FluentCart shows once Pay by Check is picked
+     * (and in the order emails).
+     */
+    public static function default_offline_instructions(): string {
+        return "Mail your check payable to IAPSNJ to:\n" . My_IAPSNJ_Checkout_Page::CHECK_ADDRESS . "\nWrite your member number on the memo line. Your membership is activated when the check is deposited.";
+    }
+
+    /**
+     * Data migration (v12): offline instructions saved from the ≤ 4.16
+     * template still read "P.O. Box ____": put the dues address in that
+     * line. Anything else an admin wrote is left alone. Idempotent.
+     */
+    public static function fill_offline_address(): void {
+        $current = self::offline_labels();
+        if ( ! $current['configured'] || strpos( $current['instructions'], '____' ) === false ) {
+            return;
+        }
+        $fixed = (string) preg_replace( '/[^\n<>]*P\.?\s*O\.?\s*Box\s*_{2,}[^\n<>]*/i', My_IAPSNJ_Checkout_Page::CHECK_ADDRESS, $current['instructions'] );
+        if ( $fixed !== $current['instructions'] ) {
+            self::apply_offline_labels( $current['label'], $fixed );
+        }
+    }
+
+    /**
      * Current offline method label/instructions (for the settings screen).
      *
      * @return array{label:string,instructions:string,active:bool,configured:bool}
