@@ -6,9 +6,11 @@
  * fields themselves are My_IAPSNJ_Checkout_Fields; this class changes
  * FluentCart's own page around them (FluentCart 1.6.5 source):
  *
- *  - Page title "Membership Application" instead of "Checkout" while the
- *    cart holds a membership product. The page is shared with event and
- *    merchandise checkouts, which keep FluentCart's title.
+ *  - Page title "Regular Member Application", "Associate Member
+ *    Application" … (the member type in the cart, or the form's heading)
+ *    instead of "Checkout" while the cart holds a membership product. The
+ *    page is shared with event and merchandise checkouts, which keep
+ *    FluentCart's title.
  *  - Order summary below the application on every screen width: the page
  *    becomes one column and the summary moves between the application and
  *    the payment methods. FluentCart puts it beside the form, or above it
@@ -22,7 +24,8 @@
  *    automatically" instead of "$30.00 per year until cancel".
  *  - A note under the Discount Code field (family members of a regular
  *    member ask for a code), from Checkout Builder → Checkout settings.
- *  - Pay by Check second in the payment list with a note on mail delays.
+ *  - Pay by Check second in the payment list with a note giving the
+ *    mailing address for dues and warning of mail delays.
  */
 
 defined( 'ABSPATH' ) || exit;
@@ -78,6 +81,9 @@ class My_IAPSNJ_Checkout_Page {
     /** @var array<string,bool> per-request cache: is this a membership checkout page */
     private array $page_cache = [];
 
+    /** @var string|null per-request cache: the page title of a membership checkout */
+    private ?string $title = null;
+
     public static function get_instance(): self {
         if ( null === self::$instance ) {
             self::$instance = new self();
@@ -112,9 +118,44 @@ class My_IAPSNJ_Checkout_Page {
         return __( 'If you are a family member of a regular member, contact us for a discount code.', 'my-iapsnj' );
     }
 
+    /**
+     * Where dues checks are mailed (iapsnj.org/address/ "For Dues or Ticket
+     * Payments"). Not FluentCRM's business address: that P.O. Box in
+     * Rockaway is for all other correspondence.
+     */
+    const CHECK_ADDRESS = 'The Italian American Police Society of New Jersey, PO Box 352, Lyndhurst, NJ 07071';
+
+    /** The 4.16 default note, which had no address (replaced by data v12). */
+    const CHECK_NOTE_4_16 = 'Please note: mailing a check will considerably delay your application because of USPS mail delays. Pay by card to be approved sooner.';
+
+    /** The mailing line that opens the note under Pay by Check. */
+    public static function check_address_line(): string {
+        /* translators: %s: postal address for dues checks */
+        return sprintf( __( 'Mail your check to: <strong>%s</strong>', 'my-iapsnj' ), esc_html( self::CHECK_ADDRESS ) );
+    }
+
     /** Default note under Pay by Check. */
     public static function default_check_note(): string {
-        return __( 'Please note: mailing a check will considerably delay your application because of USPS mail delays. Pay by card to be approved sooner.', 'my-iapsnj' );
+        return self::check_address_line() . '<br>'
+            . __( 'Please note: mailing a check will considerably delay your application because of USPS mail delays. Pay by card to be approved sooner.', 'my-iapsnj' );
+    }
+
+    /**
+     * Data migration (v12): a saved note under Pay by Check gains the
+     * mailing address; the 4.16 default becomes the new default. An
+     * emptied note (no note) is left empty. Idempotent.
+     */
+    public static function add_address_to_check_note(): void {
+        $settings = get_option( 'my_iapsnj_settings', [] );
+        if ( ! is_array( $settings ) || ! isset( $settings['check_delay_note'] ) ) {
+            return; // never saved: the default already carries the address
+        }
+        $note = trim( (string) $settings['check_delay_note'] );
+        if ( $note === '' || strpos( $note, '07071' ) !== false ) {
+            return;
+        }
+        $settings['check_delay_note'] = $note === self::CHECK_NOTE_4_16 ? null : self::check_address_line() . '<br>' . $note;
+        update_option( 'my_iapsnj_settings', $settings );
     }
 
     /** Tags allowed in the two checkout notes (a link to the contact page). */
@@ -204,7 +245,7 @@ class My_IAPSNJ_Checkout_Page {
     // -----------------------------------------------------------------------
 
     /**
-     * the_title — "Membership Application" for the checkout page itself.
+     * the_title — the application's title for the checkout page itself.
      *
      * @param mixed $title
      * @param mixed $post_id
@@ -214,7 +255,21 @@ class My_IAPSNJ_Checkout_Page {
         if ( (int) $post_id <= 0 || (int) $post_id !== self::checkout_page_id() ) {
             return $title;
         }
-        return $this->is_membership_checkout_page() ? __( 'Membership Application', 'my-iapsnj' ) : $title;
+        return $this->is_membership_checkout_page() ? $this->application_title() : $title;
+    }
+
+    /**
+     * "Regular Member Application", "Associate Member Application" … for
+     * this cart, the same text as the heading above the fields.
+     */
+    private function application_title(): string {
+        if ( $this->title === null ) {
+            $cart        = self::current_cart();
+            $preview     = My_IAPSNJ_Checkout_Fields::preview_form_id();
+            $form_id     = $preview !== '' ? $preview : My_IAPSNJ_Checkout_Fields::form_for_cart( $cart );
+            $this->title = My_IAPSNJ_Checkout_Fields::application_title( $form_id, My_IAPSNJ_Checkout_Fields::member_type_for_checkout( $cart ) );
+        }
+        return $this->title;
     }
 
     /**
@@ -225,7 +280,7 @@ class My_IAPSNJ_Checkout_Page {
      */
     public function filter_document_title( $parts ) {
         if ( is_array( $parts ) && $this->is_membership_checkout_page() ) {
-            $parts['title'] = __( 'Membership Application', 'my-iapsnj' );
+            $parts['title'] = $this->application_title();
         }
         return $parts;
     }

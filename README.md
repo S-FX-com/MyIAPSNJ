@@ -71,12 +71,14 @@ Documentation: [`docs/phase1-findings.md`](docs/phase1-findings.md) ·
   *View checkout* button that opens the real checkout showing it. A cart without a membership product (events, merchandise) shows no
   application fields and checks out with FluentCart's own fields only. No
   Fluent Forms.
-* **Checkout page copy (4.16)** — on a membership checkout the page is titled
-  *Membership Application*, is one column with the order summary between the
-  application and Payment, the yearly line reads "$30/year, billed
-  automatically", a note under the Discount Code field tells family members
-  of a regular member to ask for a code, and Pay by Check is second with a
-  note on USPS delays. "Coupon" reads "Discount Code" on every storefront
+* **Checkout page copy (4.16, 4.17)** — on a membership checkout the page and
+  the application are titled by membership type (*Regular Member
+  Application*, *Associate Member Application* …), the page is one column
+  with the order summary between the application and Payment, the yearly
+  line reads "$30/year, billed automatically", a note under the Discount
+  Code field tells family members of a regular member to ask for a code,
+  and Pay by Check is second with the dues mailing address and a note on
+  USPS delays. Retirement date is asked only after "I am retired" is ticked. "Coupon" reads "Discount Code" on every storefront
   checkout. Details: `docs/checkout-fields.md` §2b.
 * **Capitalised names and addresses** — first / last name, street and city
   are stored capitalised ("John McDonald, 12 Main St Apt 4B") on the
