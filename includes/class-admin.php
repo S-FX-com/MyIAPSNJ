@@ -1291,7 +1291,7 @@ class My_IAPSNJ_Admin {
                     </td></tr>
                     <tr><th><?php esc_html_e( 'Note under Pay by Check', 'my-iapsnj' ); ?></th><td>
                         <textarea name="check_delay_note" rows="2" class="large-text"><?php echo esc_textarea( My_IAPSNJ_Checkout_Page::note( 'check_delay_note' ) ); ?></textarea>
-                        <p class="description"><?php esc_html_e( 'Shown right under the Pay by Check option on membership checkouts, before the member picks it. On those checkouts Pay by Check is always listed second, after the card, which stays preselected. The mailing instructions (Pay by Check below) still show once it is picked. Empty = no note.', 'my-iapsnj' ); ?></p>
+                        <p class="description"><?php esc_html_e( 'Shown inside the Pay by Check box, under its title, on membership checkouts, before the member picks it. On those checkouts Pay by Check is always listed second, after the card, which stays preselected. The mailing instructions (Pay by Check below) still show once it is picked. Empty = no note.', 'my-iapsnj' ); ?></p>
                     </td></tr>
                 </table>
                 <p><button type="submit" class="button button-primary"><?php esc_html_e( 'Save', 'my-iapsnj' ); ?></button></p>
