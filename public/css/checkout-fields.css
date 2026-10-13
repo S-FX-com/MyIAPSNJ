@@ -149,18 +149,14 @@
     opacity: 0.85;
 }
 
-/* Note under Pay by Check: a full row even when FluentCart lays the
-   methods out as tiles. */
-.fct_payment_methods_list > .my-iapsnj-check-note {
-    flex-basis: 100%;
-    width: 100%;
-    box-sizing: border-box;
-}
-.my-iapsnj-check-note {
-    margin: 6px 0 4px;
+/* Note inside the Pay by Check box, under its title (beats FluentCart's
+   `.fct_payment_method p`). */
+.fct_payment_method_wrapper p.my-iapsnj-check-note {
+    margin: 0 16px 12px;
     padding: 8px 10px;
     border-left: 3px solid #dba617;
     background: #fcf9e8;
     font-size: 13px;
+    font-weight: 400;
     line-height: 1.4;
 }

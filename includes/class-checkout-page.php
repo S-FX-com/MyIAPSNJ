@@ -597,7 +597,8 @@ class My_IAPSNJ_Checkout_Page {
 
     /**
      * The note on mail delays, printed once as a template; the footer
-     * script puts it right under the Pay by Check option and again after
+     * script puts it inside the Pay by Check box, right under its label
+     * (before the instructions FluentCart reveals on selection), and again after
      * FluentCart refreshes the payment methods. FluentCart's own hook for a
      * method prints inside its label, before the title, so it is not used.
      * Only on a membership checkout (the note speaks of the application).
@@ -611,9 +612,9 @@ class My_IAPSNJ_Checkout_Page {
         // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- static script
         echo '<script>(function(){var M=' . wp_json_encode( self::OFFLINE_METHOD ) . ';'
             . 'function put(){var t=document.getElementById("my-iapsnj-check-note");if(!t||!t.content){return;}'
-            . 'document.querySelectorAll(".fct_payment_method_"+M).forEach(function(w){var n=w.nextElementSibling;'
-            . 'if(n&&n.classList&&n.classList.contains("my-iapsnj-check-note")){return;}'
-            . 'w.parentNode.insertBefore(t.content.firstElementChild.cloneNode(true),w.nextSibling);});}'
+            . 'document.querySelectorAll(".fct_payment_method_"+M).forEach(function(w){var l=w.querySelector(":scope > label");'
+            . 'if(!l||w.querySelector(".my-iapsnj-check-note")){return;}'
+            . 'w.insertBefore(t.content.firstElementChild.cloneNode(true),l.nextSibling);});}'
             . 'put();window.addEventListener("fluentCartFragmentsReplaced",put);'
             . 'var n=0,i=setInterval(function(){put();if(++n>20){clearInterval(i);}},500);'
             . '})();</script>' . "\n";
