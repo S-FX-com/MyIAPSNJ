@@ -12,6 +12,17 @@
     margin: 0 0 16px;
     opacity: 0.85;
 }
+/* "Retired Law Enforcement Only" under the Lifetime title. */
+.my-iapsnj-application .my-iapsnj-application-subtitle {
+    margin: -4px 0 16px;
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.35;
+}
+/* Text box under a dropdown answered "Other (not listed)". */
+.my-iapsnj-application .my-iapsnj-other {
+    margin-top: 10px;
+}
 /* Section headings: bold, between the form title (22px) and the field
    labels (FluentCart: 14px), with room above so each group reads as its
    own block. Pixel sizes match FluentCart's checkout, which sets its own

@@ -32,8 +32,8 @@ Honorary is **never a product**: it is admin-assigned (tag + `member_type`).
 | `rank_level` | text/select-one | | Same. |
 | `join_date` | date | `Y-m-d` | Migrated from ACF `join_date`; for new members set to the payment date of their first paid order (4.4.0), never overwritten. |
 | `legacy_pmpro_level` | text | e.g. `3` or `3, 5` | Written by migration for members/orders on deleted PMPro levels (IDs 3, 5). Diagnostic only. |
-| `phone2` | text | | Alternate phone; checkout application (4.3.0). Existed pre-4.0; `crm-schema` creates it if missing. |
-| `phone_work` | text | | Work phone; checkout application. |
+| `phone2` | text | | Alternate phone; collected by the checkout 4.3–4.17, **retired in 4.18** (values kept, no longer asked). |
+| `phone_work` | text | | Work phone; collected by the checkout until 4.17, **retired in 4.18** (values kept). The contact's Phone column, asked as "Cell phone", is the primary number. |
 | `retirement_date` | date | | Created by `crm-schema`; filled from the checkout application. |
 | `union_affiliation`, `union_position` | text | | Checkout application (shown by default since 4.3.0). |
 | `marital_status` | select-one | Single / Married / Divorced / Widowed / Separated | Checkout application. |

@@ -163,6 +163,18 @@ final class My_IAPSNJ_Schema {
     }
 
     /**
+     * Custom fields the checkout no longer collects (4.18, client request:
+     * the contact's Phone, asked as "Cell phone", is the one primary
+     * number). The values already stored stay on the contacts; the fields
+     * are never offered on, or written from, a checkout form.
+     *
+     * @return string[]
+     */
+    public static function retired_fields(): array {
+        return [ self::FIELD_PHONE_WORK, self::FIELD_PHONE2 ];
+    }
+
+    /**
      * Custom fields the plugin depends on. Anything already present in
      * FluentCRM is left untouched (type/options are not rewritten).
      */

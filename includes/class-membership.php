@@ -1295,7 +1295,7 @@ class My_IAPSNJ_Membership {
             __( 'Payment', 'my-iapsnj' )         => ( $applied['payment'] === 'check' ? __( 'Check', 'my-iapsnj' ) : __( 'Card', 'my-iapsnj' ) ) . ' — ' . self::format_money( (int) $order->total_amount, (string) $order->currency ),
             __( 'Order', 'my-iapsnj' )           => '#' . (int) $order->id . ( $order->receipt_number ? ' (' . $order->receipt_number . ')' : '' ),
             __( 'Email', 'my-iapsnj' )           => (string) $subscriber->email,
-            __( 'Phone', 'my-iapsnj' )           => My_IAPSNJ_Phone::display( (string) $subscriber->phone ),
+            __( 'Cell phone', 'my-iapsnj' )      => My_IAPSNJ_Phone::display( (string) $subscriber->phone ),
             __( 'Mailing address', 'my-iapsnj' ) => implode( "\n", $address_lines ),
             __( 'Department', 'my-iapsnj' )      => (string) ( $custom[ My_IAPSNJ_Schema::FIELD_DEPARTMENT ] ?? '' ),
             __( 'Rank', 'my-iapsnj' )            => (string) ( $custom[ My_IAPSNJ_Schema::FIELD_RANK ] ?? '' ),

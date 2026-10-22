@@ -511,6 +511,7 @@
         var $help   = $row.find('.fcrm-field-help');
         $row.toggleClass('enabled', shown).toggleClass('fcrm-field-section', section);
         $row.find('.fcrm-field-options').toggle(has);
+        $row.find('.fcrm-field-other-wrap').toggle(type === 'select');
         $row.find('.fcrm-field-no-options').toggle(!has);
         $row.find('.fcrm-field-target').toggle(!section);
         $row.find('.fcrm-field-no-target').toggle(section);

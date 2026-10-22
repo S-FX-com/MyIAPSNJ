@@ -53,7 +53,7 @@ Documentation: [`docs/phase1-findings.md`](docs/phase1-findings.md) ·
 * **Application inside the checkout** — the Join page is a set of buttons
   (one instant-checkout link per membership product). On the checkout page
   the plugin adds the application fields (the whole former onboarding form:
-  department, rank, retirement date, phones, union, date of birth, marital
+  department, rank, retirement date, union, date of birth, marital
   status, spouse, armed service, employer, referred by, additional
   information, certification), validates them server-side,
   stores them on the order and writes them to the CRM contact when the order

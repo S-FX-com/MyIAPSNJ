@@ -16,6 +16,20 @@ Fulfillment **digital** (no shipping) so paid orders auto-complete.
 | Associate Membership | $50 | subscription, every 1 year | |
 | Lifetime Membership | $300 | one-time | |
 
+**Automatic or manual billing (optional, 4.18 question from the client).**
+FluentCart has no "let the buyer choose" switch on one product, but a member
+can choose by which variation they buy. Add a second variation per annual
+membership — e.g. "Regular Membership – pay yearly, no auto-renewal",
+**one-time**, same price — enable it in My IAPSNJ → Membership Products with
+the same member type, and put two buttons on the Join page ("Renew
+automatically every year" / "Pay for this year only"). The plugin treats both
+the same (each payment covers one year); the one-time buyer renews by hand
+from the renewal email / `[iapsnj_renew_link]`, which points at the renewal
+product set in Membership Products. A member on automatic billing can also
+cancel auto-renewal later from their FluentCart account. Switching the
+variation on the checkout page itself is not offered: it starts a new cart
+and the member would retype FluentCart's name and address fields.
+
 Honorary is **not** a product. No "Multi-Year" product (every payment covers
 one year) and no "Catch-Up" product: the term rule in `docs/crm-schema.md`
 gives a payment before the cutover the current year.
@@ -56,7 +70,8 @@ choosing subscription billing.
   (2026-09-29). Create them in FluentCart → Coupons. The storefront calls
   them "Discount Code" (the plugin rewords FluentCart's text).
 * Checkout fields: **First Name + Last Name** switched on (not the single
-  Name field), email, phone required; billing address required (this is the
+  Name field), email, phone enabled (a membership checkout labels it "Cell
+  phone" and requires it, 4.18), billing address required (this is the
   address that fills gaps in the CRM). No shipping section (digital).
 * Receipt numbering prefix e.g. `IAPSNJ-`.
 
