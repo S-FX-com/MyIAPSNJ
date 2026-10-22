@@ -3,7 +3,7 @@
  * Plugin Name:       My IAPSNJ
  * Plugin URI:        https://github.com/S-FX-com/MyIAPSNJ
  * Description:       Membership operations for the IAPSNJ website. FluentCRM is the single source of truth: the membership application is collected on the FluentCart checkout page, FluentCart payments set membership state (Paid-YYYY tags, member_type, paid_through), applications are tracked until they are paid, mailed checks are reconciled in batch, and WordPress user profiles are mirrored one way from the CRM. Includes the PMPro → FluentCRM migration toolkit.
- * Version:           4.17.2
+ * Version:           4.18.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Requires Plugins:  fluent-crm
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'MY_IAPSNJ_VERSION', '4.17.2' );
+define( 'MY_IAPSNJ_VERSION', '4.18.0' );
 define( 'MY_IAPSNJ_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'MY_IAPSNJ_URL',     plugin_dir_url( __FILE__ ) );
 define( 'MY_IAPSNJ_FILE',    __FILE__ );
@@ -235,7 +235,7 @@ final class My_IAPSNJ_Plugin {
      * below; it is independent of MY_IAPSNJ_VERSION so that ordinary releases
      * do not re-run migrations.
      */
-    const DATA_VERSION = 12;
+    const DATA_VERSION = 13;
 
     /**
      * Runs any migration steps this install has not seen yet.
@@ -498,6 +498,15 @@ final class My_IAPSNJ_Plugin {
                 } else {
                     add_action( 'init', $offline, 20 );
                 }
+            }
+
+            // ---- v13: one phone number (client request, 4.18) ---------------
+            // Work phone and Alternate phone leave every checkout form: the
+            // member gives one number, FluentCart's phone, labelled "Cell
+            // phone". The values already on the contacts are kept.
+            if ( $installed < 13 ) {
+                My_IAPSNJ_Checkout_Fields::seed_defaults();
+                My_IAPSNJ_Checkout_Fields::remove_retired_rows();
             }
 
             update_option( 'my_iapsnj_data_version', self::DATA_VERSION );

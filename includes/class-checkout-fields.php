@@ -61,6 +61,8 @@ class My_IAPSNJ_Checkout_Fields {
     const PREVIEW_PARAM = 'iapsnj_preview';                  // "View checkout": form to show an administrator
     const PREVIEW_NONCE = 'iapsnj_preview_nonce';
     const NEW_TARGET   = '__new__';                          // "create a CRM custom field" picker value
+    const OTHER_VALUE  = '__other__';                        // dropdown choice "Other (not listed)"
+    const OTHER_SUFFIX = '__other';                          // input name suffix of the typed "Other" answer
 
     /** @var string[] 'section' is a heading row, not an input */
     const TYPES = [ 'text', 'phone', 'textarea', 'select', 'radio', 'date', 'checkbox', 'section' ];
@@ -131,6 +133,12 @@ class My_IAPSNJ_Checkout_Fields {
      * crm_kind: 'custom' (FluentCRM custom field slug), 'default' (contact
      * column), 'none' (not stored on the contact).
      *
+     * other: a dropdown ends with "Other (not listed)", which asks the member
+     * to type the answer (4.18: a department or rank missing from the list).
+     *
+     * Work phone and Alternate phone were dropped in 4.18: the checkout asks
+     * for one number, FluentCart's phone, labelled "Cell phone".
+     *
      * Dropdown option lists are empty here on purpose: they are filled by
      * import_options() (ACF choices → existing CRM values → built-in list)
      * on install / upgrade and from the Checkout Builder.
@@ -152,8 +160,8 @@ class My_IAPSNJ_Checkout_Fields {
         };
         $fields = [
             // -- Law-enforcement profile ------------------------------------
-            'department'      => $custom( __( 'Department', 'my-iapsnj' ), __( 'Your law-enforcement agency.', 'my-iapsnj' ), 'select', My_IAPSNJ_Schema::FIELD_DEPARTMENT, true, true ),
-            'rank_level'      => $custom( __( 'Rank', 'my-iapsnj' ), '', 'select', My_IAPSNJ_Schema::FIELD_RANK, true, true ),
+            'department'      => $custom( __( 'Department', 'my-iapsnj' ), __( 'Your law-enforcement agency.', 'my-iapsnj' ), 'select', My_IAPSNJ_Schema::FIELD_DEPARTMENT, true, true ) + [ 'other' => true ],
+            'rank_level'      => $custom( __( 'Rank', 'my-iapsnj' ), '', 'select', My_IAPSNJ_Schema::FIELD_RANK, true, true ) + [ 'other' => true ],
             // The date is asked only of a member who ticks "I am retired"
             // (4.17, client request: an always-shown "if retired" date looked
             // mandatory). The box itself is not stored: it is ticked again
@@ -172,8 +180,6 @@ class My_IAPSNJ_Checkout_Fields {
                 $custom( __( 'Retirement date', 'my-iapsnj' ), '', 'date', My_IAPSNJ_Schema::FIELD_RETIREMENT_DATE, true, true ),
                 [ 'parent' => 'retired' ]
             ),
-            'phone_work'      => $custom( __( 'Work phone', 'my-iapsnj' ), '', 'phone', My_IAPSNJ_Schema::FIELD_PHONE_WORK ),
-            'phone2'          => $custom( __( 'Alternate phone', 'my-iapsnj' ), '', 'phone', My_IAPSNJ_Schema::FIELD_PHONE2 ),
             'union_affiliation' => $custom( __( 'Union affiliation', 'my-iapsnj' ), __( 'PBA, FOP, STFA … (optional)', 'my-iapsnj' ), 'text', My_IAPSNJ_Schema::FIELD_UNION_AFFILIATION ),
             'union_position'  => $custom( __( 'Union position', 'my-iapsnj' ), '', 'text', My_IAPSNJ_Schema::FIELD_UNION_POSITION ),
             // -- Personal ---------------------------------------------------
@@ -796,7 +802,7 @@ class My_IAPSNJ_Checkout_Fields {
             $levels = self::levels_for_form( $preview );
             return $levels ? (string) $levels[0] : '';
         }
-        return self::member_type_for_variations( self::cart_variation_ids( $cart ) ?: [] );
+        return self::member_type_for_cart( $cart );
     }
 
     /**
@@ -808,7 +814,7 @@ class My_IAPSNJ_Checkout_Fields {
      */
     public static function application_title( string $form_id, string $member_type ): string {
         $titles = [
-            My_IAPSNJ_Schema::TYPE_REGULAR   => __( 'Regular Member Application', 'my-iapsnj' ),
+            My_IAPSNJ_Schema::TYPE_REGULAR   => __( 'Regular Law Enforcement Member Application', 'my-iapsnj' ),
             My_IAPSNJ_Schema::TYPE_ASSOCIATE => __( 'Associate Member Application', 'my-iapsnj' ),
             My_IAPSNJ_Schema::TYPE_LIFETIME  => __( 'Lifetime Member Application', 'my-iapsnj' ),
             My_IAPSNJ_Schema::TYPE_HONORARY  => __( 'Honorary Member Application', 'my-iapsnj' ),
@@ -818,6 +824,23 @@ class My_IAPSNJ_Checkout_Fields {
         }
         $heading = self::form_exists( $form_id ) ? trim( self::forms()[ $form_id ]['heading'] ) : '';
         return $heading !== '' ? $heading : __( 'Membership Application', 'my-iapsnj' );
+    }
+
+    /**
+     * Line printed under the application title ('' for none): Lifetime is
+     * offered to retired officers only (4.18, client request).
+     */
+    public static function application_subtitle( string $member_type ): string {
+        return $member_type === My_IAPSNJ_Schema::TYPE_LIFETIME ? __( 'Retired Law Enforcement Only', 'my-iapsnj' ) : '';
+    }
+
+    /**
+     * Highest member type among a cart's membership products ('' when none).
+     *
+     * @param object|null $cart FluentCart Cart
+     */
+    public static function member_type_for_cart( $cart ): string {
+        return self::member_type_for_variations( self::cart_variation_ids( $cart ) ?: [] );
     }
 
     /**
@@ -935,6 +958,15 @@ class My_IAPSNJ_Checkout_Fields {
                 $def['crm_kind'] = $row['crm_kind'];
                 $def['crm']      = $row['crm_kind'] === 'none' ? '' : sanitize_key( (string) ( $row['crm'] ?? '' ) );
             }
+            // Work phone / Alternate phone are no longer collected, whatever
+            // a form saved before 4.18 says (data v13 removes the rows).
+            if ( $def['crm_kind'] === 'custom' && in_array( $def['crm'], My_IAPSNJ_Schema::retired_fields(), true ) ) {
+                continue;
+            }
+            if ( array_key_exists( 'other', $row ) ) {
+                $def['other'] = ! empty( $row['other'] );
+            }
+            $def['other']     = ! empty( $def['other'] ) && $def['type'] === 'select';
             $def['parent']    = sanitize_key( (string) ( $row['parent'] ?? '' ) );
             $def['show_when'] = self::clean_values( $row['show_when'] ?? [] );
             if ( $def['label'] === '' ) {
@@ -954,6 +986,7 @@ class My_IAPSNJ_Checkout_Fields {
                 $def['builtin']   = true;
                 $def['parent']    = $saved ? '' : (string) ( $def['parent'] ?? '' );
                 $def['show_when'] = [];
+                $def['other']     = ! empty( $def['other'] );
                 $out[ $key ]      = $def;
             }
         }
@@ -1053,15 +1086,16 @@ class My_IAPSNJ_Checkout_Fields {
      * whose condition the posted parent answer meets. A child that is not
      * shown is neither required nor stored.
      *
-     * @param array<string,mixed> $request posted checkout data (iapsnj_* keys)
+     * @param array<string,mixed> $request     posted checkout data (iapsnj_* keys)
+     * @param string              $member_type type being bought (for_member_type())
      * @return array<string,array>
      */
-    public static function visible_inputs( string $form_id, array $request ): array {
-        $fields = self::input_fields( $form_id );
+    public static function visible_inputs( string $form_id, array $request, string $member_type = '' ): array {
+        $fields = self::input_fields( $form_id, $member_type );
         $values = [];
         foreach ( $fields as $key => $def ) {
             if ( (string) ( $def['parent'] ?? '' ) === '' ) {
-                $values[ $key ] = self::sanitize_value( $def, $request[ self::input_name( $key ) ] ?? null );
+                $values[ $key ] = self::sanitize_value( $def, self::posted_value( $key, $def, $request ) );
             }
         }
         return array_filter( $fields, function ( $def ) use ( $values, $fields ) {
@@ -1085,13 +1119,38 @@ class My_IAPSNJ_Checkout_Fields {
     }
 
     /**
-     * Shown rows of a form, section headings included, in display order.
+     * A form's definitions adjusted for the member type being bought. One
+     * form serves several types (Lifetime uses the Regular form), so a rule
+     * that belongs to one type is applied here, not in the Checkout Builder:
+     * a Lifetime application must tick "I am retired" (4.18, client
+     * request: Lifetime is for retired law enforcement only), shown and
+     * required whatever the form says.
      *
-     * @param string $form_id '' → the default (Regular) form
+     * @param array<string,array> $defs
      * @return array<string,array>
      */
-    public static function enabled_fields( string $form_id = '' ): array {
-        return array_filter( self::config( $form_id ), function ( $def ) {
+    private static function for_member_type( array $defs, string $member_type ): array {
+        if ( $member_type === My_IAPSNJ_Schema::TYPE_LIFETIME && isset( $defs['retired'] ) && $defs['retired']['type'] === 'checkbox' ) {
+            $defs['retired']['enabled']   = true;
+            $defs['retired']['required']  = true;
+            $defs['retired']['parent']    = '';
+            $defs['retired']['show_when'] = [];
+            if ( trim( (string) $defs['retired']['help'] ) === '' ) {
+                $defs['retired']['help'] = __( 'Lifetime membership is for retired law enforcement only.', 'my-iapsnj' );
+            }
+        }
+        return $defs;
+    }
+
+    /**
+     * Shown rows of a form, section headings included, in display order.
+     *
+     * @param string $form_id     '' → the default (Regular) form
+     * @param string $member_type type being bought ('' = the form as saved)
+     * @return array<string,array>
+     */
+    public static function enabled_fields( string $form_id = '', string $member_type = '' ): array {
+        return array_filter( self::for_member_type( self::config( $form_id ), $member_type ), function ( $def ) {
             return ! empty( $def['enabled'] );
         } );
     }
@@ -1102,8 +1161,8 @@ class My_IAPSNJ_Checkout_Fields {
      *
      * @return array<string,array>
      */
-    public static function input_fields( string $form_id = '' ): array {
-        return array_filter( self::enabled_fields( $form_id ), function ( $def ) {
+    public static function input_fields( string $form_id = '', string $member_type = '' ): array {
+        return array_filter( self::enabled_fields( $form_id, $member_type ), function ( $def ) {
             return $def['type'] !== 'section';
         } );
     }
@@ -1113,7 +1172,8 @@ class My_IAPSNJ_Checkout_Fields {
     // -----------------------------------------------------------------------
 
     /**
-     * FluentCRM custom fields (membership-state fields excluded): slug => definition.
+     * FluentCRM custom fields (membership-state and retired fields
+     * excluded): slug => definition.
      *
      * @return array<string,array>
      */
@@ -1126,7 +1186,7 @@ class My_IAPSNJ_Checkout_Fields {
                 continue;
             }
             $slug = sanitize_key( (string) $cf['slug'] );
-            if ( $slug === '' || in_array( $slug, $system, true ) ) {
+            if ( $slug === '' || in_array( $slug, $system, true ) || in_array( $slug, My_IAPSNJ_Schema::retired_fields(), true ) ) {
                 continue;
             }
             $out[ $slug ] = $cf;
@@ -1266,7 +1326,7 @@ class My_IAPSNJ_Checkout_Fields {
      * Persist the field list of one form. Refused (nothing saved, no CRM
      * field created) when two rows would write the same FluentCRM field.
      *
-     * @param array<string|int,array> $rows Posted rows: ['key','label','help','type','options'(string|array),'crm_target','enabled','required','order','parent','show_when','auto']
+     * @param array<string|int,array> $rows Posted rows: ['key','label','help','type','options'(string|array),'other','crm_target','enabled','required','order','parent','show_when','auto']
      * @param string                  $form_id '' → the default (Regular) form
      * @return true|WP_Error
      */
@@ -1366,7 +1426,7 @@ class My_IAPSNJ_Checkout_Fields {
                     $crm      = $column;
                 }
             }
-            if ( $crm === '' || ( $crm_kind === 'custom' && in_array( $crm, My_IAPSNJ_Schema::system_fields(), true ) ) ) {
+            if ( $crm === '' || ( $crm_kind === 'custom' && in_array( $crm, array_merge( My_IAPSNJ_Schema::system_fields(), My_IAPSNJ_Schema::retired_fields() ), true ) ) ) {
                 $crm_kind = 'none';
                 $crm      = '';
             }
@@ -1379,6 +1439,7 @@ class My_IAPSNJ_Checkout_Fields {
                 'help'      => sanitize_text_field( (string) ( $row['help'] ?? '' ) ),
                 'type'      => $type,
                 'options'   => in_array( $type, [ 'select', 'radio' ], true ) ? $options : [],
+                'other'     => $type === 'select' && ! empty( $row['other'] ),
                 'crm'       => $crm,
                 'crm_kind'  => $crm_kind,
                 'enabled'   => $enabled,
@@ -1650,6 +1711,36 @@ class My_IAPSNJ_Checkout_Fields {
         return $changed;
     }
 
+    /**
+     * Remove the rows writing Work phone / Alternate phone from every form
+     * (data migration v13): the checkout asks for one number, FluentCart's
+     * phone, labelled "Cell phone". Values already on the contacts stay.
+     * Idempotent.
+     *
+     * @return int rows removed
+     */
+    public static function remove_retired_rows(): int {
+        $store   = self::store();
+        $retired = My_IAPSNJ_Schema::retired_fields();
+        $removed = 0;
+        foreach ( $store['forms'] as $id => $form ) {
+            $rows = (array) ( $form['fields'] ?? [] );
+            foreach ( $rows as $k => $row ) {
+                $key = sanitize_key( (string) ( is_array( $row ) && isset( $row['key'] ) ? $row['key'] : $k ) );
+                $crm = is_array( $row ) && ( $row['crm_kind'] ?? '' ) === 'custom' ? sanitize_key( (string) ( $row['crm'] ?? '' ) ) : '';
+                if ( in_array( $key, $retired, true ) || in_array( $crm, $retired, true ) ) {
+                    unset( $rows[ $k ] );
+                    $removed++;
+                }
+            }
+            $store['forms'][ $id ]['fields'] = $rows;
+        }
+        if ( $removed ) {
+            self::save_store( $store );
+        }
+        return $removed;
+    }
+
     public static function input_name( string $key ): string {
         return self::PREFIX . $key;
     }
@@ -1687,17 +1778,41 @@ class My_IAPSNJ_Checkout_Fields {
     }
 
     /**
+     * The raw answer posted for a field: for a dropdown answered "Other (not
+     * listed)", the text typed under it.
+     *
+     * @param array<string,mixed> $request
+     * @return mixed
+     */
+    public static function posted_value( string $key, array $def, array $request ) {
+        $raw = $request[ self::input_name( $key ) ] ?? null;
+        if ( self::chose_other( $def, $raw ) ) {
+            $raw = $request[ self::input_name( $key ) . self::OTHER_SUFFIX ] ?? '';
+        }
+        return $raw;
+    }
+
+    /**
+     * Was "Other (not listed)" picked in this dropdown?
+     *
+     * @param mixed $raw the dropdown's posted value
+     */
+    private static function chose_other( array $def, $raw ): bool {
+        return ! empty( $def['other'] ) && $def['type'] === 'select' && is_scalar( $raw ) && (string) $raw === self::OTHER_VALUE;
+    }
+
+    /**
      * A form's enabled-field values found in a request payload: key => value
      * (non-empty only).
      *
      * @return array<string,string>
      */
-    public static function collect( array $request, string $form_id = '' ): array {
+    public static function collect( array $request, string $form_id = '', string $member_type = '' ): array {
         $out = [];
         // Children whose condition is not met are dropped: what a member
         // typed before changing the parent answer is not stored.
-        foreach ( self::visible_inputs( $form_id, $request ) as $key => $def ) {
-            $value = self::sanitize_value( $def, $request[ self::input_name( $key ) ] ?? null );
+        foreach ( self::visible_inputs( $form_id, $request, $member_type ) as $key => $def ) {
+            $value = self::sanitize_value( $def, self::posted_value( $key, $def, $request ) );
             if ( $value !== '' ) {
                 $out[ $key ] = $value;
             }
@@ -1761,16 +1876,18 @@ class My_IAPSNJ_Checkout_Fields {
         if ( $form_id === '' ) {
             return; // no membership product in the cart: a plain store checkout
         }
-        if ( ! self::input_fields( $form_id ) ) {
+        $type = self::member_type_for_checkout( $args['cart'] ?? null );
+        if ( ! self::input_fields( $form_id, $type ) ) {
             return; // headings alone are not an application
         }
         $this->rendered = true;
         wp_enqueue_style( 'my-iapsnj-checkout', MY_IAPSNJ_URL . 'public/css/checkout-fields.css', [], MY_IAPSNJ_VERSION );
 
-        $values  = $this->prefill_values( $args, $form_id );
-        $form    = self::forms()[ $form_id ];
-        $heading = self::application_title( $form_id, self::member_type_for_checkout( $args['cart'] ?? null ) );
-        $intro   = $form['intro'];
+        $values   = $this->prefill_values( $args, $form_id, $type );
+        $form     = self::forms()[ $form_id ];
+        $heading  = self::application_title( $form_id, $type );
+        $subtitle = self::application_subtitle( $type );
+        $intro    = $form['intro'];
 
         echo '<div class="fct-checkout-section my-iapsnj-application" id="my-iapsnj-application" data-my-iapsnj-form="' . esc_attr( $form_id ) . '">';
         if ( $preview !== '' ) {
@@ -1781,6 +1898,9 @@ class My_IAPSNJ_Checkout_Fields {
             ) ) . '</p>';
         }
         echo '<h3 class="fct-section-title my-iapsnj-application-title">' . esc_html( $heading ) . '</h3>';
+        if ( $subtitle !== '' ) {
+            echo '<p class="my-iapsnj-application-subtitle">' . esc_html( $subtitle ) . '</p>';
+        }
         if ( $intro !== '' ) {
             echo '<p class="my-iapsnj-application-intro">' . esc_html( $intro ) . '</p>';
         }
@@ -1789,14 +1909,14 @@ class My_IAPSNJ_Checkout_Fields {
         echo '<input type="hidden" name="' . esc_attr( self::FORM_INPUT ) . '" value="' . esc_attr( $form_id ) . '">';
         // Conditional fields start shown or hidden for the prefilled answers;
         // the footer script keeps them in step as the member answers.
-        $inputs  = self::input_fields( $form_id );
+        $inputs  = self::input_fields( $form_id, $type );
         $parents = [];
         foreach ( $inputs as $key => $def ) {
             if ( (string) ( $def['parent'] ?? '' ) === '' ) {
                 $parents[ $key ] = self::sanitize_value( $def, $values[ $key ] ?? '' );
             }
         }
-        foreach ( self::sections( $form_id ) as $section ) {
+        foreach ( self::sections( $form_id, $type ) as $section ) {
             if ( ! $section['fields'] ) {
                 continue; // a heading with nothing shown under it
             }
@@ -1898,9 +2018,9 @@ class My_IAPSNJ_Checkout_Fields {
      *
      * @return array<int,array{key:string,label:string,help:string,fields:array<string,array>}>
      */
-    public static function sections( string $form_id = '' ): array {
+    public static function sections( string $form_id = '', string $member_type = '' ): array {
         $groups = [ [ 'key' => '', 'label' => '', 'help' => '', 'fields' => [] ] ];
-        foreach ( self::enabled_fields( $form_id ) as $key => $def ) {
+        foreach ( self::enabled_fields( $form_id, $member_type ) as $key => $def ) {
             if ( $def['type'] === 'section' ) {
                 $groups[] = [ 'key' => (string) $key, 'label' => (string) $def['label'], 'help' => (string) $def['help'], 'fields' => [] ];
                 continue;
@@ -1953,12 +2073,27 @@ class My_IAPSNJ_Checkout_Fields {
         } else {
             echo '<label class="fct_input_label" for="' . esc_attr( $id ) . '">' . esc_html( $def['label'] ) . $star . '</label>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
             if ( $type === 'select' && $options ) {
+                // A saved answer that is not in the list (typed under
+                // "Other" earlier, or imported) shows as "Other" + its text.
+                $other    = ! empty( $def['other'] );
+                $is_other = $other && $value !== '' && ! in_array( $value, $options, true );
                 echo '<select class="fct-input fct-select" id="' . esc_attr( $id ) . '" name="' . esc_attr( $name ) . '"' . $req_attr . '>';
                 echo '<option value="">' . esc_html__( '— Select —', 'my-iapsnj' ) . '</option>';
                 foreach ( $options as $opt ) {
                     echo '<option value="' . esc_attr( $opt ) . '"' . selected( $value, $opt, false ) . '>' . esc_html( $opt ) . '</option>';
                 }
+                if ( $other ) {
+                    echo '<option value="' . esc_attr( self::OTHER_VALUE ) . '"' . selected( $is_other, true, false ) . '>' . esc_html__( 'Other (not listed)', 'my-iapsnj' ) . '</option>';
+                }
                 echo '</select>';
+                if ( $other ) {
+                    // Shown and enabled by the footer script while "Other" is picked.
+                    $on = $is_other && $shown;
+                    echo '<div class="my-iapsnj-other" data-my-iapsnj-other-for="' . esc_attr( $name ) . '"' . ( $on ? '' : ' style="display:none"' ) . '>';
+                    echo '<label class="fct_input_label" for="' . esc_attr( $id . '-other' ) . '">' . esc_html( sprintf( /* translators: field label, e.g. Department */ __( 'Your %s (not listed)', 'my-iapsnj' ), $def['label'] ) ) . $star . '</label>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- $star is static markup
+                    echo '<input type="text" class="fct-input" id="' . esc_attr( $id . '-other' ) . '" name="' . esc_attr( $name . self::OTHER_SUFFIX ) . '" value="' . esc_attr( $is_other ? $value : '' ) . '" maxlength="120" autocomplete="off"' . ( $required ? ' required aria-required="true"' : '' ) . ( $on ? '' : ' disabled' ) . '>';
+                    echo '</div>';
+                }
             } elseif ( $type === 'textarea' ) {
                 echo '<textarea class="fct-input" id="' . esc_attr( $id ) . '" name="' . esc_attr( $name ) . '" rows="3"' . $req_attr . '>' . esc_textarea( $value ) . '</textarea>';
             } elseif ( $type === 'phone' ) {
@@ -2071,7 +2206,18 @@ class My_IAPSNJ_Checkout_Fields {
         }
         $this->phone_script = true; // a checkout page: format its phone inputs
 
-        $contact = self::current_contact( is_array( $data ) ? ( $data['cart'] ?? null ) : null );
+        $cart = is_array( $data ) ? ( $data['cart'] ?? null ) : null;
+        // A membership asks for one number, the member's cell phone (4.18,
+        // client request): it is the contact's Phone, the primary number.
+        // FluentCart prints no label, only the placeholder. Event and
+        // merchandise checkouts keep FluentCart's field.
+        if ( isset( $fields['phone'] ) && is_array( $fields['phone'] ) && ( self::preview_form_id() !== '' || self::form_for_cart( $cart ) !== '' ) ) {
+            $fields['phone']['placeholder'] = __( 'Cell phone', 'my-iapsnj' );
+            $fields['phone']['aria-label']  = __( 'Cell phone', 'my-iapsnj' );
+            $fields['phone']['required']    = 'yes';
+        }
+
+        $contact = self::current_contact( $cart );
         if ( ! $contact instanceof Subscriber ) {
             return $fields;
         }
@@ -2144,9 +2290,9 @@ class My_IAPSNJ_Checkout_Fields {
      *
      * @return array<string,string>
      */
-    private function prefill_values( array $args, string $form_id ): array {
+    private function prefill_values( array $args, string $form_id, string $member_type = '' ): array {
         $values = [];
-        $config = self::input_fields( $form_id );
+        $config = self::input_fields( $form_id, $member_type );
 
         try {
             $subscriber = self::current_contact( $args['cart'] ?? null );
@@ -2218,6 +2364,8 @@ class My_IAPSNJ_Checkout_Fields {
             . 'function restore(){var o=read();all().forEach(function(i){if(!(i.name in o)){return;}if(i.type==="checkbox"){if(!i.checked&&o[i.name]==="yes"){i.checked=true;}}else if(i.type==="radio"){if(i.value===o[i.name]){i.checked=true;}}else if(!i.value&&o[i.name]){i.value=o[i.name];}});}'
             . 'function val(n){var v="";document.querySelectorAll(\'[name="\'+n+\'"]\').forEach(function(i){if(i.type==="checkbox"){if(i.checked){v="yes";}}else if(i.type==="radio"){if(i.checked){v=i.value;}}else{v=String(i.value||"").trim();}});return v;}'
             . 'function cond(){document.querySelectorAll("[data-my-iapsnj-parent]").forEach(function(w){var s=[];try{s=JSON.parse(w.getAttribute("data-my-iapsnj-show-when")||"[]");}catch(e){}var v=val(w.getAttribute("data-my-iapsnj-parent")),on=v!==""&&(!s.length||s.indexOf(v)>-1);w.style.display=on?"":"none";w.querySelectorAll("input,select,textarea").forEach(function(i){i.disabled=!on;});});'
+            // "Other (not listed)": the text box under a dropdown is shown and enabled only while it is picked.
+            . 'document.querySelectorAll("[data-my-iapsnj-other-for]").forEach(function(w){var s=document.querySelector(\'select[name="\'+w.getAttribute("data-my-iapsnj-other-for")+\'"]\'),on=!!s&&!s.disabled&&s.value===' . wp_json_encode( self::OTHER_VALUE ) . ';w.style.display=on?"":"none";w.querySelectorAll("input").forEach(function(i){i.disabled=!on;});});' // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- JSON-encoded constant
             . 'document.querySelectorAll("[data-my-iapsnj-section]").forEach(function(g){var any=false;g.querySelectorAll(".my-iapsnj-field").forEach(function(f){if(f.style.display!=="none"){any=true;}});g.style.display=any?"":"none";});}'
             . 'function watch(e){if(e.target&&e.target.name&&e.target.name.indexOf(P)===0){save();cond();}}'
             . 'document.addEventListener("change",watch,true);document.addEventListener("input",watch,true);'
@@ -2270,12 +2418,15 @@ class My_IAPSNJ_Checkout_Fields {
         if ( self::$suppress ) {
             return $errors;
         }
-        $form_id = self::form_for_cart( is_array( $args ) ? ( $args['cart'] ?? null ) : null );
+        $cart    = is_array( $args ) ? ( $args['cart'] ?? null ) : null;
+        $form_id = self::form_for_cart( $cart );
         if ( $form_id === '' ) {
             return $errors; // no membership product: nothing of ours to require
         }
         $data   = is_array( $args ) && isset( $args['data'] ) && is_array( $args['data'] ) ? $args['data'] : [];
-        $fields = self::input_fields( $form_id );
+        $errors = self::validate_cell_phone( $errors, $data );
+        $type   = self::member_type_for_cart( $cart );
+        $fields = self::input_fields( $form_id, $type );
         if ( ! $fields ) {
             return $errors;
         }
@@ -2288,12 +2439,18 @@ class My_IAPSNJ_Checkout_Fields {
             return $errors;
         }
         // A conditional field that is not shown for these answers is not required.
-        foreach ( self::visible_inputs( $form_id, $data ) as $key => $def ) {
+        foreach ( self::visible_inputs( $form_id, $data, $type ) as $key => $def ) {
             $name  = self::input_name( $key );
-            $value = self::sanitize_value( $def, $data[ $name ] ?? null );
+            $other = self::chose_other( $def, $data[ $name ] ?? null );
+            $value = self::sanitize_value( $def, self::posted_value( $key, $def, $data ) );
             $label = $def['type'] === 'checkbox' ? __( 'Certification', 'my-iapsnj' ) : $def['label'];
             if ( $value === '' ) {
-                if ( ! empty( $def['required'] ) ) {
+                if ( $other ) {
+                    // "Other" picked and nothing typed under it.
+                    $errors[ $name . self::OTHER_SUFFIX ]['required'] = sprintf( /* translators: field label */ __( 'Please type your %s.', 'my-iapsnj' ), $def['label'] );
+                } elseif ( $key === 'retired' && $type === My_IAPSNJ_Schema::TYPE_LIFETIME ) {
+                    $errors[ $name ]['required'] = sprintf( /* translators: checkbox label */ __( 'Lifetime membership is for retired law enforcement only. Please tick: %s', 'my-iapsnj' ), $def['label'] );
+                } elseif ( ! empty( $def['required'] ) ) {
                     $errors[ $name ]['required'] = $def['type'] === 'checkbox'
                         ? sprintf( /* translators: checkbox label */ __( 'Please tick: %s', 'my-iapsnj' ), $def['label'] )
                         : sprintf( /* translators: field label */ __( '%s is required.', 'my-iapsnj' ), $label );
@@ -2308,9 +2465,33 @@ class My_IAPSNJ_Checkout_Fields {
             } elseif ( $def['type'] === 'date' && ( $def['crm'] ?? '' ) === 'date_of_birth' && $value > My_IAPSNJ_Dates::today() ) {
                 $errors[ $name ]['invalid'] = sprintf( /* translators: field label */ __( '%s cannot be in the future.', 'my-iapsnj' ), $label );
             }
-            if ( in_array( $def['type'], [ 'select', 'radio' ], true ) && ! empty( $def['options'] ) && ! in_array( $value, $def['options'], true ) ) {
+            if ( ! $other && in_array( $def['type'], [ 'select', 'radio' ], true ) && ! empty( $def['options'] ) && ! in_array( $value, $def['options'], true ) ) {
                 $errors[ $name ]['invalid'] = sprintf( /* translators: field label */ __( 'Please choose a valid %s.', 'my-iapsnj' ), $label );
             }
+        }
+        return $errors;
+    }
+
+    /**
+     * The member's one phone number on a membership checkout: FluentCart's
+     * billing phone, labelled "Cell phone" (prefill_billing_fields()), is
+     * required and must be a readable number. Checked only when the page
+     * printed the input (a logged-in customer picking a saved address posts
+     * no phone input).
+     *
+     * @param array<string,array> $errors
+     * @param array<string,mixed> $data posted checkout data
+     * @return array<string,array>
+     */
+    private static function validate_cell_phone( array $errors, array $data ): array {
+        if ( ! array_key_exists( 'billing_phone', $data ) || ! empty( $errors['billing_phone'] ) ) {
+            return $errors;
+        }
+        $phone = is_scalar( $data['billing_phone'] ) ? trim( (string) $data['billing_phone'] ) : '';
+        if ( $phone === '' ) {
+            $errors['billing_phone']['required'] = __( 'Cell phone is required.', 'my-iapsnj' );
+        } elseif ( ! My_IAPSNJ_Phone::is_valid( $phone ) ) {
+            $errors['billing_phone']['invalid'] = __( 'Cell phone: enter a 10-digit US phone number, or an international number starting with +.', 'my-iapsnj' );
         }
         return $errors;
     }
@@ -2361,7 +2542,7 @@ class My_IAPSNJ_Checkout_Fields {
                 }
                 return;
             }
-            $values = self::collect( $request, $form_id );
+            $values = self::collect( $request, $form_id, self::member_type_for_cart( $cart ) );
             $order->updateMeta( self::META_FORM, $form_id );
             if ( $values ) {
                 $order->updateMeta( self::META_FIELDS, $values );
@@ -2417,6 +2598,15 @@ class My_IAPSNJ_Checkout_Fields {
                     'info',
                     'My IAPSNJ'
                 );
+                $unlisted = self::unlisted_answers( $values, $form_id );
+                if ( $unlisted ) {
+                    $order->addLog(
+                        'My IAPSNJ: answer not in the list',
+                        'The member picked "Other (not listed)" and typed: ' . implode( ' · ', $unlisted ) . '. It is stored on the contact as typed. If it is correct, add it to the dropdown in My IAPSNJ → Checkout Builder so the next member can pick it.',
+                        'info',
+                        'My IAPSNJ'
+                    );
+                }
             }
         } catch ( \Throwable $e ) {
             error_log( 'My IAPSNJ: could not store application for order ' . (int) $order->id . ': ' . $e->getMessage() );
@@ -2457,6 +2647,22 @@ class My_IAPSNJ_Checkout_Fields {
         } catch ( \Throwable $e ) {
             error_log( 'My IAPSNJ: form_data_changed handler failed: ' . $e->getMessage() );
         }
+    }
+
+    /**
+     * Dropdown answers typed under "Other (not listed)": ['Department: …'].
+     *
+     * @param array<string,string> $values collected application values
+     * @return string[]
+     */
+    private static function unlisted_answers( array $values, string $form_id ): array {
+        $out = [];
+        foreach ( self::config( $form_id ) as $key => $def ) {
+            if ( ! empty( $def['other'] ) && ! empty( $def['options'] ) && isset( $values[ $key ] ) && ! in_array( $values[ $key ], (array) $def['options'], true ) ) {
+                $out[] = $def['label'] . ': ' . $values[ $key ];
+            }
+        }
+        return $out;
     }
 
     /**

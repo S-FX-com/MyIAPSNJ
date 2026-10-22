@@ -164,14 +164,27 @@ join / expiration dates) and `admin_notes` (FluentCRM Notes).
 
 Field types: text, paragraph, dropdown, radio, date, checkbox, section heading.
 
+A dropdown can end with **Other (not listed)** (Checkout Builder: the
+checkbox under its options). Picking it opens a text box; the typed answer
+is what is stored, checked only for being filled in. A contact whose saved
+answer is not in the list sees "Other" picked with the answer filled in. The
+order log line *answer not in the list* names it so an admin can add it to
+the dropdown. Department and Rank have it on by default (4.18).
+
+**One phone number (4.18).** The member gives one number, FluentCart's billing
+phone, which a membership checkout labels **Cell phone** and requires (it is
+the contact's Phone, the primary number). Work phone (`phone_work`) and
+Alternate phone (`phone2`) are no longer collected: data version 13 removes
+their rows from every form, a form saved earlier never shows them, and the
+Checkout Builder no longer offers them. The values already on the contacts
+stay in FluentCRM.
+
 | Key | Type | Default | CRM target | Notes |
 |---|---|---|---|---|
-| `department` | dropdown | on, required | custom `department` | Options imported (see below); **no "N/A"**. Associate treatment still to confirm with the client (make it optional, or relabel "Employer / affiliation"). |
-| `rank_level` | dropdown | on, required | custom `rank_level` | Options imported; built-in NJ rank list as last resort. |
-| `retired` | checkbox "I am retired" | on, optional | not stored | 4.17: ticked on the checkout when the contact has a retirement date |
+| `department` | dropdown | on, required | custom `department` | Options imported (see below); **no "N/A"**. 4.18: ends with **Other (not listed)**, which opens a text box; the typed name is stored on the contact as typed and the order log asks the admin to add it to the list. Associate treatment still to confirm with the client (make it optional, or relabel "Employer / affiliation"). |
+| `rank_level` | dropdown | on, required | custom `rank_level` | Options imported; built-in NJ rank list as last resort. 4.18: **Other (not listed)** like Department. |
+| `retired` | checkbox "I am retired" | on, optional | not stored | 4.17: ticked on the checkout when the contact has a retirement date. 4.18: on a **Lifetime** cart it is shown and **required** whatever the form says (Lifetime is for retired law enforcement only); Regular / Associate keep the form's setting |
 | `retirement_date` | date | on, required when shown | custom `retirement_date` | 4.17: conditional child of `retired` (shown only once the box is ticked); not after today |
-| `phone_work` | phone | on, optional | custom `phone_work` | |
-| `phone2` | phone | on, optional | custom `phone2` | alternate phone |
 | `union_affiliation` | text | on, optional | custom `union_affiliation` | |
 | `union_position` | text | on, optional | custom `union_position` | |
 | `date_of_birth` | date | on, **required** (4.16) | contact `date_of_birth` | Never in the future. Data version 11 requires it in every saved form (the added row writing `date_of_birth`, if a form has one). |
@@ -244,7 +257,7 @@ Membership Products; event and merchandise checkouts keep FluentCart's page.
 
 | Request | What the plugin does | Admin side |
 |---|---|---|
-| Title by membership type (4.17; was "Membership Application" in 4.16) | `the_title` / `document_title_parts` on FluentCart's checkout page (store setting `checkout_page_id`) for a membership cart, and the heading above the fields, both read `My_IAPSNJ_Checkout_Fields::application_title()`: the highest member type in the cart — "Regular Member Application", "Associate Member Application", "Lifetime Member Application". An administrator's *View checkout* uses the previewed form's level. The form's *Application heading* is only the fallback when no type can be told: a form serves several types (Lifetime uses the Regular form), so in 4.17.0, where a typed heading won, a Lifetime cart read "Regular Member Application" (fixed in 4.17.1). The WordPress page itself stays "Checkout". | — |
+| Title by membership type (4.17; was "Membership Application" in 4.16) | `the_title` / `document_title_parts` on FluentCart's checkout page (store setting `checkout_page_id`) for a membership cart, and the heading above the fields, both read `My_IAPSNJ_Checkout_Fields::application_title()`: the highest member type in the cart — "Regular Law Enforcement Member Application" (4.18; was "Regular Member Application"), "Associate Member Application", "Lifetime Member Application", with the line "Retired Law Enforcement Only" under the Lifetime heading above the fields (4.18). An administrator's *View checkout* uses the previewed form's level. The form's *Application heading* is only the fallback when no type can be told: a form serves several types (Lifetime uses the Regular form), so in 4.17.0, where a typed heading won, a Lifetime cart read "Regular Member Application" (fixed in 4.17.1). The WordPress page itself stays "Checkout". | — |
 | Order summary below the application, mobile and desktop | The wrapper gets `my-iapsnj-membership-checkout` (`fluent_cart/checkout_page_css_classes`); the stylesheet makes it one column (FluentCart: 55 / 45 side by side, and under 767px of *checkout* width `column-reverse` puts the summary on top — a container query, so a narrow theme column shows it on top on desktop too). A footer script moves `.fct_checkout_summary` right after the application, before Payment; FluentCart's AJAX refreshes only replace the summary's contents, so it keeps working. Without scripts the summary comes after the form. | — |
 | "Coupon" → "Discount Code" everywhere | `gettext_fluent-cart` (also `_with_context`, `ngettext`): every storefront string with "coupon" (toggle "Have a Discount Code?", screen-reader label, AJAX error messages), plus exact wording for "Applied Successfully" → "Discount code applied", "Coupon removed!" → "Discount code removed", placeholder "Apply Here" → "Enter discount code", "No matching coupon found for this code." → "No matching discount code found.". FluentCart's admin screens (wp-admin pages, its REST API, admin-ajax called from wp-admin) keep "Coupon". The button stays "Apply". | Keep the coupon field on (FluentCart → Settings → Store Settings: *hide coupon field* off) and create the family-member codes in FluentCart → Coupons. |
 | Summary line "$30/year, billed automatically" | For a line that is a yearly membership subscription with no end date: FluentCart's "%1$s %2$s %3$s" / "per %s" / "until cancel" become "%1$s%2$s, %3$s" / "/%s" / "billed automatically" while that line is printed, and whole-dollar amounts lose ".00" in that line only. A recurring discount keeps FluentCart's strike-through ("~~$50~~ $40/year, billed automatically"). Lifetime (one-time) shows no billing line. Thank-you page and receipts keep FluentCart's text. | — |
@@ -361,17 +374,18 @@ so a number that reaches it unformatted is still stored correctly:
 | Where | Stored as | Why |
 |---|---|---|
 | Contact **Phone** (from the billing phone) | `+19084152478` (E.164) | what FluentCRM's own phone input saves; FluentCRM shows it as `+1 908-415-2478` with the flag |
-| **Work phone**, **Alternate phone**, any Phone-type field | `+1 908-415-2478` | plain CRM text fields, which FluentCRM does not format |
+| Any Phone-type field (and the Work / Alternate phone values kept from before 4.18) | `+1 908-415-2478` | plain CRM text fields, which FluentCRM does not format |
 
 A Phone field that is filled in must be a 10-digit US number (or 11 digits
 starting with 1) or an international number starting with `+`; otherwise the
-checkout shows an error. The billing phone is FluentCart's field and is never
-blocked, only formatted.
+checkout shows an error. The billing phone ("Cell phone") is required on a
+membership checkout since 4.18 and follows the same rule; event and
+merchandise checkouts only format it.
 
 The Checkout Builder offers the **Phone (auto-formatted)** type for new fields.
 A FluentCRM text field whose slug or label contains "phone", "mobile" or
-"cell" is offered as a Phone field. Work phone and Alternate phone are Phone
-fields in every form, including forms saved before 4.13.
+"cell" is offered as a Phone field. Work phone and Alternate phone are no
+longer offered (4.18).
 
 Numbers already in the CRM: **Settings → Configurations → Phone numbers →
 Preview / Apply now**, or `wp iapsnj phones [--dry-run]`. This reformats the

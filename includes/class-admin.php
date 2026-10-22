@@ -1028,7 +1028,7 @@ class My_IAPSNJ_Admin {
 
         <div class="fcrm-section" id="phones">
             <h2><?php esc_html_e( 'Phone numbers', 'my-iapsnj' ); ?></h2>
-            <p class="description"><?php esc_html_e( 'New numbers are formatted at checkout: the contact Phone gets the US country code (+19084152478, which FluentCRM shows as +1 908-415-2478), and Work phone / Alternate phone, which are plain text fields, are stored as +1 908-415-2478. This brings the numbers already in the CRM to the same format. Numbers that cannot be read (too few digits, extensions, letters) are listed and left as they are. No automations fire.', 'my-iapsnj' ); ?></p>
+            <p class="description"><?php esc_html_e( 'New numbers are formatted at checkout: the contact Phone gets the US country code (+19084152478, which FluentCRM shows as +1 908-415-2478), and the Work phone / Alternate phone values kept from before 4.18 (the checkout no longer asks for them), which are plain text fields, are stored as +1 908-415-2478. This brings the numbers already in the CRM to the same format. Numbers that cannot be read (too few digits, extensions, letters) are listed and left as they are. No automations fire.', 'my-iapsnj' ); ?></p>
             <p><button class="button fcrm-normalize-phones" data-dry="1"><?php esc_html_e( 'Preview', 'my-iapsnj' ); ?></button>
                <button class="button button-primary fcrm-normalize-phones" data-dry="0"><?php esc_html_e( 'Apply now', 'my-iapsnj' ); ?></button></p>
             <div id="fcrm-phones-result"></div>
@@ -1517,6 +1517,7 @@ class My_IAPSNJ_Admin {
         }
         echo '</select></td>';
         echo '<td><textarea name="' . esc_attr( $n ) . '[options]" rows="3" class="fcrm-field-options" style="width:100%;min-width:140px' . ( $has_options ? '' : ';display:none' ) . '" placeholder="' . esc_attr__( 'One option per line', 'my-iapsnj' ) . '">' . esc_textarea( implode( "\n", (array) $def['options'] ) ) . '</textarea>'
+            . '<label class="fcrm-field-other-wrap"' . ( $def['type'] === 'select' ? '' : ' style="display:none"' ) . '><input type="checkbox" class="fcrm-field-other" name="' . esc_attr( $n ) . '[other]" value="1"' . checked( ! empty( $def['other'] ), true, false ) . '> ' . esc_html__( 'Add "Other (not listed)": the member types the answer', 'my-iapsnj' ) . '</label>'
             . '<span class="fcrm-muted fcrm-field-no-options"' . ( $has_options ? ' style="display:none"' : '' ) . '>—</span></td>';
         echo '<td><input type="text" name="' . esc_attr( $n ) . '[help]" value="' . esc_attr( (string) $def['help'] ) . '" class="regular-text fcrm-field-help" style="width:100%" placeholder="' . esc_attr( $section ? __( 'Optional text under the heading', 'my-iapsnj' ) : '' ) . '" data-placeholder-section="' . esc_attr__( 'Optional text under the heading', 'my-iapsnj' ) . '"></td>';
         echo '<td><select name="' . esc_attr( $n ) . '[crm_target]" class="fcrm-field-target" style="max-width:220px' . ( $section ? ';display:none' : '' ) . '">';

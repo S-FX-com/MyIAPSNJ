@@ -638,6 +638,7 @@ tr.fcrm-sort-helper { background: #fff; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.1
 .fcrm-fields-table .fcrm-field-condition .fcrm-cond-arrow { display: none; }
 .fcrm-fields-table .fcrm-cond-values { display: block; width: 100%; max-width: 240px; margin-top: 4px; font-size: 12px; }
 .fcrm-fields-table .fcrm-cond-hint { display: block; margin-top: 2px; }
+.fcrm-fields-table .fcrm-field-other-wrap { display: block; margin-top: 4px; font-size: 12px; }
 .fcrm-fields-table .fcrm-field-arrows .button-link:disabled { opacity: 0.3; cursor: default; }
 .fcrm-fields-table tr.fcrm-sort-placeholder.fcrm-sort-placeholder-child td { border-left-width: 36px; border-left-color: #8fc39a; }
 .fcrm-products-table input[type="date"] { min-width: 150px; }
