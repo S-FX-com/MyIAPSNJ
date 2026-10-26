@@ -3,7 +3,7 @@
  * Plugin Name:       My IAPSNJ
  * Plugin URI:        https://github.com/S-FX-com/MyIAPSNJ
  * Description:       Membership operations for the IAPSNJ website. FluentCRM is the single source of truth: the membership application is collected on the FluentCart checkout page, FluentCart payments set membership state (Paid-YYYY tags, member_type, paid_through), applications are tracked until they are paid, mailed checks are reconciled in batch, and WordPress user profiles are mirrored one way from the CRM. Includes the PMPro → FluentCRM migration toolkit.
- * Version:           4.18.0
+ * Version:           4.19.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Requires Plugins:  fluent-crm
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'MY_IAPSNJ_VERSION', '4.18.0' );
+define( 'MY_IAPSNJ_VERSION', '4.19.0' );
 define( 'MY_IAPSNJ_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'MY_IAPSNJ_URL',     plugin_dir_url( __FILE__ ) );
 define( 'MY_IAPSNJ_FILE',    __FILE__ );
@@ -235,7 +235,7 @@ final class My_IAPSNJ_Plugin {
      * below; it is independent of MY_IAPSNJ_VERSION so that ordinary releases
      * do not re-run migrations.
      */
-    const DATA_VERSION = 13;
+    const DATA_VERSION = 14;
 
     /**
      * Runs any migration steps this install has not seen yet.
@@ -507,6 +507,30 @@ final class My_IAPSNJ_Plugin {
             if ( $installed < 13 ) {
                 My_IAPSNJ_Checkout_Fields::seed_defaults();
                 My_IAPSNJ_Checkout_Fields::remove_retired_rows();
+            }
+
+            // ---- v14: go-live fixes (client feedback, 4.19) -----------------
+            // * Associate members get their own form; the Employer fields
+            //   leave the Regular form (they are for Associates only).
+            // * FluentCart's "Manual Fallback" goes on so Pay by Check is
+            //   offered on yearly memberships (its gateway gate hides the
+            //   offline method on subscription carts otherwise). FluentCart's
+            //   settings class is used, so that part waits for init.
+            if ( $installed < 14 ) {
+                My_IAPSNJ_Checkout_Fields::seed_defaults();
+                My_IAPSNJ_Checkout_Fields::split_associate_form();
+                $fallback = function () {
+                    try {
+                        My_IAPSNJ_Membership::enable_check_on_subscriptions();
+                    } catch ( \Throwable $e ) {
+                        error_log( 'My IAPSNJ: could not switch on FluentCart\'s subscription Manual Fallback during upgrade: ' . $e->getMessage() );
+                    }
+                };
+                if ( did_action( 'init' ) ) {
+                    $fallback();
+                } else {
+                    add_action( 'init', $fallback, 20 );
+                }
             }
 
             update_option( 'my_iapsnj_data_version', self::DATA_VERSION );

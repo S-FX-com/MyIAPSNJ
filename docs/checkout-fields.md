@@ -77,9 +77,15 @@ Builder**.
   hidden `iapsnj__form` input.
 * Upgrade (data version 10, 4.7): the single field list and the heading /
   intro settings become the form **Membership application**, used by both
-  levels, so nothing changes on the checkout until an admin edits the forms.
-  To give Associates their own form: Duplicate → rename → hide
-  Department / Rank, require Employer → assign it to Associate.
+  levels. **Data version 14 (4.19)** splits it: while both levels share one
+  form, it is copied as **Associate Member Application** and assigned to
+  Associate (the shared form, if still carrying its seeded name, becomes
+  **Regular Member Application**), and the Employer rows (Employer /
+  company name, Job title, Type of business) are hidden on the Regular form
+  (client feedback: those fields are for Associate members only). The
+  Associate form keeps every row as it was; whether Associates must give a
+  Department / Rank is still the client's call (edit the Associate form). A
+  fresh install runs the same step, so production starts with both forms.
 
 ### Editing a form
 
@@ -166,7 +172,10 @@ Field types: text, paragraph, dropdown, radio, date, checkbox, section heading.
 
 A dropdown can end with **Other (not listed)** (Checkout Builder: the
 checkbox under its options). Picking it opens a text box; the typed answer
-is what is stored, checked only for being filled in. A contact whose saved
+is what is stored, checked only for being filled in. Since 4.19 a link under
+the dropdown, *Department not listed? Add it here*, picks "Other" and opens
+the text box (client feedback on 4.18: the option at the end of a long list
+went unseen); the link hides while "Other" is picked. A contact whose saved
 answer is not in the list sees "Other" picked with the answer filled in. The
 order log line *answer not in the list* names it so an admin can add it to
 the dropdown. Department and Rank have it on by default (4.18).
@@ -183,7 +192,7 @@ stay in FluentCRM.
 |---|---|---|---|---|
 | `department` | dropdown | on, required | custom `department` | Options imported (see below); **no "N/A"**. 4.18: ends with **Other (not listed)**, which opens a text box; the typed name is stored on the contact as typed and the order log asks the admin to add it to the list. Associate treatment still to confirm with the client (make it optional, or relabel "Employer / affiliation"). |
 | `rank_level` | dropdown | on, required | custom `rank_level` | Options imported; built-in NJ rank list as last resort. 4.18: **Other (not listed)** like Department. |
-| `retired` | checkbox "I am retired" | on, optional | not stored | 4.17: ticked on the checkout when the contact has a retirement date. 4.18: on a **Lifetime** cart it is shown and **required** whatever the form says (Lifetime is for retired law enforcement only); Regular / Associate keep the form's setting |
+| `retired` | checkbox "I am retired" | on, optional | not stored | 4.17: ticked on the checkout when the contact had a retirement date; **4.19: never pre-ticked** (client feedback: a Regular application opened ticked) — the member ticks it and the date on file then shows prefilled; the answers kept in sessionStorage are keyed by form and member type so a tick on a Lifetime application does not come back on a Regular one. 4.18: on a **Lifetime** cart it is shown and **required** whatever the form says (Lifetime is for retired law enforcement only); Regular / Associate keep the form's setting |
 | `retirement_date` | date | on, required when shown | custom `retirement_date` | 4.17: conditional child of `retired` (shown only once the box is ticked); not after today |
 | `union_affiliation` | text | on, optional | custom `union_affiliation` | |
 | `union_position` | text | on, optional | custom `union_position` | |
@@ -331,6 +340,16 @@ does not fire and the Welcome automation is skipped (Paid history exists).
 - [ ] Application section visible above the payment methods; required marks
 - [ ] Regular / Lifetime product shows the Regular form, Associate product
       the Associate form (heading, fields, required marks per form)
+- [ ] Regular form: no Employer / Job title / Type of business; Associate
+      form shows them (4.19)
+- [ ] "I am retired" opens unticked on a Regular application for a contact
+      with a retirement date on file; ticking it shows the date prefilled
+      (4.19)
+- [ ] Department / Rank: "… not listed? Add it here" under the dropdown opens
+      the text box; the typed answer is stored and logged on the order (4.19)
+- [ ] Regular (yearly) checkout lists Pay by Check second, with the note;
+      Health check row "Pay by Check offered on yearly memberships" is green
+      (4.19)
 - [ ] Event or merchandise product alone → no application section; order
       goes through with FluentCart's fields only
 - [ ] Duplicate a form → copy opens in the editor; deleting a form in use is

@@ -43,6 +43,18 @@ them. Renewal reminder emails: FluentCart → Settings → Emails → Reminders.
 Read the "known gap with subscriptions" note in `docs/crm-schema.md` before
 choosing subscription billing.
 
+**Pay by Check on yearly memberships (4.19).** FluentCart's subscription
+gateway gate (`SubscriptionGatewayGate`, in the 1.6.5 and 2.x builds) hides
+every gateway without native subscription support — the offline method,
+that is Pay by Check — on a cart holding a subscription while billing is
+*gateway managed* (the default) and **Settings → Subscriptions → Manual
+Fallback** is off. Nothing on the page says so (FluentCart's admin notice is
+commented out). The plugin switches Manual Fallback on once at upgrade (data
+version 14) and the Health check row *Pay by Check offered on yearly
+memberships* warns if it is off again. A check then converts the
+subscription to store-billed (manual) renewal, which is what the plugin
+expects. Lifetime is one-time and was never affected.
+
 ## Payments
 
 * **Stripe** and **PayPal** in **test mode** on staging. Live credentials never
