@@ -82,6 +82,9 @@ class My_IAPSNJ_Checkout_Fields {
     /** @var bool A checkout page was rendered: print the phone formatter. */
     private bool $phone_script = false;
 
+    /** @var string "form id:member type" of the printed application: scopes the answers kept in sessionStorage. */
+    private string $storage_scope = '';
+
     /** @var array<string,array<string,array>> per-request cache: form id => parsed fields */
     private static array $config_cache = [];
 
@@ -164,8 +167,9 @@ class My_IAPSNJ_Checkout_Fields {
             'rank_level'      => $custom( __( 'Rank', 'my-iapsnj' ), '', 'select', My_IAPSNJ_Schema::FIELD_RANK, true, true ) + [ 'other' => true ],
             // The date is asked only of a member who ticks "I am retired"
             // (4.17, client request: an always-shown "if retired" date looked
-            // mandatory). The box itself is not stored: it is ticked again
-            // from the contact's retirement date on a renewal.
+            // mandatory). The box itself is not stored and is never
+            // pre-ticked (4.19, client request): the member ticks it, and the
+            // date on file then shows prefilled.
             'retired'         => [
                 'label'    => __( 'I am retired', 'my-iapsnj' ),
                 'help'     => '',
@@ -1741,6 +1745,64 @@ class My_IAPSNJ_Checkout_Fields {
         return $removed;
     }
 
+    /**
+     * Built-in fields that belong to the Associate application only (4.19,
+     * client request: the Employer fields are for Associate members only).
+     *
+     * @return string[]
+     */
+    public static function associate_only_fields(): array {
+        return [ 'company_name', 'company_title', 'company_type' ];
+    }
+
+    /**
+     * Give Associate members their own checkout form (data migration v14):
+     * while Regular and Associate share one form, that form is copied as
+     * "Associate Member Application" and the copy assigned to Associate (the
+     * shared form, still carrying its seeded name, becomes "Regular Member
+     * Application"). The Employer rows are then hidden on the Regular form;
+     * the Associate form keeps them as they are. Forms an admin already
+     * separated only get the Regular rows hidden. Idempotent.
+     *
+     * @return bool whether anything changed
+     */
+    public static function split_associate_form(): bool {
+        $store    = self::store();
+        $regular  = (string) $store['assign'][ My_IAPSNJ_Schema::TYPE_REGULAR ];
+        $assoc    = (string) $store['assign'][ My_IAPSNJ_Schema::TYPE_ASSOCIATE ];
+        $changed  = false;
+        $seeded   = [ 'Membership Application', 'Membership application', __( 'Membership Application', 'my-iapsnj' ) ];
+        if ( $regular === $assoc ) {
+            $assoc = self::create_form( __( 'Associate Member Application', 'my-iapsnj' ), $regular );
+            $store = self::store();
+            $store['assign'][ My_IAPSNJ_Schema::TYPE_ASSOCIATE ] = $assoc;
+            if ( in_array( (string) $store['forms'][ $regular ]['name'], $seeded, true ) ) {
+                $store['forms'][ $regular ]['name'] = __( 'Regular Member Application', 'my-iapsnj' );
+            }
+            $changed = true;
+        }
+        // Shown as parse_rows() reads them (a 4.1-shape row without 'enabled'
+        // shows the built-in default), not as the raw row says.
+        $shown = self::parse_rows( (array) ( $store['forms'][ $regular ]['fields'] ?? [] ) );
+        $rows  = (array) ( $store['forms'][ $regular ]['fields'] ?? [] );
+        foreach ( $rows as $k => $row ) {
+            if ( ! is_array( $row ) ) {
+                continue;
+            }
+            $key = sanitize_key( (string) ( $row['key'] ?? $k ) );
+            if ( in_array( $key, self::associate_only_fields(), true ) && ! empty( $shown[ $key ]['enabled'] ) ) {
+                $rows[ $k ]['enabled']  = false;
+                $rows[ $k ]['required'] = false;
+                $changed                = true;
+            }
+        }
+        if ( $changed ) {
+            $store['forms'][ $regular ]['fields'] = $rows;
+            self::save_store( $store );
+        }
+        return $changed;
+    }
+
     public static function input_name( string $key ): string {
         return self::PREFIX . $key;
     }
@@ -1880,7 +1942,8 @@ class My_IAPSNJ_Checkout_Fields {
         if ( ! self::input_fields( $form_id, $type ) ) {
             return; // headings alone are not an application
         }
-        $this->rendered = true;
+        $this->rendered      = true;
+        $this->storage_scope = $form_id . ':' . $type;
         wp_enqueue_style( 'my-iapsnj-checkout', MY_IAPSNJ_URL . 'public/css/checkout-fields.css', [], MY_IAPSNJ_VERSION );
 
         $values   = $this->prefill_values( $args, $form_id, $type );
@@ -2089,6 +2152,11 @@ class My_IAPSNJ_Checkout_Fields {
                 if ( $other ) {
                     // Shown and enabled by the footer script while "Other" is picked.
                     $on = $is_other && $shown;
+                    // A visible way in (4.19, client: "you never made the
+                    // change" — the option at the end of a long list went
+                    // unseen): the link picks "Other" and opens the text box.
+                    echo '<p class="my-iapsnj-other-link-wrap" data-my-iapsnj-other-link="' . esc_attr( $name ) . '"' . ( $on ? ' style="display:none"' : '' ) . '>'
+                        . '<a href="#" class="my-iapsnj-other-link">' . esc_html( sprintf( /* translators: field label, e.g. Department */ __( '%s not listed? Add it here', 'my-iapsnj' ), $def['label'] ) ) . '</a></p>';
                     echo '<div class="my-iapsnj-other" data-my-iapsnj-other-for="' . esc_attr( $name ) . '"' . ( $on ? '' : ' style="display:none"' ) . '>';
                     echo '<label class="fct_input_label" for="' . esc_attr( $id . '-other' ) . '">' . esc_html( sprintf( /* translators: field label, e.g. Department */ __( 'Your %s (not listed)', 'my-iapsnj' ), $def['label'] ) ) . $star . '</label>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- $star is static markup
                     echo '<input type="text" class="fct-input" id="' . esc_attr( $id . '-other' ) . '" name="' . esc_attr( $name . self::OTHER_SUFFIX ) . '" value="' . esc_attr( $is_other ? $value : '' ) . '" maxlength="120" autocomplete="off"' . ( $required ? ' required aria-required="true"' : '' ) . ( $on ? '' : ' disabled' ) . '>';
@@ -2328,11 +2396,10 @@ class My_IAPSNJ_Checkout_Fields {
             }
         }
 
-        // "I am retired" is not stored: a member with a retirement date on
-        // file sees it ticked, so the date shows prefilled.
-        if ( isset( $config['retired'] ) && ! isset( $values['retired'] ) && (string) ( $values['retirement_date'] ?? '' ) !== '' ) {
-            $values['retired'] = 'yes';
-        }
+        // "I am retired" is never pre-ticked (4.19, client request: a Regular
+        // application opened with the box ticked). The retirement date on
+        // file is still prefilled, shown once the member ticks the box.
+        unset( $values['retired'] );
 
         foreach ( $values as $key => $v ) {
             $values[ $key ] = self::sanitize_value( $config[ $key ], $v );
@@ -2357,7 +2424,11 @@ class My_IAPSNJ_Checkout_Fields {
             return;
         }
         $prefix = wp_json_encode( self::PREFIX );
-        echo '<script>(function(){var P=' . $prefix . ',K="my_iapsnj_application";' // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- JSON-encoded constant
+        // The saved answers are keyed by form and member type (4.19): what a
+        // member ticked on a Lifetime application (where "I am retired" is
+        // required) must not come back ticked on a Regular one.
+        $key = wp_json_encode( 'my_iapsnj_application:' . $this->storage_scope );
+        echo '<script>(function(){var P=' . $prefix . ',K=' . $key . ',O=' . wp_json_encode( self::OTHER_VALUE ) . ';' // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- JSON-encoded constants
             . 'function all(){return document.querySelectorAll(\'[name^="\'+P+\'"]\');}'
             . 'function read(){try{return JSON.parse(sessionStorage.getItem(K)||"{}")}catch(e){return {}}}'
             . 'function save(){var o=read();all().forEach(function(i){if(i.type==="radio"){if(i.checked){o[i.name]=i.value;}}else{o[i.name]=i.type==="checkbox"?(i.checked?"yes":""):i.value;}});try{sessionStorage.setItem(K,JSON.stringify(o))}catch(e){}}'
@@ -2365,10 +2436,13 @@ class My_IAPSNJ_Checkout_Fields {
             . 'function val(n){var v="";document.querySelectorAll(\'[name="\'+n+\'"]\').forEach(function(i){if(i.type==="checkbox"){if(i.checked){v="yes";}}else if(i.type==="radio"){if(i.checked){v=i.value;}}else{v=String(i.value||"").trim();}});return v;}'
             . 'function cond(){document.querySelectorAll("[data-my-iapsnj-parent]").forEach(function(w){var s=[];try{s=JSON.parse(w.getAttribute("data-my-iapsnj-show-when")||"[]");}catch(e){}var v=val(w.getAttribute("data-my-iapsnj-parent")),on=v!==""&&(!s.length||s.indexOf(v)>-1);w.style.display=on?"":"none";w.querySelectorAll("input,select,textarea").forEach(function(i){i.disabled=!on;});});'
             // "Other (not listed)": the text box under a dropdown is shown and enabled only while it is picked.
-            . 'document.querySelectorAll("[data-my-iapsnj-other-for]").forEach(function(w){var s=document.querySelector(\'select[name="\'+w.getAttribute("data-my-iapsnj-other-for")+\'"]\'),on=!!s&&!s.disabled&&s.value===' . wp_json_encode( self::OTHER_VALUE ) . ';w.style.display=on?"":"none";w.querySelectorAll("input").forEach(function(i){i.disabled=!on;});});' // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- JSON-encoded constant
+            // The "not listed? Add it here" link shows while the list is in use.
+            . 'document.querySelectorAll("[data-my-iapsnj-other-for]").forEach(function(w){var n=w.getAttribute("data-my-iapsnj-other-for"),s=document.querySelector(\'select[name="\'+n+\'"]\'),on=!!s&&!s.disabled&&s.value===O;w.style.display=on?"":"none";w.querySelectorAll("input").forEach(function(i){i.disabled=!on;});var l=document.querySelector(\'[data-my-iapsnj-other-link="\'+n+\'"]\');if(l){l.style.display=on||!s||s.disabled?"none":"";}});'
             . 'document.querySelectorAll("[data-my-iapsnj-section]").forEach(function(g){var any=false;g.querySelectorAll(".my-iapsnj-field").forEach(function(f){if(f.style.display!=="none"){any=true;}});g.style.display=any?"":"none";});}'
             . 'function watch(e){if(e.target&&e.target.name&&e.target.name.indexOf(P)===0){save();cond();}}'
             . 'document.addEventListener("change",watch,true);document.addEventListener("input",watch,true);'
+            // "Department not listed? Add it here": pick "Other" and open the text box.
+            . 'document.addEventListener("click",function(e){var a=e.target&&e.target.closest?e.target.closest(".my-iapsnj-other-link"):null;if(!a){return;}e.preventDefault();var w=a.closest("[data-my-iapsnj-other-link]"),n=w?w.getAttribute("data-my-iapsnj-other-link"):"",s=n?document.querySelector(\'select[name="\'+n+\'"]\'):null;if(!s){return;}s.value=O;save();cond();var i=document.querySelector(\'[data-my-iapsnj-other-for="\'+n+\'"] input\');if(i){i.focus();}},true);'
             . 'restore();cond();var n=0,t=setInterval(function(){restore();cond();if(++n>120){clearInterval(t);}},1000);'
             . '})();</script>' . "\n";
     }

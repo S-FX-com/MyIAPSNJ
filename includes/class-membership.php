@@ -1005,6 +1005,56 @@ class My_IAPSNJ_Membership {
     }
 
     /**
+     * Does FluentCart offer Pay by Check on a yearly-membership checkout?
+     * Its subscription gateway gate (SubscriptionGatewayGate, FluentCart
+     * 1.6.5 builds onwards) hides every gateway without native subscription
+     * support — the offline method among them — on a cart holding a
+     * subscription, unless the store setting "Manual Fallback" is on (or
+     * billing is store-managed, where the offline method is always
+     * admitted). Null when FluentCart has no such gate (older builds).
+     */
+    public static function check_offered_on_subscriptions(): ?bool {
+        if ( ! class_exists( '\FluentCart\Api\StoreSettings' ) ) {
+            return null;
+        }
+        if ( ! class_exists( '\FluentCart\App\Modules\Subscriptions\Services\SubscriptionGatewayGate' ) ) {
+            return null;
+        }
+        try {
+            $settings = new \FluentCart\Api\StoreSettings();
+            if ( (string) $settings->get( 'subscription_management_mode', 'gateway_managed' ) === 'store_managed' ) {
+                return true;
+            }
+            return (string) $settings->get( 'subscription_manual_fallback', 'no' ) === 'yes';
+        } catch ( \Throwable $e ) {
+            return null;
+        }
+    }
+
+    /**
+     * Switch FluentCart's "Manual Fallback" on so Pay by Check is offered on
+     * yearly memberships (data migration v14; 4.19, client: "the pay by
+     * check option is missing"). A check converts the subscription to
+     * store-billed (manual) renewal, which is what the plugin expects. Nothing
+     * is written when the setting is already on, billing is store-managed,
+     * or FluentCart has no such setting. Idempotent.
+     *
+     * @return bool whether the setting was changed
+     */
+    public static function enable_check_on_subscriptions(): bool {
+        if ( self::check_offered_on_subscriptions() !== false ) {
+            return false;
+        }
+        try {
+            ( new \FluentCart\Api\StoreSettings() )->set( 'subscription_manual_fallback', 'yes' );
+            return true;
+        } catch ( \Throwable $e ) {
+            error_log( 'My IAPSNJ: could not switch on FluentCart\'s subscription Manual Fallback: ' . $e->getMessage() );
+            return false;
+        }
+    }
+
+    /**
      * Current offline method label/instructions (for the settings screen).
      *
      * @return array{label:string,instructions:string,active:bool,configured:bool}

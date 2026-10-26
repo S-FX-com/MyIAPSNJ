@@ -486,6 +486,7 @@ class My_IAPSNJ_Admin {
             [ (int) $settings['renewal_variation_regular'] > 0, __( 'Renewal product set for Regular members', 'my-iapsnj' ), admin_url( 'admin.php?page=my-iapsnj-products#join-renew' ) ],
             [ (int) $settings['renewal_variation_associate'] > 0, __( 'Renewal product set for Associate members', 'my-iapsnj' ), admin_url( 'admin.php?page=my-iapsnj-products#join-renew' ) ],
             [ $offline['configured'] && $offline['active'] && stripos( $offline['label'], 'check' ) !== false, sprintf( __( 'Offline payment method active and labelled "%s"', 'my-iapsnj' ), $offline['label'] !== '' ? $offline['label'] : 'Cash' ), admin_url( 'admin.php?page=my-iapsnj-checkout#pay-by-check' ) ],
+            [ My_IAPSNJ_Membership::check_offered_on_subscriptions() !== false, __( 'Pay by Check offered on yearly memberships (FluentCart → Settings → Subscriptions: Manual Fallback on; the plugin switches it on at upgrade)', 'my-iapsnj' ), admin_url( 'admin.php?page=my-iapsnj-checkout#pay-by-check' ) ],
             [ ! empty( $settings['notify_new_member'] ) && ! empty( $settings['notify_emails'] ), __( 'New-member notification recipients set', 'my-iapsnj' ), admin_url( 'admin.php?page=my-iapsnj-sync#notifications' ) ],
             [ My_IAPSNJ_Applications::table_exists(), __( 'Applications table present', 'my-iapsnj' ), '' ],
             [ ! My_IAPSNJ_Migration::tables_exist() || ! function_exists( 'pmpro_getMembershipLevelForUser' ), __( 'Paid Memberships Pro deactivated (tables may remain)', 'my-iapsnj' ), '' ],
@@ -1258,7 +1259,7 @@ class My_IAPSNJ_Admin {
                 </tbody>
             </table>
             <p style="margin-top:10px"><button type="button" id="fcrm-form-create" class="button">+ <?php esc_html_e( 'New form (built-in fields)', 'my-iapsnj' ); ?></button></p>
-            <p class="description"><?php esc_html_e( 'Tip: to give Associate members their own form, Duplicate the current one, edit the copy (e.g. hide Department / Rank, require Employer), then assign it to Associate above.', 'my-iapsnj' ); ?></p>
+            <p class="description"><?php esc_html_e( 'Regular (also Lifetime) and Associate each have their own form. The Employer fields (Employer / company name, Job title, Type of business) are for Associate members: hidden on the Regular form since 4.19, shown on the Associate form. Whether Associates must give a Department / Rank is still the client\'s call: edit the Associate form here.', 'my-iapsnj' ); ?></p>
         </div>
 
         <div class="fcrm-section" id="checkout-settings">
@@ -1307,6 +1308,12 @@ class My_IAPSNJ_Admin {
                 <p><input type="text" id="fcrm-offline-label" class="regular-text" value="<?php echo esc_attr( $offline['label'] !== '' && stripos( $offline['label'], 'cash' ) === false ? $offline['label'] : 'Pay by Check' ); ?>"></p>
                 <p><textarea id="fcrm-offline-instructions" class="large-text" rows="4"><?php echo esc_textarea( $offline['instructions'] !== '' ? $offline['instructions'] : My_IAPSNJ_Membership::default_offline_instructions() ); ?></textarea></p>
                 <button id="fcrm-apply-offline-labels" class="button" <?php disabled( ! $offline['configured'] ); ?>><?php esc_html_e( 'Apply label & instructions', 'my-iapsnj' ); ?></button>
+                <?php $on_subs = My_IAPSNJ_Membership::check_offered_on_subscriptions(); ?>
+                <?php if ( $on_subs !== null ) : ?>
+                    <p class="description" style="margin-top:10px"><?php echo esc_html( $on_subs
+                        ? __( 'Yearly memberships: FluentCart offers Pay by Check on them (Settings → Subscriptions → Manual Fallback is on, or billing is store-managed).', 'my-iapsnj' )
+                        : __( 'Yearly memberships: FluentCart is HIDING Pay by Check on them. Under gateway-managed billing it lists only gateways with native subscription support unless Manual Fallback is on. Switch on FluentCart → Settings → Subscriptions → Manual Fallback (the plugin does this once at upgrade).', 'my-iapsnj' ) ); ?></p>
+                <?php endif; ?>
             <?php endif; ?>
         </div>
         </div>
@@ -1517,7 +1524,7 @@ class My_IAPSNJ_Admin {
         }
         echo '</select></td>';
         echo '<td><textarea name="' . esc_attr( $n ) . '[options]" rows="3" class="fcrm-field-options" style="width:100%;min-width:140px' . ( $has_options ? '' : ';display:none' ) . '" placeholder="' . esc_attr__( 'One option per line', 'my-iapsnj' ) . '">' . esc_textarea( implode( "\n", (array) $def['options'] ) ) . '</textarea>'
-            . '<label class="fcrm-field-other-wrap"' . ( $def['type'] === 'select' ? '' : ' style="display:none"' ) . '><input type="checkbox" class="fcrm-field-other" name="' . esc_attr( $n ) . '[other]" value="1"' . checked( ! empty( $def['other'] ), true, false ) . '> ' . esc_html__( 'Add "Other (not listed)": the member types the answer', 'my-iapsnj' ) . '</label>'
+            . '<label class="fcrm-field-other-wrap"' . ( $def['type'] === 'select' ? '' : ' style="display:none"' ) . '><input type="checkbox" class="fcrm-field-other" name="' . esc_attr( $n ) . '[other]" value="1"' . checked( ! empty( $def['other'] ), true, false ) . '> ' . esc_html__( 'Add "Other (not listed)" with a "not listed? Add it here" link under the dropdown: the member types the answer', 'my-iapsnj' ) . '</label>'
             . '<span class="fcrm-muted fcrm-field-no-options"' . ( $has_options ? ' style="display:none"' : '' ) . '>—</span></td>';
         echo '<td><input type="text" name="' . esc_attr( $n ) . '[help]" value="' . esc_attr( (string) $def['help'] ) . '" class="regular-text fcrm-field-help" style="width:100%" placeholder="' . esc_attr( $section ? __( 'Optional text under the heading', 'my-iapsnj' ) : '' ) . '" data-placeholder-section="' . esc_attr__( 'Optional text under the heading', 'my-iapsnj' ) . '"></td>';
         echo '<td><select name="' . esc_attr( $n ) . '[crm_target]" class="fcrm-field-target" style="max-width:220px' . ( $section ? ';display:none' : '' ) . '">';

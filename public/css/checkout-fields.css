@@ -19,9 +19,20 @@
     font-weight: 600;
     line-height: 1.35;
 }
-/* Text box under a dropdown answered "Other (not listed)". */
+/* Text box under a dropdown answered "Other (not listed)", and the
+   "Department not listed? Add it here" link that opens it. */
 .my-iapsnj-application .my-iapsnj-other {
     margin-top: 10px;
+}
+.my-iapsnj-application .my-iapsnj-other-link-wrap {
+    margin: 6px 0 0;
+    font-size: 13px;
+    line-height: 1.4;
+}
+.my-iapsnj-application .my-iapsnj-other-link {
+    font-weight: 600;
+    text-decoration: underline;
+    cursor: pointer;
 }
 /* Section headings: bold, between the form title (22px) and the field
    labels (FluentCart: 14px), with room above so each group reads as its
