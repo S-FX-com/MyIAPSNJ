@@ -201,7 +201,15 @@ Legacy slugs (`fcrm-wp-sync*`, `my-iapsnj-mismatches`, `my-iapsnj-pmp`)
 redirect. My IAPSNJ sits in the admin sidebar just below FluentHub (or below
 Dashboard when FluentHub is not installed); no other menu is moved.
 
-## Shortcode
+## Shortcodes
+
+`[iapsnj_change_password button="Update Password"]` — "Change My Password" form
+for the logged-in member: new password typed twice, a strength meter (WordPress's
+zxcvbn), a show / hide eye on each field. Saves through AJAX
+(`wp_ajax_my_iapsnj_change_password`, members only, nonce-checked), requires 8+
+characters and a password different from the current one, keeps the member
+signed in on this device and sends WordPress's "password changed" email.
+Visitors see a log-in link. WordPress account only; nothing is written to the CRM.
 
 `[iapsnj_renew_link text="Renew my membership" join_text="Join IAPSNJ" class="button"]`
 — renewal checkout link for the logged-in member (product per member type in
