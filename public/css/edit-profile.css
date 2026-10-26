@@ -1,0 +1,144 @@
+/* My IAPSNJ – [iapsnj_edit_profile]. Builds on checkout-fields.css (sections,
+   "Other (not listed)", conditional fields) and gives the inputs the look
+   FluentCart's stylesheet gives them on the checkout. */
+.my-iapsnj-ep {
+    --my-iapsnj-ep-accent: #0c3d54;
+    --my-iapsnj-ep-border: #dadbdd;
+    --my-iapsnj-ep-error: #c0392b;
+    --my-iapsnj-ep-ok: #2e7d32;
+    max-width: 1170px;
+    margin: 0 auto;
+}
+.my-iapsnj-ep *,
+.my-iapsnj-ep *::before,
+.my-iapsnj-ep *::after {
+    box-sizing: border-box;
+}
+/* Two columns of fields; headings, long answers and tick boxes span both. */
+.my-iapsnj-ep .my-iapsnj-section {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 16px;
+    align-items: start;
+}
+.my-iapsnj-ep .my-iapsnj-section-title,
+.my-iapsnj-ep .my-iapsnj-section-intro,
+.my-iapsnj-ep .my-iapsnj-field-textarea,
+.my-iapsnj-ep .my-iapsnj-field-checkbox,
+.my-iapsnj-ep .my-iapsnj-field-radio {
+    grid-column: 1 / -1;
+}
+.my-iapsnj-ep .my-iapsnj-section .my-iapsnj-field {
+    margin: 12px 0 8px;
+}
+.my-iapsnj-ep .my-iapsnj-other-link {
+    color: var(--my-iapsnj-ep-accent);
+}
+/* A conditional field is a normal cell here, not an indented child. */
+.my-iapsnj-ep .my-iapsnj-conditional {
+    margin-left: 0;
+    padding-left: 0;
+    border-left: 0;
+}
+.my-iapsnj-ep .my-iapsnj-field > label,
+.my-iapsnj-ep .my-iapsnj-field .fct_input_label,
+.my-iapsnj-ep .my-iapsnj-radio-group legend {
+    display: block;
+    margin: 0 0 6px;
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 1.4;
+}
+.my-iapsnj-ep .my-iapsnj-field > label.my-iapsnj-checkbox {
+    display: flex;
+}
+.my-iapsnj-ep .fct-input,
+.my-iapsnj-ep select.fct-input {
+    display: block;
+    width: 100%;
+    height: 42px;
+    margin: 0;
+    padding: 0 14px;
+    border: 1px solid var(--my-iapsnj-ep-border);
+    border-radius: 8px;
+    background-color: #fff;
+    box-shadow: none;
+    font-size: 16px;
+    color: inherit;
+}
+.my-iapsnj-ep textarea.fct-input {
+    height: auto;
+    min-height: 96px;
+    padding: 10px 14px;
+}
+.my-iapsnj-ep input[type="checkbox"].fct-input,
+.my-iapsnj-ep input[type="radio"].fct-input {
+    display: inline-block;
+    width: auto;
+    height: auto;
+}
+.my-iapsnj-ep .fct-input:focus {
+    outline: none;
+    border-color: var(--my-iapsnj-ep-accent);
+    box-shadow: 0 0 0 1px var(--my-iapsnj-ep-accent);
+}
+.my-iapsnj-ep input[readonly] {
+    background: #f4f5f6;
+    color: #555;
+}
+.my-iapsnj-ep [aria-invalid="true"] {
+    border-color: var(--my-iapsnj-ep-error);
+}
+.my-iapsnj-ep .my-iapsnj-ep-error {
+    margin: 6px 0 0;
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--my-iapsnj-ep-error);
+}
+.my-iapsnj-ep .my-iapsnj-ep-submit {
+    display: inline-block;
+    margin-top: 24px;
+    padding: 10px 21px;
+    border: 1px solid var(--my-iapsnj-ep-accent);
+    border-radius: 6px;
+    background: var(--my-iapsnj-ep-accent);
+    box-shadow: none;
+    font-size: 16px;
+    font-weight: 400;
+    line-height: 1.4;
+    color: #fff;
+    cursor: pointer;
+}
+.my-iapsnj-ep .my-iapsnj-ep-submit:hover,
+.my-iapsnj-ep .my-iapsnj-ep-submit:focus-visible {
+    background: #092e40;
+    border-color: #092e40;
+    color: #fff;
+}
+.my-iapsnj-ep .my-iapsnj-ep-submit:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+.my-iapsnj-ep .my-iapsnj-ep-message {
+    margin: 0 0 16px;
+    padding: 10px 14px;
+    border-left: 4px solid var(--my-iapsnj-ep-error);
+    background: #fdf3f2;
+    font-size: 14px;
+    line-height: 1.4;
+}
+.my-iapsnj-ep .my-iapsnj-ep-message[hidden] {
+    display: none;
+}
+.my-iapsnj-ep .my-iapsnj-ep-message.is-success {
+    border-left-color: var(--my-iapsnj-ep-ok);
+    background: #f0f7f0;
+}
+.my-iapsnj-ep-notice {
+    margin: 0;
+}
+@media (max-width: 600px) {
+    .my-iapsnj-ep .my-iapsnj-section {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
