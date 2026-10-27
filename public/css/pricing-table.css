@@ -1,0 +1,116 @@
+/* ===== IAPSNJ Pricing Table (sfx/pricing-table) — tweak the variables below ===== */
+.p29{
+  --p29-fs:16px;                 /* base text size; everything scales from this */
+  --p29-navy:#0f1730;            /* check icons */
+  --p29-brand:#b8292d;           /* pill dot */
+  --p29-btn-bg:#3F51B5;          /* button background */
+  --p29-btn-bg-hover:#303F9F;    /* button hover/focus background */
+  --p29-btn-text:#fff;
+  --p29-card-bg:#fff;
+  --p29-panel-bg:#f4f5f7;        /* top panel behind price/button */
+  --p29-line:rgba(15,23,42,.12);
+  --p29-radius:20px;
+  --p29-radius-inner:14px;
+  --p29-gap:28px;                /* space between cards */
+  --p29-pad:36px;                /* card inner padding */
+  display:block;width:100%;font-family:inherit;font-size:var(--p29-fs);line-height:1.5;color:inherit;
+}
+.p29,.p29 *{box-sizing:border-box}
+.p29 :where(h2,h3,p,ul,li){margin:0;padding:0}
+.p29 :where(ul){list-style:none}
+
+/* Grid: equal columns, auto-wrapping */
+.p29 .p29__grid{
+  display:grid;gap:var(--p29-gap);width:100%;align-items:stretch;
+  grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));
+}
+.p29 .p29__item{display:flex;min-width:0}
+.p29 .p29__item>*{width:100%}
+
+/* Card */
+.p29 .p29-card{
+  display:flex;flex-direction:column;overflow:hidden;
+  background:var(--p29-card-bg);color:#1f2937;
+  border:1px solid var(--p29-line);border-radius:var(--p29-radius);
+  box-shadow:0 1px 2px rgba(15,23,42,.05),0 12px 28px -14px rgba(15,23,42,.18);
+  transition:box-shadow .2s ease;
+}
+.p29 .p29-card:hover{box-shadow:0 2px 4px rgba(15,23,42,.06),0 18px 34px -16px rgba(15,23,42,.25)}
+
+/* Top panel */
+.p29 .p29-card__top{
+  display:flex;flex-direction:column;flex:1 0 auto;gap:24px;
+  margin:10px;padding:calc(var(--p29-pad) - 10px);
+  background:var(--p29-panel-bg);border-radius:var(--p29-radius-inner);
+}
+.p29 .p29-card__top-inner{display:flex;flex-direction:column;gap:14px}
+
+/* Pill */
+.p29 .p29-pill{
+  display:inline-flex;align-self:flex-start;align-items:center;gap:.6em;
+  padding:.5em 1.1em;border-radius:999px;background:#fff;border:1px solid var(--p29-line);
+  font-size:.875em;font-weight:600;letter-spacing:.01em;line-height:1.2;color:#374151;
+}
+.p29 .p29-pill::before{content:"";flex:none;width:.6em;height:.6em;border-radius:50%;background:var(--p29-brand)}
+
+/* Text */
+.p29 .p29-card__title{font-size:1.875em;font-weight:700;line-height:1.2;letter-spacing:0;text-transform:none;color:#111827}
+.p29 .p29-card__desc{font-size:1.0625em;line-height:1.5;color:#4b5563}
+
+/* Price */
+.p29 .p29-price{display:flex;align-items:baseline;gap:.5em;margin-top:6px}
+.p29 .p29-price__amount{font-size:3.5em;font-weight:800;line-height:1;letter-spacing:-.02em;color:#111827}
+.p29 .p29-price__suffix{font-size:1em;font-weight:500;color:#6b7280}
+
+/* Button: square, solid color, explicit states so theme hover styles can't interfere.
+   margin-top:auto pins it to the bottom of the panel so buttons line up across cards. */
+.p29 .p29-btn{margin:auto 0 0;width:100%}
+.p29 .p29-btn .wp-block-button__link,
+.p29 .p29-btn .wp-block-button__link:is(:visited,:active){
+  display:flex;align-items:center;justify-content:center;gap:.6em;width:100%;
+  padding:1.05em 1.5em;border:0;border-radius:0;box-shadow:none;
+  background:var(--p29-btn-bg);color:var(--p29-btn-text);
+  font-size:1.0625em;font-weight:600;line-height:1.2;text-align:center;text-decoration:none;cursor:pointer;
+  transition:background-color .15s ease;
+}
+.p29 .p29-btn .wp-block-button__link:is(:hover,:focus,:focus-visible){
+  background:var(--p29-btn-bg-hover);color:var(--p29-btn-text);text-decoration:none;
+}
+.p29 .p29-btn .wp-block-button__link:focus-visible{outline:2px solid var(--p29-btn-bg-hover);outline-offset:2px}
+.p29 .p29-btn .wp-block-button__link::after{content:"\2192";font-size:1.15em;line-height:1;color:inherit;transition:transform .15s ease}
+.p29 .p29-btn .wp-block-button__link:hover::after{transform:translateX(3px)}
+
+/* Second option under the button (optional). Reserves two lines on every card
+   that has the row, so the cards below stay level whether or not a plan uses it. */
+.p29 .p29-alt{
+  margin:-12px 0 0;min-height:2.8em;
+  font-size:.875em;line-height:1.4;text-align:center;color:#4b5563;
+}
+.p29 .p29-alt a{color:var(--p29-btn-bg);font-weight:600;text-decoration:underline}
+.p29 .p29-alt a:is(:hover,:focus-visible){color:var(--p29-btn-bg-hover)}
+
+/* Features */
+.p29 .p29-features{display:flex;flex-direction:column;gap:20px;padding:14px var(--p29-pad) var(--p29-pad) var(--p29-pad)}
+.p29 .p29-features li{display:flex;align-items:flex-start;gap:14px;font-size:1.0625em;line-height:1.4;color:#1f2937}
+.p29 .p29-features li::before{
+  content:"";flex:none;width:1.6em;height:1.6em;margin-top:-.1em;background:var(--p29-navy);
+  -webkit-mask:var(--p29-icon) center/contain no-repeat;mask:var(--p29-icon) center/contain no-repeat;
+}
+.p29 .p29-features li.is-on{--p29-icon:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Cpath d='M256 512A256 256 0 1 0 256 0a256 256 0 1 0 0 512zM369 209L241 337c-9.4 9.4-24.6 9.4-33.9 0l-64-64c-9.4-9.4-9.4-24.6 0-33.9s24.6-9.4 33.9 0l47 47L335 175c9.4-9.4 24.6-9.4 33.9 0s9.4 24.6 0 33.9z'/%3E%3C/svg%3E")}
+.p29 .p29-features li.is-off{color:#9ca3af;--p29-icon:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Cpath d='M256 512A256 256 0 1 0 256 0a256 256 0 1 0 0 512zM184 232l144 0c13.3 0 24 10.7 24 24s-10.7 24-24 24l-144 0c-13.3 0-24-10.7-24-24s10.7-24 24-24z'/%3E%3C/svg%3E")}
+.p29 .p29-features li.is-off::before{background:#d1d5db}
+
+@media (max-width:480px){
+  .p29{--p29-pad:26px;--p29-gap:20px}
+  .p29 .p29-price__amount{font-size:3em}
+}
+
+/* Align buttons / feature lists across cards where the browser supports subgrid */
+@supports (grid-template-rows:subgrid){
+  .p29 .p29__item,.p29 .p29-card{display:grid;grid-row:span 2;grid-template-rows:subgrid;row-gap:0}
+}
+
+/* Editor-only row controls */
+.p29 .p29-features li>span:first-child{flex:1;min-width:0}
+.p29 .p29-feat-ctl{display:flex;flex:none;gap:2px;margin-left:auto}
+.p29 .p29-features li.p29-edit-only::before{content:none}

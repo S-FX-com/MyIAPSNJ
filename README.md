@@ -239,6 +239,22 @@ editable. FluentCart's own customer and saved-address records are not updated.
 — renewal checkout link for the logged-in member (product per member type in
 Dues → Membership Products), Join page link for visitors, nothing for Lifetime / Honorary.
 
+## Pricing Table block
+
+The Join page's plan cards are the **Pricing Table** block (`sfx/pricing-table`,
+Widgets category), built in `includes/class-pricing-table.php` with
+`public/css/pricing-table.css` (colours are variables at the top) and
+`public/js/pricing-table-editor.js` (no build step). It replaces the Code
+Snippets version and keeps the block name and attributes, so pages need no
+re-saving. **Deactivate the snippet when you update the plugin**: while the
+snippet is active it has registered the block first and the plugin steps aside.
+
+Each plan can carry a **second option** under its button: type the line in the
+card ("Prefer to pay once? $30 for one year, no auto-renew") and, in the block
+sidebar, the link it goes to (empty = plain text, e.g. "One payment, never
+expires" on Lifetime). When any plan has one, every plan gets a line of the same
+height, so buttons and feature lists stay level.
+
 ## WP-CLI
 
 ```
