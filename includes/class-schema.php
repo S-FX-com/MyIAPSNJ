@@ -590,33 +590,37 @@ final class My_IAPSNJ_Schema {
     /**
      * Make the company called $name the contact's primary company (their
      * department), replacing the previous primary one. A name that is not a
-     * company is not created (a typed "not listed" answer would fill the
-     * module with spelling variants): the contact's primary company is
-     * cleared instead, so the CRM never shows a department they left, and the
-     * custom field keeps the typed answer for an administrator to place.
+     * company yet is created: the member looked the department up in the list
+     * before choosing "Other (not listed)". An existing company is found
+     * regardless of capitals ("newark pd" is "Newark PD"), so a typed variant
+     * of a listed name reuses it.
      *
      * @return bool whether the contact's company changed
      */
     public static function set_department( Subscriber $subscriber, string $name ): bool {
-        $name = trim( $name );
+        $name = trim( (string) preg_replace( '/\s+/', ' ', $name ) );
         if ( $name === '' || ! self::company_enabled() ) {
             return false;
         }
         try {
             $company = \FluentCrm\App\Models\Company::where( 'name', $name )->first();
-            $old     = (int) $subscriber->company_id;
-            $new     = $company ? (int) $company->id : 0;
-            if ( $old === $new ) {
-                if ( $new > 0 ) {
-                    $subscriber->attachCompanies( [ $new ] ); // the pivot row, if it was missing
-                }
+            if ( ! $company ) {
+                $company = \FluentCrm\App\Models\Company::create( [ 'name' => $name ] );
+            }
+            $new = $company ? (int) $company->id : 0;
+            if ( $new < 1 ) {
                 return false;
             }
-            $subscriber->company_id = $new > 0 ? $new : null;
-            $subscriber->save();
-            if ( $new > 0 ) {
-                $subscriber->attachCompanies( [ $new ] );
+            // The custom field carries the company's own spelling, so the two never differ.
+            self::set_fields( $subscriber, [ self::FIELD_DEPARTMENT => (string) $company->name ] );
+            $old = (int) $subscriber->company_id;
+            if ( $old === $new ) {
+                $subscriber->attachCompanies( [ $new ] ); // the pivot row, if it was missing
+                return false;
             }
+            $subscriber->company_id = $new;
+            $subscriber->save();
+            $subscriber->attachCompanies( [ $new ] );
             if ( $old > 0 ) {
                 $subscriber->detachCompanies( [ $old ] );
             }

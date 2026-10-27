@@ -189,10 +189,12 @@ one-time products with the January renewal campaign.
   `department` custom field's own options when the module is off), prefill from
   the primary company, and on save make the chosen company the primary one
   (replacing the previous) and keep the `department` custom field in step.
-  A department typed under "Other (not listed)" is **not** created as a company
-  (the module would fill with spelling variants): the contact's primary company
-  is cleared, the custom field keeps the typed name, and an administrator adds
-  the company and attaches it.
+  A department typed under "Other (not listed)" **creates the company** (the
+  member is expected to look the list up first), unless a company with that
+  name exists, in which case it is reused whatever the capitals ("newark pd" is
+  "Newark PD"): the typed name is trimmed and its spaces collapsed, nothing else
+  is changed. Misspellings still become new companies, so the Companies list is
+  worth a look now and then.
 * **Dropdown lists come from the CRM**: a row writing to a select-one custom
   field (Rank, Marital status …) offers that field's own option list; a field
   with no list keeps the list set in the Checkout Builder.

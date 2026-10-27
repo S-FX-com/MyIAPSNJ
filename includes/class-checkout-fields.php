@@ -2756,7 +2756,7 @@ class My_IAPSNJ_Checkout_Fields {
                 if ( $unlisted ) {
                     $order->addLog(
                         'My IAPSNJ: answer not in the list',
-                        'The member picked "Other (not listed)" and typed: ' . implode( ' · ', $unlisted ) . '. It is stored on the contact as typed. If it is correct, add it to the dropdown in My IAPSNJ → Checkout Builder so the next member can pick it.',
+                        'The member picked "Other (not listed)" and typed: ' . implode( ' · ', $unlisted ) . '. It is stored on the contact as typed. A Department is also created in the CRM\'s Companies (Departments) list and made the contact\'s primary company; for any other field, add the answer to the dropdown in My IAPSNJ → Checkout Builder if it is correct so the next member can pick it.',
                         'info',
                         'My IAPSNJ'
                     );
