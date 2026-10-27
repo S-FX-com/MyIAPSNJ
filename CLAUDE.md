@@ -8,8 +8,9 @@ schema, runbook, automations, forms, UAT matrix, what is not in git).
 
 - FluentCRM is the single source of truth. The only writers are the FluentCart
   integration (`class-membership.php`), the checkout application
-  (`class-checkout-fields.php` / `class-applications.php`) and the migration
-  toolkit. `class-engine.php` is a one-way CRM → WordPress mirror; never add a
+  (`class-checkout-fields.php` / `class-applications.php`), the member's own
+  profile editor (`class-profile.php`, the logged-in member's contact only)
+  and the migration toolkit. `class-engine.php` is a one-way CRM → WordPress mirror; never add a
   WP → CRM write path.
 - The membership application is collected **on the FluentCart checkout page**
   (hooks `fluent_cart/before_payment_methods`, `checkout/validate_data`,

@@ -201,7 +201,37 @@ Legacy slugs (`fcrm-wp-sync*`, `my-iapsnj-mismatches`, `my-iapsnj-pmp`)
 redirect. My IAPSNJ sits in the admin sidebar just below FluentHub (or below
 Dashboard when FluentHub is not installed); no other menu is moved.
 
-## Shortcode
+## Shortcodes
+
+`[iapsnj_change_password button="Update Password"]` — "Change My Password" form
+for the logged-in member: new password typed twice, a strength meter (WordPress's
+zxcvbn), a show / hide eye on each field. Saves through AJAX
+(`wp_ajax_my_iapsnj_change_password`, members only, nonce-checked), requires 8+
+characters and a password different from the current one, keeps the member
+signed in on this device and sends WordPress's "password changed" email.
+Visitors see a log-in link. WordPress account only; nothing is written to the CRM.
+
+`[iapsnj_my_membership button="Renew Now" window="60" regular_url="" associate_url=""]`
+— "My Membership" card for the logged-in member, read from their CRM contact:
+Membership Role (`member_type`), Member Since (`join_date`), Expiration Date
+(`paid_through`; Lifetime reads LIFETIME, Honorary NO EXPIRATION), Active /
+Inactive (the same test as the daily expiry job, grace days included) and Member
+Number. **Renew Now** appears when the membership has lapsed or ends within
+`window` days (60), never for Lifetime / Honorary. It links to `regular_url` /
+`associate_url` for the member's type, else to the renewal product set in Dues →
+Membership Products (variation ids differ between sites, so prefer that setting
+or pass the URLs per site).
+
+`[iapsnj_edit_profile button="Save Changes"]` — "Edit Profile" form for the
+logged-in member, written straight to their FluentCRM contact (the WordPress
+profile follows through the usual mirror). It shows name, cell phone, address
+and the fields of the Checkout Builder form for the member's level (so the same
+labels, dropdown lists, "Other (not listed)", conditional fields and validation
+as the checkout), every one filled with what is on file. Dropdown lists are
+never empty (Checkout Builder list → ACF choices → values in the CRM → built-in
+list) and a value on file that the list lacks stays selectable. Emptying a field
+clears it. Email, member type, paid-through, member number and join date are not
+editable. FluentCart's own customer and saved-address records are not updated.
 
 `[iapsnj_renew_link text="Renew my membership" join_text="Join IAPSNJ" class="button"]`
 — renewal checkout link for the logged-in member (product per member type in

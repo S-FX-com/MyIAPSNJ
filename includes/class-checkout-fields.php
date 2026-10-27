@@ -1094,8 +1094,8 @@ class My_IAPSNJ_Checkout_Fields {
      * @param string              $member_type type being bought (for_member_type())
      * @return array<string,array>
      */
-    public static function visible_inputs( string $form_id, array $request, string $member_type = '' ): array {
-        $fields = self::input_fields( $form_id, $member_type );
+    public static function visible_inputs( string $form_id, array $request, string $member_type = '', ?array $fields = null ): array {
+        $fields = $fields ?? self::input_fields( $form_id, $member_type );
         $values = [];
         foreach ( $fields as $key => $def ) {
             if ( (string) ( $def['parent'] ?? '' ) === '' ) {
@@ -1996,7 +1996,7 @@ class My_IAPSNJ_Checkout_Fields {
                 }
             }
             foreach ( $section['fields'] as $key => $def ) {
-                $this->render_field( $key, $def, (string) ( $values[ $key ] ?? '' ), $shown[ $key ] );
+                self::render_field( $key, $def, (string) ( $values[ $key ] ?? '' ), $shown[ $key ] );
             }
             if ( $section['key'] !== '' ) {
                 echo '</div>';
@@ -2097,8 +2097,10 @@ class My_IAPSNJ_Checkout_Fields {
      * One application input. A conditional field (one with a parent) carries
      * its rule for the footer script and starts hidden and disabled — so it
      * is neither submitted nor browser-validated — unless $shown.
+     *
+     * Public so the profile editor (My_IAPSNJ_Profile) prints the same markup.
      */
-    private function render_field( string $key, array $def, string $value, bool $shown = true ): void {
+    public static function render_field( string $key, array $def, string $value, bool $shown = true ): void {
         $name     = self::input_name( $key );
         $id       = 'my-iapsnj-' . sanitize_html_class( $key );
         $required = ! empty( $def['required'] );
@@ -2455,7 +2457,7 @@ class My_IAPSNJ_Checkout_Fields {
      * (never cut short, so validation can reject it). The server applies the
      * same rule (My_IAPSNJ_Phone), so this is only the typing experience.
      */
-    private static function print_phone_script(): void {
+    public static function print_phone_script(): void {
         // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- static script
         echo '<script>(function(){'
             . 'var S=\'input[name="billing_phone"],input[name="shipping_phone"],input.my-iapsnj-phone\';'
@@ -2514,34 +2516,51 @@ class My_IAPSNJ_Checkout_Fields {
         }
         // A conditional field that is not shown for these answers is not required.
         foreach ( self::visible_inputs( $form_id, $data, $type ) as $key => $def ) {
-            $name  = self::input_name( $key );
-            $other = self::chose_other( $def, $data[ $name ] ?? null );
-            $value = self::sanitize_value( $def, self::posted_value( $key, $def, $data ) );
-            $label = $def['type'] === 'checkbox' ? __( 'Certification', 'my-iapsnj' ) : $def['label'];
-            if ( $value === '' ) {
-                if ( $other ) {
-                    // "Other" picked and nothing typed under it.
-                    $errors[ $name . self::OTHER_SUFFIX ]['required'] = sprintf( /* translators: field label */ __( 'Please type your %s.', 'my-iapsnj' ), $def['label'] );
-                } elseif ( $key === 'retired' && $type === My_IAPSNJ_Schema::TYPE_LIFETIME ) {
-                    $errors[ $name ]['required'] = sprintf( /* translators: checkbox label */ __( 'Lifetime membership is for retired law enforcement only. Please tick: %s', 'my-iapsnj' ), $def['label'] );
-                } elseif ( ! empty( $def['required'] ) ) {
-                    $errors[ $name ]['required'] = $def['type'] === 'checkbox'
-                        ? sprintf( /* translators: checkbox label */ __( 'Please tick: %s', 'my-iapsnj' ), $def['label'] )
-                        : sprintf( /* translators: field label */ __( '%s is required.', 'my-iapsnj' ), $label );
+            foreach ( self::field_errors( $key, $def, $data, $type ) as $name => $rules ) {
+                foreach ( $rules as $rule => $message ) {
+                    $errors[ $name ][ $rule ] = $message;
                 }
-                continue;
             }
-            if ( $def['type'] === 'phone' && ! My_IAPSNJ_Phone::is_valid( $value ) ) {
-                $errors[ $name ]['invalid'] = sprintf( /* translators: field label */ __( '%s: enter a 10-digit US phone number, or an international number starting with +.', 'my-iapsnj' ), $label );
+        }
+        return $errors;
+    }
+
+    /**
+     * Problems with one posted answer: required, readable date / phone, a
+     * choice from the list. Shared by the checkout and the profile editor.
+     *
+     * @param array<string,mixed> $data posted values, keyed by input name
+     * @return array<string,array<string,string>> input name => [rule => message]
+     */
+    public static function field_errors( string $key, array $def, array $data, string $type = '' ): array {
+        $errors = [];
+        $name   = self::input_name( $key );
+        $other  = self::chose_other( $def, $data[ $name ] ?? null );
+        $value  = self::sanitize_value( $def, self::posted_value( $key, $def, $data ) );
+        $label  = $def['type'] === 'checkbox' ? __( 'Certification', 'my-iapsnj' ) : $def['label'];
+        if ( $value === '' ) {
+            if ( $other ) {
+                // "Other" picked and nothing typed under it.
+                $errors[ $name . self::OTHER_SUFFIX ]['required'] = sprintf( /* translators: field label */ __( 'Please type your %s.', 'my-iapsnj' ), $def['label'] );
+            } elseif ( $key === 'retired' && $type === My_IAPSNJ_Schema::TYPE_LIFETIME ) {
+                $errors[ $name ]['required'] = sprintf( /* translators: checkbox label */ __( 'Lifetime membership is for retired law enforcement only. Please tick: %s', 'my-iapsnj' ), $def['label'] );
+            } elseif ( ! empty( $def['required'] ) ) {
+                $errors[ $name ]['required'] = $def['type'] === 'checkbox'
+                    ? sprintf( /* translators: checkbox label */ __( 'Please tick: %s', 'my-iapsnj' ), $def['label'] )
+                    : sprintf( /* translators: field label */ __( '%s is required.', 'my-iapsnj' ), $label );
             }
-            if ( $def['type'] === 'date' && My_IAPSNJ_Dates::ymd( $value ) === '' ) {
-                $errors[ $name ]['invalid'] = sprintf( /* translators: field label */ __( '%s is not a valid date.', 'my-iapsnj' ), $label );
-            } elseif ( $def['type'] === 'date' && ( $def['crm'] ?? '' ) === 'date_of_birth' && $value > My_IAPSNJ_Dates::today() ) {
-                $errors[ $name ]['invalid'] = sprintf( /* translators: field label */ __( '%s cannot be in the future.', 'my-iapsnj' ), $label );
-            }
-            if ( ! $other && in_array( $def['type'], [ 'select', 'radio' ], true ) && ! empty( $def['options'] ) && ! in_array( $value, $def['options'], true ) ) {
-                $errors[ $name ]['invalid'] = sprintf( /* translators: field label */ __( 'Please choose a valid %s.', 'my-iapsnj' ), $label );
-            }
+            return $errors;
+        }
+        if ( $def['type'] === 'phone' && ! My_IAPSNJ_Phone::is_valid( $value ) ) {
+            $errors[ $name ]['invalid'] = sprintf( /* translators: field label */ __( '%s: enter a 10-digit US phone number, or an international number starting with +.', 'my-iapsnj' ), $label );
+        }
+        if ( $def['type'] === 'date' && My_IAPSNJ_Dates::ymd( $value ) === '' ) {
+            $errors[ $name ]['invalid'] = sprintf( /* translators: field label */ __( '%s is not a valid date.', 'my-iapsnj' ), $label );
+        } elseif ( $def['type'] === 'date' && ( $def['crm'] ?? '' ) === 'date_of_birth' && $value > My_IAPSNJ_Dates::today() ) {
+            $errors[ $name ]['invalid'] = sprintf( /* translators: field label */ __( '%s cannot be in the future.', 'my-iapsnj' ), $label );
+        }
+        if ( ! $other && in_array( $def['type'], [ 'select', 'radio' ], true ) && ! empty( $def['options'] ) && ! in_array( $value, $def['options'], true ) ) {
+            $errors[ $name ]['invalid'] = sprintf( /* translators: field label */ __( 'Please choose a valid %s.', 'my-iapsnj' ), $label );
         }
         return $errors;
     }
@@ -2846,6 +2865,29 @@ class My_IAPSNJ_Checkout_Fields {
     // -----------------------------------------------------------------------
 
     /**
+     * An answer in the form FluentCRM stores it in its custom field: a tick
+     * box becomes the CRM field's own option text ("Yes" for the built-ins),
+     * and checkbox / multi-select fields hold an array of chosen options.
+     * An empty answer stays '' (which deletes the stored value).
+     *
+     * @param array<string,array> $crm_defs self::crm_custom_fields()
+     * @return string|string[]
+     */
+    public static function crm_custom_value( array $def, string $value, array $crm_defs ) {
+        if ( $value === '' ) {
+            return '';
+        }
+        if ( $def['type'] === 'checkbox' ) {
+            $crm_options = array_values( array_filter( array_map( 'strval', (array) ( $crm_defs[ $def['crm'] ]['options'] ?? [] ) ), 'strlen' ) );
+            $value       = $crm_options ? $crm_options[0] : 'Yes';
+        }
+        if ( in_array( My_IAPSNJ_Schema::custom_field_type( $def['crm'] ), [ 'checkbox', 'select-multi' ], true ) ) {
+            return [ $value ];
+        }
+        return $value;
+    }
+
+    /**
      * Copy the order's application values onto the CRM contact. Blank values
      * never erase existing data. Runs once per order (meta flag) so a later
      * manual edit in the CRM survives the check being marked paid.
@@ -2877,17 +2919,7 @@ class My_IAPSNJ_Checkout_Fields {
                 if ( in_array( $def['crm'], $system, true ) ) {
                     continue; // member_type, paid_through … are set by payments only
                 }
-                if ( $def['type'] === 'checkbox' ) {
-                    // The CRM field's own option text ("Yes" for the built-ins).
-                    $crm_options = array_values( array_filter( array_map( 'strval', (array) ( $crm_defs[ $def['crm'] ]['options'] ?? [] ) ), 'strlen' ) );
-                    $value       = $crm_options ? $crm_options[0] : 'Yes';
-                }
-                // FluentCRM stores checkbox / multi-select custom fields as
-                // an array of chosen options.
-                if ( in_array( My_IAPSNJ_Schema::custom_field_type( $def['crm'] ), [ 'checkbox', 'select-multi' ], true ) ) {
-                    $value = [ $value ];
-                }
-                $custom[ $def['crm'] ] = $value;
+                $custom[ $def['crm'] ] = self::crm_custom_value( $def, $value, $crm_defs );
             } elseif ( $def['crm_kind'] === 'default' && isset( self::DEFAULT_TARGETS[ $def['crm'] ] ) ) {
                 $defaults[ $def['crm'] ] = $value;
             }

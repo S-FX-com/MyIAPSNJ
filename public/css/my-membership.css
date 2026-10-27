@@ -1,0 +1,87 @@
+/* My IAPSNJ – [iapsnj_my_membership]. */
+.my-iapsnj-mm {
+    --my-iapsnj-mm-accent: #0c3d54;
+    --my-iapsnj-mm-border: #dadbdd;
+    max-width: 520px;
+    padding: 8px 20px 20px;
+    border: 1px solid var(--my-iapsnj-mm-border);
+    border-radius: 8px;
+    background: #fff;
+}
+.my-iapsnj-mm *,
+.my-iapsnj-mm *::before,
+.my-iapsnj-mm *::after {
+    box-sizing: border-box;
+}
+.my-iapsnj-mm .my-iapsnj-mm-list {
+    margin: 0;
+    padding: 0;
+}
+.my-iapsnj-mm .my-iapsnj-mm-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 4px 16px;
+    padding: 12px 0;
+    border-bottom: 1px solid #eceded;
+}
+.my-iapsnj-mm .my-iapsnj-mm-row:last-child {
+    border-bottom: 0;
+}
+.my-iapsnj-mm .my-iapsnj-mm-row dt {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 400;
+    color: #5b6169;
+}
+.my-iapsnj-mm .my-iapsnj-mm-row dd {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    text-align: right;
+}
+.my-iapsnj-mm .my-iapsnj-mm-note {
+    font-size: 13px;
+    font-weight: 400;
+    color: #5b6169;
+}
+.my-iapsnj-mm .my-iapsnj-mm-badge {
+    display: inline-block;
+    padding: 2px 12px;
+    border-radius: 999px;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.6;
+}
+.my-iapsnj-mm .my-iapsnj-mm-badge.is-active {
+    background: #e6f4e7;
+    color: #1f6b25;
+}
+.my-iapsnj-mm .my-iapsnj-mm-badge.is-inactive {
+    background: #fbe7e4;
+    color: #a52a1d;
+}
+.my-iapsnj-mm .my-iapsnj-mm-action {
+    margin: 12px 0 0;
+}
+.my-iapsnj-mm a.my-iapsnj-mm-renew {
+    display: inline-block;
+    padding: 10px 21px;
+    border: 1px solid var(--my-iapsnj-mm-accent);
+    border-radius: 6px;
+    background: var(--my-iapsnj-mm-accent);
+    font-size: 16px;
+    line-height: 1.4;
+    text-decoration: none;
+    color: #fff;
+}
+.my-iapsnj-mm a.my-iapsnj-mm-renew:hover,
+.my-iapsnj-mm a.my-iapsnj-mm-renew:focus-visible {
+    background: #092e40;
+    border-color: #092e40;
+    color: #fff;
+}
+.my-iapsnj-mm-notice {
+    margin: 0;
+}
