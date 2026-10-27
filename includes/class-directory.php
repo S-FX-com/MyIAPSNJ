@@ -121,7 +121,12 @@ final class My_IAPSNJ_Directory {
         $where = [ My_IAPSNJ_Members::is_member_sql(), My_IAPSNJ_Members::active_sql() ];
 
         if ( $f['dept'] !== '' ) {
-            $where[] = self::has_value_sql( self::key_department(), $f['dept'] );
+            // The department is the primary company; the custom field is the fallback.
+            $dept = self::has_value_sql( self::key_department(), $f['dept'] );
+            if ( My_IAPSNJ_Schema::company_enabled() ) {
+                $dept = '(' . $dept . ' OR ' . $wpdb->prepare( 'co.name = %s', $f['dept'] ) . ')';
+            }
+            $where[] = $dept;
         }
         if ( $f['rank'] !== '' ) {
             $where[] = self::has_value_sql( self::key_rank(), $f['rank'] );
@@ -160,6 +165,10 @@ final class My_IAPSNJ_Directory {
         $derived = My_IAPSNJ_Members::derived_sql();
         $where   = self::where_sql( $f );
         $from    = "({$derived}) m INNER JOIN {$t['subs']} s ON s.id = m.subscriber_id";
+        $company = My_IAPSNJ_Schema::company_enabled();
+        if ( $company ) {
+            $from .= " LEFT JOIN {$wpdb->prefix}fc_companies co ON co.id = s.company_id";
+        }
 
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared -- fragments are prepared
         $total = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$from} WHERE {$where}" );
@@ -170,7 +179,7 @@ final class My_IAPSNJ_Directory {
         $paged  = max( 1, min( $paged, $pages ) );
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared -- fragments are prepared
         $raw = (array) $wpdb->get_results(
-            "SELECT s.id, s.first_name, s.last_name, s.email, s.phone, s.avatar, s.user_id, m.member_type
+            "SELECT s.id, s.first_name, s.last_name, s.email, s.phone, s.avatar, s.user_id, m.member_type, " . ( $company ? 'co.name' : 'NULL' ) . " AS company
              FROM {$from} WHERE {$where}
              ORDER BY s.last_name ASC, s.first_name ASC, s.id ASC "
             . $wpdb->prepare( 'LIMIT %d OFFSET %d', $per_page, ( $paged - 1 ) * $per_page ),
@@ -191,7 +200,7 @@ final class My_IAPSNJ_Directory {
                 'avatar'      => (string) $r['avatar'],
                 'user_id'     => (int) $r['user_id'],
                 'member_type' => (string) $r['member_type'],
-                'department'  => (string) ( $extra[ self::key_department() ] ?? '' ),
+                'department'  => trim( (string) $r['company'] ) !== '' ? trim( (string) $r['company'] ) : (string) ( $extra[ self::key_department() ] ?? '' ),
                 'rank'        => (string) ( $extra[ self::key_rank() ] ?? '' ),
                 'join_date'   => My_IAPSNJ_Dates::ymd( $extra[ My_IAPSNJ_Schema::FIELD_JOIN_DATE ] ?? '' ),
             ];
@@ -250,7 +259,20 @@ final class My_IAPSNJ_Directory {
                AND " . My_IAPSNJ_Members::is_member_sql() . ' AND ' . My_IAPSNJ_Members::active_sql() . '
              ORDER BY f.`value` ASC'
         );
+        if ( $slug === self::key_department() && My_IAPSNJ_Schema::company_enabled() ) {
+            // Departments held as companies by the active members too.
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared -- fragments are prepared
+            $rows = array_merge( $rows, (array) $wpdb->get_col(
+                "SELECT DISTINCT co.name
+                 FROM {$wpdb->prefix}fc_companies co
+                 INNER JOIN {$t['subs']} s ON s.company_id = co.id
+                 INNER JOIN (" . My_IAPSNJ_Members::derived_sql() . ") m ON m.subscriber_id = s.id
+                 WHERE TRIM(COALESCE(co.name, '')) <> '' AND " . My_IAPSNJ_Members::is_member_sql() . ' AND ' . My_IAPSNJ_Members::active_sql()
+            ) );
+        }
         $out = array_values( array_unique( array_map( 'trim', array_map( 'strval', $rows ) ) ) );
+        natcasesort( $out );
+        $out = array_values( $out );
         set_transient( $cache, $out, 15 * MINUTE_IN_SECONDS );
         return $out;
     }

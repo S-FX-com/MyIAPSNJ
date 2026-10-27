@@ -3,7 +3,7 @@
  * Plugin Name:       My IAPSNJ
  * Plugin URI:        https://github.com/S-FX-com/MyIAPSNJ
  * Description:       Membership operations for the IAPSNJ website. FluentCRM is the single source of truth: the membership application is collected on the FluentCart checkout page, FluentCart payments set membership state (Paid-YYYY tags, member_type, paid_through), applications are tracked until they are paid, mailed checks are reconciled in batch, and WordPress user profiles are mirrored one way from the CRM. Includes the PMPro → FluentCRM migration toolkit.
- * Version:           4.28.0
+ * Version:           4.29.1
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Requires Plugins:  fluent-crm
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'MY_IAPSNJ_VERSION', '4.28.0' );
+define( 'MY_IAPSNJ_VERSION', '4.29.1' );
 define( 'MY_IAPSNJ_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'MY_IAPSNJ_URL',     plugin_dir_url( __FILE__ ) );
 define( 'MY_IAPSNJ_FILE',    __FILE__ );
@@ -247,7 +247,7 @@ final class My_IAPSNJ_Plugin {
      * below; it is independent of MY_IAPSNJ_VERSION so that ordinary releases
      * do not re-run migrations.
      */
-    const DATA_VERSION = 14;
+    const DATA_VERSION = 15;
 
     /**
      * Runs any migration steps this install has not seen yet.
@@ -542,6 +542,48 @@ final class My_IAPSNJ_Plugin {
                     $fallback();
                 } else {
                     add_action( 'init', $fallback, 20 );
+                }
+            }
+
+            // ---- v15: use the CRM's own fields; full state names ----------
+            // * Rank, Spouse and Veteran Status were written to duplicate
+            //   fields (rank_level, spouse_name, armed_service); the CRM
+            //   already had iapsnj_rank (a dropdown), spouse and
+            //   armed_services. Builder rows and Profile Mirror rows are
+            //   pointed at them and the values already collected are copied
+            //   across (the old fields are left for an admin to delete).
+            // * "Explain your ancestry" and "Veteran Status" are added / shown
+            //   on every checkout form.
+            // * US states stored as codes (NJ) become full names (New Jersey).
+            if ( $installed < 15 ) {
+                My_IAPSNJ_Checkout_Fields::remap_crm_slugs();
+                My_IAPSNJ_Checkout_Fields::add_missing_builtins();
+                My_IAPSNJ_Checkout_Fields::enable_fields( [ 'armed_service', 'explain_your_ancestry' ] );
+                $mappings = get_option( 'my_iapsnj_field_mappings', [] );
+                if ( is_array( $mappings ) && $mappings ) {
+                    foreach ( $mappings as $i => $m ) {
+                        $legacy = My_IAPSNJ_Schema::legacy_slugs();
+                        if ( is_array( $m ) && ( $m['fcrm_field_source'] ?? '' ) === 'custom' && isset( $legacy[ (string) ( $m['fcrm_field_key'] ?? '' ) ] ) ) {
+                            $mappings[ $i ]['fcrm_field_key'] = $legacy[ $m['fcrm_field_key'] ];
+                        }
+                    }
+                    update_option( 'my_iapsnj_field_mappings', array_values( $mappings ) );
+                }
+                // FluentCRM's helpers load on plugins_loaded; the custom fields
+                // and their values are touched once init has happened.
+                $finish15 = function () {
+                    try {
+                        My_IAPSNJ_Schema::ensure_custom_fields();
+                        My_IAPSNJ_Schema::copy_legacy_values();
+                        My_IAPSNJ_Schema::expand_state_codes();
+                    } catch ( \Throwable $e ) {
+                        error_log( 'My IAPSNJ: could not align CRM fields during upgrade: ' . $e->getMessage() );
+                    }
+                };
+                if ( did_action( 'init' ) ) {
+                    $finish15();
+                } else {
+                    add_action( 'init', $finish15, 20 );
                 }
             }
 

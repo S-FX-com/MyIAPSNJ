@@ -245,6 +245,12 @@ list) and a value on file that the list lacks stays selectable. Emptying a field
 clears it. Email, member type, paid-through, member number and join date are not
 editable. FluentCart's own customer and saved-address records are not updated.
 
+State is a dropdown of full US state names (an address elsewhere uses "State
+not listed? Add it here"); the Department list is FluentCRM's Companies module and
+saving makes the chosen company the contact's primary company (details in
+`docs/crm-schema.md`, "Department, rank, state …"); other dropdowns (Rank …) offer
+the CRM field's own options.
+
 **Photo.** A file field at the top. On save (`My_IAPSNJ_Headshot`) the photo is
 checked (JPG / PNG / WebP, under 10 MB or the server's limit, at least 150 px, not
 a disguised file), turned upright from its camera orientation, cropped to a centred

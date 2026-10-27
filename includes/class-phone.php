@@ -68,8 +68,7 @@ final class My_IAPSNJ_Phone {
 
     /**
      * Bring the phone numbers already in the CRM to the same format: the
-     * contact Phone column to E.164, the Work / Alternate phone custom
-     * fields to "+1 908-415-2478". Values that cannot be read as a number
+     * contact Phone column to E.164. Values that cannot be read as a number
      * are left alone and reported so they can be fixed by hand.
      *
      * Writes go straight to the FluentCRM tables (no contact-updated hooks,
@@ -81,21 +80,10 @@ final class My_IAPSNJ_Phone {
     public static function normalize_contacts( bool $dry, int $limit = 500 ): array {
         global $wpdb;
         $subs = $wpdb->prefix . 'fc_subscribers';
-        $meta = $wpdb->prefix . 'fc_subscriber_meta';
         $jobs = [];
-        // phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
         foreach ( (array) $wpdb->get_results( "SELECT id, email, phone FROM {$subs} WHERE phone IS NOT NULL AND phone <> ''", ARRAY_A ) as $r ) {
             $jobs[] = [ 'table' => $subs, 'col' => 'phone', 'id' => (int) $r['id'], 'email' => (string) $r['email'], 'field' => 'Phone', 'from' => (string) $r['phone'], 'to' => self::e164( (string) $r['phone'] ) ];
-        }
-        $rows = $wpdb->get_results( $wpdb->prepare(
-            "SELECT m.id, m.`key`, m.`value`, s.email FROM {$meta} m INNER JOIN {$subs} s ON s.id = m.subscriber_id
-             WHERE m.object_type = 'custom_field' AND m.`key` IN (%s, %s) AND m.`value` <> ''",
-            My_IAPSNJ_Schema::FIELD_PHONE_WORK,
-            My_IAPSNJ_Schema::FIELD_PHONE2
-        ), ARRAY_A );
-        // phpcs:enable
-        foreach ( (array) $rows as $r ) {
-            $jobs[] = [ 'table' => $meta, 'col' => 'value', 'id' => (int) $r['id'], 'email' => (string) $r['email'], 'field' => (string) $r['key'], 'from' => (string) $r['value'], 'to' => self::display( (string) $r['value'] ) ];
         }
 
         $out = [ 'checked' => count( $jobs ), 'to_change' => 0, 'changed' => 0, 'unreadable' => 0, 'samples' => [], 'unreadable_samples' => [] ];

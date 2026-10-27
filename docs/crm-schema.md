@@ -29,16 +29,15 @@ Honorary is **never a product**: it is admin-assigned (tag + `member_type`).
 | `paid_through` | date (Y-m-d) | e.g. `2027-12-31` | Set from the product (fixed calendar-year date), only ever extended (`max`). **Null for Lifetime and Honorary** — the plugin deletes the value; never a far-future date. |
 | `member_number` | number | | Migrated from ACF `MemberNum` (already synced pre-4.0). Printed on the memo line of checks; shown in Pending Checks. |
 | `department` | text (or select-one, see below) | | Required on the checkout application (dropdown options set in My IAPSNJ → Dues → Checkout Builder). |
-| `rank_level` | text/select-one | | Same. |
+| `iapsnj_rank` | select-one | | The CRM's own Rank dropdown; its option list is what the checkout and profile offer (4.29). Earlier versions wrote a duplicate text field `rank_level`: the 4.29 upgrade copies its values here (see *Slugs the plugin once wrote*). |
 | `join_date` | date | `Y-m-d` | Migrated from ACF `join_date`; for new members set to the payment date of their first paid order (4.4.0), never overwritten. |
 | `legacy_pmpro_level` | text | e.g. `3` or `3, 5` | Written by migration for members/orders on deleted PMPro levels (IDs 3, 5). Diagnostic only. |
-| `phone2` | text | | Alternate phone; collected by the checkout 4.3–4.17, **retired in 4.18** (values kept, no longer asked). |
-| `phone_work` | text | | Work phone; collected by the checkout until 4.17, **retired in 4.18** (values kept). The contact's Phone column, asked as "Cell phone", is the primary number. |
 | `retirement_date` | date | | Created by `crm-schema`; filled from the checkout application. |
 | `union_affiliation`, `union_position` | text | | Checkout application (shown by default since 4.3.0). |
 | `marital_status` | select-one | Single / Married / Divorced / Widowed / Separated | Checkout application. |
-| `spouse_name` | text | | Checkout application. |
-| `armed_service` | checkbox | `Yes` | Checkout application; stored as an array (`["Yes"]`) like every FluentCRM checkbox field. |
+| `spouse` | text | | Checkout application and profile (4.29; was `spouse_name`). |
+| `armed_services` | checkbox | `Yes` | "Veteran Status": checkout application and profile (4.29; was `armed_service`); stored as an array (`["Yes"]`) like every FluentCRM checkbox field. |
+| `explain_your_ancestry` | textarea | | Checkout application and profile (4.29). |
 | `additional_information` | textarea | | Checkout application. |
 | `company_name`, `company_title`, `company_type` | text | | Associate members' employer; checkout application. Created by `crm-schema` if missing. |
 | `referred_by` | text | | Created by `crm-schema`; filled from the checkout application. |
@@ -71,17 +70,15 @@ and populated it — the data is there; only the ACF side is dropped.
 | expiration_date | ✔ → replaced | `paid_through` | derived from PMPro end date / orders, then owned by FluentCart |
 | last_payment_date | 🏷 | `Paid-YYYY` | year granularity is what the client actually asks for |
 | primary_phone | ✔ | `phone` | |
-| alternate_phone | ✔ | `phone2` | |
-| pmpro_b* (7 keys) | ✔ merged then ✖ | address fields | consolidated by migration; PMPro meta is transaction history, never written |
+| alternate_phone | ✔ | pmpro_b* (7 keys) | ✔ merged then ✖ | address fields | consolidated by migration; PMPro meta is transaction history, never written |
 | address / address2 / city / state / zip_code | ✔ | address fields | |
 | department | ✔ | `department` | required on join form |
-| rank_level | ✔ | `rank_level` | |
-| work_phone | ✔ | `phone_work` | |
-| retirement_date | ✔ | `retirement_date` | |
+| rank_level | ✔ | `iapsnj_rank` | |
+| work_phone | ✔ | retirement_date | ✔ | `retirement_date` | |
 | union_affiliation / union_position | ✔ | same slugs | on the checkout (client: "all of them", 2026-09-24) |
 | date_of_birth | ✔ | `date_of_birth` | |
-| marital_status / spouse_name | ✔ | same slugs | on the checkout |
-| armed_service | ✔ | `armed_service` | on the checkout |
+| marital_status / spouse_name | ✔ | `marital_status` / `spouse` | on the checkout |
+| armed_service | ✔ | `armed_services` | on the checkout |
 | additional_information | ✔ | `additional_information` | on the checkout |
 | company_name / company_title / company_type | ✔ | same slugs | Associate-member employer data; on the checkout |
 | admin_notes | ✖ | FluentCRM Notes | notes are first-class in the CRM |
@@ -102,7 +99,7 @@ the existing member-area profile screen keeps rendering:
 `first_name`, `last_name`, `user_email`, `MemberNum ← member_number`,
 `member_status ← member_type`, `expiration_date ← paid_through`, `join_date`,
 `primary_phone ← phone`, `address`, `address2`, `city`, `state`,
-`zip_code ← postal_code`, `department`, `rank_level`.
+`zip_code ← postal_code`, `department`, `rank_level ← iapsnj_rank`.
 
 Installs upgraded from 3.x carried mappings to the retired CRM slugs
 `member_status` / `expiration_date`; data version 9 (4.4.0) points them at
@@ -183,3 +180,33 @@ from Jan 1 to Mar 1 while the subscription is active. Only Oct–Dec joiners lin
 up with Dec 31. Decision pending with the client: treat an active subscription
 as in good standing, move the next billing date to Jan 1 in FluentCart, or use
 one-time products with the January renewal campaign.
+
+## Department, rank, state, and slugs the plugin once wrote (4.29)
+
+* **Department is FluentCRM's Companies module** (the CRM labels it
+  "Departments"): a contact's *primary company* is their department. The
+  checkout and the profile list the companies as the Department dropdown (the
+  `department` custom field's own options when the module is off), prefill from
+  the primary company, and on save make the chosen company the primary one
+  (replacing the previous) and keep the `department` custom field in step.
+  A department typed under "Other (not listed)" **creates the company** (the
+  member is expected to look the list up first), unless a company with that
+  name exists, in which case it is reused whatever the capitals ("newark pd" is
+  "Newark PD"): the typed name is trimmed and its spaces collapsed, nothing else
+  is changed. Misspellings still become new companies, so the Companies list is
+  worth a look now and then.
+* **Dropdown lists come from the CRM**: a row writing to a select-one custom
+  field (Rank, Marital status …) offers that field's own option list; a field
+  with no list keeps the list set in the Checkout Builder.
+* **State is the full name** ("New Jersey"): a dropdown on the profile (59 US
+  states, DC, territories and APO / FPO / DPO, with "State not listed? Add it
+  here" for another country's region). Every plugin write to a contact turns a
+  US code into the name (`My_IAPSNJ_Capitalization::state()`), and the upgrade
+  converted the codes already in the CRM (US or blank country only). FluentCart
+  keeps its own codes.
+* **Slugs the plugin once wrote** (`rank_level`, `spouse_name`,
+  `armed_service`) duplicated fields the CRM already had. The 4.29 upgrade
+  points the Checkout Builder rows and Profile Mirror at `iapsnj_rank`,
+  `spouse`, `armed_services`, and copies the values collected so far into them
+  where those are empty. The old fields are left in place: delete them in
+  FluentCRM once you have looked.

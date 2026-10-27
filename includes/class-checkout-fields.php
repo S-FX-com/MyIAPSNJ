@@ -201,6 +201,7 @@ class My_IAPSNJ_Checkout_Fields {
             'marital_status'  => $custom( __( 'Marital status', 'my-iapsnj' ), '', 'select', My_IAPSNJ_Schema::FIELD_MARITAL_STATUS ),
             'spouse_name'     => $custom( __( 'Spouse\'s name', 'my-iapsnj' ), '', 'text', My_IAPSNJ_Schema::FIELD_SPOUSE_NAME ),
             'armed_service'   => $custom( __( 'I have served in the U.S. Armed Forces', 'my-iapsnj' ), '', 'checkbox', My_IAPSNJ_Schema::FIELD_ARMED_SERVICE ),
+            'explain_your_ancestry' => $custom( __( 'Explain your ancestry', 'my-iapsnj' ), __( 'Optional.', 'my-iapsnj' ), 'textarea', My_IAPSNJ_Schema::FIELD_ANCESTRY ),
             // -- Employer (Associate members) -------------------------------
             'company_name'    => $custom( __( 'Employer / company name', 'my-iapsnj' ), __( 'Associate members: where you work.', 'my-iapsnj' ), 'text', My_IAPSNJ_Schema::FIELD_COMPANY_NAME ),
             'company_title'   => $custom( __( 'Job title', 'my-iapsnj' ), '', 'text', My_IAPSNJ_Schema::FIELD_COMPANY_TITLE ),
@@ -886,8 +887,66 @@ class My_IAPSNJ_Checkout_Fields {
             return self::$config_cache[ $form_id ];
         }
         $rows = (array) ( self::store()['forms'][ $form_id ]['fields'] ?? [] );
-        self::$config_cache[ $form_id ] = self::parse_rows( $rows );
+        self::$config_cache[ $form_id ] = self::with_crm_options( self::parse_rows( $rows ) );
         return self::$config_cache[ $form_id ];
+    }
+
+    /**
+     * Dropdown and radio lists come from the CRM when it has them, so the
+     * checkout, the profile and the CRM never disagree: the Department list is
+     * the Companies module (the CRM uses it for departments), any other list
+     * is the option list of the CRM custom field the row writes to (Rank,
+     * Marital status …). A row whose CRM field has no list keeps the one set
+     * in the Checkout Builder.
+     *
+     * @param array<string,array> $defs
+     * @return array<string,array>
+     */
+    private static function with_crm_options( array $defs ): array {
+        $crm = null;
+        foreach ( $defs as $key => $def ) {
+            if ( ! in_array( $def['type'], [ 'select', 'radio' ], true ) || $def['crm_kind'] !== 'custom' ) {
+                continue;
+            }
+            $options = [];
+            if ( $def['crm'] === My_IAPSNJ_Schema::FIELD_DEPARTMENT ) {
+                $options = My_IAPSNJ_Schema::company_names();
+            }
+            if ( ! $options ) {
+                $crm     = $crm ?? self::crm_custom_fields();
+                $field   = $crm[ $def['crm'] ] ?? [];
+                $options = array_values( array_unique( array_filter( array_map( 'trim', array_map( 'strval', array_filter( (array) ( $field['options'] ?? [] ), 'is_scalar' ) ) ), 'strlen' ) ) );
+            }
+            if ( $options ) {
+                $defs[ $key ]['options'] = $options;
+            }
+        }
+        return $defs;
+    }
+
+    /**
+     * Upgrade (data version 15): builder rows that name a slug earlier
+     * versions wrote to (rank_level, spouse_name, armed_service) point at the
+     * field the CRM already had (My_IAPSNJ_Schema::legacy_slugs()).
+     *
+     * @return int rows changed
+     */
+    public static function remap_crm_slugs(): int {
+        $map     = My_IAPSNJ_Schema::legacy_slugs();
+        $store   = self::store();
+        $changed = 0;
+        foreach ( $store['forms'] as $id => $form ) {
+            foreach ( (array) ( $form['fields'] ?? [] ) as $key => $row ) {
+                if ( is_array( $row ) && ( $row['crm_kind'] ?? '' ) === 'custom' && isset( $map[ (string) ( $row['crm'] ?? '' ) ] ) ) {
+                    $store['forms'][ $id ]['fields'][ $key ]['crm'] = $map[ $row['crm'] ];
+                    $changed++;
+                }
+            }
+        }
+        if ( $changed ) {
+            self::save_store( $store );
+        }
+        return $changed;
     }
 
     /**
@@ -2369,7 +2428,9 @@ class My_IAPSNJ_Checkout_Fields {
             if ( $subscriber instanceof Subscriber ) {
                 $custom = $subscriber->custom_fields();
                 foreach ( $config as $key => $def ) {
-                    if ( $def['crm_kind'] === 'custom' && ! empty( $custom[ $def['crm'] ] ) ) {
+                    if ( $def['crm_kind'] === 'custom' && $def['crm'] === My_IAPSNJ_Schema::FIELD_DEPARTMENT && My_IAPSNJ_Schema::department_of( $subscriber ) !== '' ) {
+                        $values[ $key ] = My_IAPSNJ_Schema::department_of( $subscriber ); // the primary company
+                    } elseif ( $def['crm_kind'] === 'custom' && ! empty( $custom[ $def['crm'] ] ) ) {
                         $v = $custom[ $def['crm'] ];
                         $values[ $key ] = is_array( $v ) ? (string) reset( $v ) : (string) $v;
                     } elseif ( $def['crm_kind'] === 'default' && ! empty( $subscriber->{ $def['crm'] } ) ) {
@@ -2695,7 +2756,7 @@ class My_IAPSNJ_Checkout_Fields {
                 if ( $unlisted ) {
                     $order->addLog(
                         'My IAPSNJ: answer not in the list',
-                        'The member picked "Other (not listed)" and typed: ' . implode( ' · ', $unlisted ) . '. It is stored on the contact as typed. If it is correct, add it to the dropdown in My IAPSNJ → Checkout Builder so the next member can pick it.',
+                        'The member picked "Other (not listed)" and typed: ' . implode( ' · ', $unlisted ) . '. It is stored on the contact as typed. A Department is also created in the CRM\'s Companies (Departments) list and made the contact\'s primary company; for any other field, add the answer to the dropdown in My IAPSNJ → Checkout Builder if it is correct so the next member can pick it.',
                         'info',
                         'My IAPSNJ'
                     );
@@ -2928,6 +2989,11 @@ class My_IAPSNJ_Checkout_Fields {
         if ( $custom ) {
             My_IAPSNJ_Schema::set_fields( $subscriber, $custom );
             $written = array_keys( $custom );
+            // The department is the contact's primary company (Companies module).
+            $dept = $custom[ My_IAPSNJ_Schema::FIELD_DEPARTMENT ] ?? '';
+            if ( is_string( $dept ) && $dept !== '' ) {
+                My_IAPSNJ_Schema::set_department( $subscriber, $dept );
+            }
         }
         if ( $defaults ) {
             foreach ( $defaults as $column => $value ) {
