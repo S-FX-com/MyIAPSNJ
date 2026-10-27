@@ -1005,6 +1005,55 @@ class My_IAPSNJ_Membership {
     }
 
     /**
+     * Is FluentCart's billing phone field switched on for every checkout?
+     * FluentCart ships it OFF (Settings → Checkout Fields → Billing →
+     * Phone, option `_fc_checkout_fields`), and the plugin's "Cell phone"
+     * label and rule only act on a field FluentCart prints. Null when the
+     * setting cannot be read.
+     */
+    public static function checkout_phone_enabled(): ?bool {
+        if ( ! class_exists( '\FluentCart\App\Services\Renderer\CheckoutFieldsSchema' ) ) {
+            return null;
+        }
+        try {
+            $fields = \FluentCart\App\Services\Renderer\CheckoutFieldsSchema::getFieldsSettings();
+            return ( $fields['billing_address']['phone']['enabled'] ?? 'no' ) === 'yes';
+        } catch ( \Throwable $e ) {
+            return null;
+        }
+    }
+
+    /**
+     * Switch FluentCart's billing phone on, and required, for every checkout
+     * (data migration v16; 4.30, client: "the phone needs to be enabled on
+     * all of the FluentCart forms"). Writes FluentCart's own option, as its
+     * Checkout Fields screen does. Idempotent.
+     *
+     * @return bool whether the setting was changed
+     */
+    public static function enable_checkout_phone(): bool {
+        if ( ! class_exists( '\FluentCart\App\Services\Renderer\CheckoutFieldsSchema' ) || ! function_exists( 'fluent_cart_update_option' ) ) {
+            return false;
+        }
+        try {
+            $fields  = \FluentCart\App\Services\Renderer\CheckoutFieldsSchema::getFieldsSettings();
+            $current = $fields['billing_address']['phone'] ?? [];
+            if ( ( $current['enabled'] ?? 'no' ) === 'yes' && ( $current['required'] ?? 'no' ) === 'yes' ) {
+                return false;
+            }
+            $fields['billing_address']['phone'] = array_merge( is_array( $current ) ? $current : [], [ 'enabled' => 'yes', 'required' => 'yes' ] );
+            fluent_cart_update_option( '_fc_checkout_fields', $fields );
+            if ( method_exists( '\FluentCart\App\Services\Renderer\CheckoutFieldsSchema', 'resetFieldsCache' ) ) {
+                \FluentCart\App\Services\Renderer\CheckoutFieldsSchema::resetFieldsCache();
+            }
+            return true;
+        } catch ( \Throwable $e ) {
+            error_log( 'My IAPSNJ: could not switch on FluentCart\'s billing phone field: ' . $e->getMessage() );
+            return false;
+        }
+    }
+
+    /**
      * Does FluentCart offer Pay by Check on a yearly-membership checkout?
      * Its subscription gateway gate (SubscriptionGatewayGate, FluentCart
      * 1.6.5 builds onwards) hides every gateway without native subscription
