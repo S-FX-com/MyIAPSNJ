@@ -193,8 +193,18 @@ one-time products with the January renewal campaign.
   member is expected to look the list up first), unless a company with that
   name exists, in which case it is reused whatever the capitals ("newark pd" is
   "Newark PD"): the typed name is trimmed and its spaces collapsed, nothing else
-  is changed. Misspellings still become new companies, so the Companies list is
-  worth a look now and then.
+  is changed.
+  **Close matches are proposed first (4.30).** A new department (or rank) that is
+  the same as a listed one apart from capitals and punctuation ("newark p.d.") is
+  simply that option. One that closely matches a listed one (same apart from
+  filler words police / department / dept / pd / the / of / and, or contained in
+  it, or a letter or two off, a swap of neighbours counting as one) gets a
+  "Did you mean …?" box under the text as it is typed, with a button per listed
+  match and "No, mine is different". The server checks again on submit and
+  refuses an unconfirmed close match, naming the listed one, so a form sent
+  without the script cannot slip a near-duplicate in (it can only choose the
+  listed one). Rules: `My_IAPSNJ_Similar` (PHP) and `public/js/similar-options.js`
+  (the same rules in the browser; lengths and edits are counted in characters on both sides, so accented names such as "San Germán" behave the same in each).
 * **Dropdown lists come from the CRM**: a row writing to a select-one custom
   field (Rank, Marital status …) offers that field's own option list; a field
   with no list keeps the list set in the Checkout Builder.

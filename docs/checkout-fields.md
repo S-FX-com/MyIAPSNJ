@@ -33,7 +33,7 @@ after the product import (`docs/not-in-git.md`).
 ## 2. Checkout page
 
 **FluentCart's own fields** (FluentCart → Settings → Checkout Fields): first
-name, last name (required), email (system), phone (billing, **required**),
+name, last name (required), email (system), phone (billing, **on and required**: the field is FluentCart's and ships off, with it off the application has no phone; data version 16 / 4.30 switches it on and required for every checkout and the Health check warns if it is off again; on a membership checkout the plugin relabels it *Cell phone* and makes it required whatever the setting says),
 billing address (all required except line 2), no shipping (digital). Turn on
 *User account creation = automatic*, guest checkout off. Optional: FluentCart's
 *Agree to terms* checkbox.
@@ -177,7 +177,7 @@ the dropdown, *Department not listed? Add it here*, picks "Other" and opens
 the text box (client feedback on 4.18: the option at the end of a long list
 went unseen); the link hides while "Other" is picked. A contact whose saved
 answer is not in the list sees "Other" picked with the answer filled in. The
-order log line *answer not in the list* names it so an admin can add it to
+order log line *answer not in the list* names it (4.30: an answer that closely matches a listed option is first proposed back to the member, "Did you mean …?", see `docs/crm-schema.md`) so an admin can add it to
 the dropdown. Department and Rank have it on by default (4.18).
 
 **One phone number (4.18).** The member gives one number, FluentCart's billing
