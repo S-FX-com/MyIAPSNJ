@@ -177,7 +177,7 @@ the dropdown, *Department not listed? Add it here*, picks "Other" and opens
 the text box (client feedback on 4.18: the option at the end of a long list
 went unseen); the link hides while "Other" is picked. A contact whose saved
 answer is not in the list sees "Other" picked with the answer filled in. The
-order log line *answer not in the list* names it so an admin can add it to
+order log line *answer not in the list* names it (4.30: an answer that closely matches a listed option is first proposed back to the member, "Did you mean …?", see `docs/crm-schema.md`) so an admin can add it to
 the dropdown. Department and Rank have it on by default (4.18).
 
 **One phone number (4.18).** The member gives one number, FluentCart's billing

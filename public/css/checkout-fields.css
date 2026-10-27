@@ -197,3 +197,42 @@
     font-weight: 600;
     text-decoration: underline;
 }
+
+/* "Did you mean …?" under the box typed for an unlisted Department / Rank
+   (public/js/similar-options.js). */
+.my-iapsnj-suggest {
+    margin: 8px 0 0;
+    padding: 10px 12px;
+    border-left: 4px solid #dba617;
+    background: #fcf9e8;
+    font-size: 14px;
+    line-height: 1.5;
+}
+.my-iapsnj-suggest[hidden] {
+    display: none;
+}
+.my-iapsnj-suggest .my-iapsnj-suggest-title {
+    display: block;
+    margin: 0 0 6px;
+    font-weight: 600;
+}
+.my-iapsnj-suggest .my-iapsnj-suggest-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.my-iapsnj-suggest button {
+    margin: 0;
+    padding: 6px 12px;
+    border: 1px solid #0c3d54;
+    border-radius: 6px;
+    background: #0c3d54;
+    font-size: 14px;
+    line-height: 1.4;
+    color: #fff;
+    cursor: pointer;
+}
+.my-iapsnj-suggest button.my-iapsnj-suggest-keep {
+    background: #fff;
+    color: #0c3d54;
+}

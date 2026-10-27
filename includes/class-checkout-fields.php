@@ -63,6 +63,7 @@ class My_IAPSNJ_Checkout_Fields {
     const NEW_TARGET   = '__new__';                          // "create a CRM custom field" picker value
     const OTHER_VALUE  = '__other__';                        // dropdown choice "Other (not listed)"
     const OTHER_SUFFIX = '__other';                          // input name suffix of the typed "Other" answer
+    const CONFIRM_SUFFIX = '__confirm';                      // input name suffix: the typed answer the member confirmed is not a listed option
 
     /** @var string[] 'section' is a heading row, not an input */
     const TYPES = [ 'text', 'phone', 'textarea', 'select', 'radio', 'date', 'checkbox', 'section' ];
@@ -1909,6 +1910,13 @@ class My_IAPSNJ_Checkout_Fields {
         $raw = $request[ self::input_name( $key ) ] ?? null;
         if ( self::chose_other( $def, $raw ) ) {
             $raw = $request[ self::input_name( $key ) . self::OTHER_SUFFIX ] ?? '';
+            // "newark p.d." typed for the listed "Newark PD" is that option.
+            if ( is_scalar( $raw ) && ! empty( $def['options'] ) ) {
+                $listed = My_IAPSNJ_Similar::exact( (string) $raw, (array) $def['options'] );
+                if ( $listed !== '' ) {
+                    $raw = $listed;
+                }
+            }
         }
         return $raw;
     }
@@ -2221,7 +2229,12 @@ class My_IAPSNJ_Checkout_Fields {
                     echo '<div class="my-iapsnj-other" data-my-iapsnj-other-for="' . esc_attr( $name ) . '"' . ( $on ? '' : ' style="display:none"' ) . '>';
                     echo '<label class="fct_input_label" for="' . esc_attr( $id . '-other' ) . '">' . esc_html( sprintf( /* translators: field label, e.g. Department */ __( 'Your %s (not listed)', 'my-iapsnj' ), $def['label'] ) ) . $star . '</label>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- $star is static markup
                     echo '<input type="text" class="fct-input" id="' . esc_attr( $id . '-other' ) . '" name="' . esc_attr( $name . self::OTHER_SUFFIX ) . '" value="' . esc_attr( $is_other ? $value : '' ) . '" maxlength="120" autocomplete="off"' . ( $required ? ' required aria-required="true"' : '' ) . ( $on ? '' : ' disabled' ) . '>';
+                    // "Did you mean …?": the script fills this box with the closest listed options
+                    // and, when the member says theirs is different, the typed text here.
+                    echo '<input type="hidden" name="' . esc_attr( $name . self::CONFIRM_SUFFIX ) . '" value=""' . ( $on ? '' : ' disabled' ) . '>';
+                    echo '<div class="my-iapsnj-suggest" data-my-iapsnj-suggest-for="' . esc_attr( $name ) . '" role="status" aria-live="polite" hidden></div>';
                     echo '</div>';
+                    My_IAPSNJ_Similar::enqueue();
                 }
             } elseif ( $type === 'textarea' ) {
                 echo '<textarea class="fct-input" id="' . esc_attr( $id ) . '" name="' . esc_attr( $name ) . '" rows="3"' . $req_attr . '>' . esc_textarea( $value ) . '</textarea>';
@@ -2622,6 +2635,20 @@ class My_IAPSNJ_Checkout_Fields {
         }
         if ( ! $other && in_array( $def['type'], [ 'select', 'radio' ], true ) && ! empty( $def['options'] ) && ! in_array( $value, $def['options'], true ) ) {
             $errors[ $name ]['invalid'] = sprintf( /* translators: field label */ __( 'Please choose a valid %s.', 'my-iapsnj' ), $label );
+        }
+        // A typed "Other" answer that closely matches a listed option: propose
+        // the listed one, unless the member confirmed theirs is different.
+        if ( $other && ! empty( $def['options'] ) && ! in_array( $value, $def['options'], true ) ) {
+            $close = My_IAPSNJ_Similar::matches( $value, (array) $def['options'] );
+            if ( $close && ! My_IAPSNJ_Similar::same( (string) ( $data[ $name . self::CONFIRM_SUFFIX ] ?? '' ), $value ) ) {
+                $errors[ $name . self::OTHER_SUFFIX ]['similar'] = sprintf(
+                    /* translators: 1: what the member typed, 2: the listed options, 3: field label */
+                    __( '"%1$s" looks like %2$s, which is already in the list. Please choose it from the list, or confirm that your %3$s is different.', 'my-iapsnj' ),
+                    $value,
+                    '"' . implode( '" or "', $close ) . '"',
+                    strtolower( (string) $def['label'] )
+                );
+            }
         }
         return $errors;
     }

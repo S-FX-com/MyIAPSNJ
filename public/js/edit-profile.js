@@ -185,6 +185,10 @@
             if ( ! first ) {
                 first = input;
             }
+            // "Did you mean …?": the server found a close match; show the proposal (similar-options.js).
+            if ( /__other$/.test( name ) ) {
+                input.dispatchEvent( new Event( 'focusout', { bubbles: true } ) );
+            }
         } );
         if ( first ) {
             first.focus();
