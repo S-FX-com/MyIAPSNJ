@@ -3,6 +3,7 @@
     --my-iapsnj-mm-accent: #0c3d54;
     --my-iapsnj-mm-border: #dadbdd;
     max-width: 520px;
+    margin: 0 auto;
     padding: 8px 20px 20px;
     border: 1px solid var(--my-iapsnj-mm-border);
     border-radius: 8px;
@@ -64,6 +65,7 @@
 }
 .my-iapsnj-mm .my-iapsnj-mm-action {
     margin: 12px 0 0;
+    text-align: center;
 }
 .my-iapsnj-mm a.my-iapsnj-mm-renew {
     display: inline-block;
