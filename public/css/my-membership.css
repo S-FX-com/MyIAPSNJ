@@ -1,38 +1,51 @@
-/* My IAPSNJ – [iapsnj_my_membership]. */
+/* My IAPSNJ – [iapsnj_my_membership]: a horizontal bar that fills the width
+   of its column. The five facts sit in a row, Renew Now at the end; on a
+   narrow screen the facts wrap into two columns and the button goes full width. */
 .my-iapsnj-mm {
     --my-iapsnj-mm-accent: #0c3d54;
     --my-iapsnj-mm-border: #dadbdd;
-    max-width: 520px;
-    margin: 0 auto;
-    padding: 8px 20px 20px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px 24px;
+    width: 100%;
+    margin: 0;
+    padding: 16px 24px;
     border: 1px solid var(--my-iapsnj-mm-border);
     border-radius: 8px;
     background: #fff;
 }
+.my-iapsnj-mm,
 .my-iapsnj-mm *,
 .my-iapsnj-mm *::before,
 .my-iapsnj-mm *::after {
     box-sizing: border-box;
 }
 .my-iapsnj-mm .my-iapsnj-mm-list {
+    display: flex;
+    flex: 1 1 auto;
+    flex-wrap: wrap;
     margin: 0;
     padding: 0;
 }
 .my-iapsnj-mm .my-iapsnj-mm-row {
     display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 4px 16px;
-    padding: 12px 0;
-    border-bottom: 1px solid #eceded;
+    flex: 1 1 130px;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    margin: 0;
+    padding: 4px 16px;
+    border: 0;
+    border-left: 1px solid #eceded;
+    text-align: center;
 }
-.my-iapsnj-mm .my-iapsnj-mm-row:last-child {
-    border-bottom: 0;
+.my-iapsnj-mm .my-iapsnj-mm-row:first-child {
+    border-left: 0;
 }
 .my-iapsnj-mm .my-iapsnj-mm-row dt {
     margin: 0;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 400;
     color: #5b6169;
 }
@@ -40,11 +53,13 @@
     margin: 0;
     font-size: 16px;
     font-weight: 600;
-    text-align: right;
+    line-height: 1.5;
 }
 .my-iapsnj-mm .my-iapsnj-mm-note {
-    font-size: 13px;
+    display: block;
+    font-size: 12px;
     font-weight: 400;
+    line-height: 1.3;
     color: #5b6169;
 }
 .my-iapsnj-mm .my-iapsnj-mm-badge {
@@ -64,8 +79,8 @@
     color: #a52a1d;
 }
 .my-iapsnj-mm .my-iapsnj-mm-action {
-    margin: 12px 0 0;
-    text-align: center;
+    flex: 0 0 auto;
+    margin: 0;
 }
 .my-iapsnj-mm a.my-iapsnj-mm-renew {
     display: inline-block;
@@ -76,6 +91,7 @@
     font-size: 16px;
     line-height: 1.4;
     text-decoration: none;
+    white-space: nowrap;
     color: #fff;
 }
 .my-iapsnj-mm a.my-iapsnj-mm-renew:hover,
@@ -86,4 +102,25 @@
 }
 .my-iapsnj-mm-notice {
     margin: 0;
+}
+@media (max-width: 700px) {
+    .my-iapsnj-mm {
+        padding: 12px 16px;
+    }
+    .my-iapsnj-mm .my-iapsnj-mm-list {
+        width: 100%;
+    }
+    .my-iapsnj-mm .my-iapsnj-mm-row {
+        flex: 1 1 45%;
+        padding: 10px 8px;
+        border-left: 0;
+        border-bottom: 1px solid #eceded;
+    }
+    .my-iapsnj-mm .my-iapsnj-mm-action {
+        width: 100%;
+    }
+    .my-iapsnj-mm a.my-iapsnj-mm-renew {
+        display: block;
+        text-align: center;
+    }
 }

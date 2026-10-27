@@ -1,6 +1,6 @@
 <?php
 /**
- * [iapsnj_my_membership]: a small "My Membership" card for the logged-in member.
+ * [iapsnj_my_membership]: a "My Membership" bar for the logged-in member.
  *
  * Membership role, member since, expiration, status and member number, all
  * read from the member's FluentCRM contact (member_type, join_date,
