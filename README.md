@@ -215,7 +215,7 @@ Visitors see a log-in link. WordPress account only; nothing is written to the CR
 
 `[iapsnj_my_membership button="Renew Now" window="60" regular_url="" associate_url=""]`
 — "My Membership" bar (full width of its column) for the logged-in member, read from their CRM contact:
-Membership Role (`member_type`), Member Since (`join_date`), Expiration Date
+Membership Role (`member_type`, plus a staff / admin WordPress role such as Administrator when the account has one), Member Since (`join_date`), Expiration Date
 (`paid_through`; Lifetime reads LIFETIME, Honorary NO EXPIRATION), Active /
 Inactive (the same test as the daily expiry job, grace days included) and Member
 Number. **Renew Now** appears when the membership has lapsed or ends within

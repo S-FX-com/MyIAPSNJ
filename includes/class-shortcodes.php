@@ -23,7 +23,7 @@ final class My_IAPSNJ_Shortcodes {
         return [
             My_IAPSNJ_My_Membership::SHORTCODE => [
                 'title'    => __( 'My Membership', 'my-iapsnj' ),
-                'summary'  => __( 'A horizontal bar, full width of its column, with the member\'s Membership Role, Member Since, Expiration Date, Active / Inactive status and Member Number, read from their FluentCRM contact. Lifetime members read LIFETIME (Honorary: NO EXPIRATION). A Renew Now button appears when the membership has lapsed or ends within the renewal window; never for Lifetime or Honorary.', 'my-iapsnj' ),
+                'summary'  => __( 'A horizontal bar, full width of its column, with the member\'s Membership Role (the CRM member type, plus an Administrator / Editor / other staff WordPress role when the account has one), Member Since, Expiration Date, Active / Inactive status and Member Number, read from their FluentCRM contact. Lifetime members read LIFETIME (Honorary: NO EXPIRATION). A Renew Now button appears when the membership has lapsed or ends within the renewal window; never for Lifetime or Honorary.', 'my-iapsnj' ),
                 'audience' => __( 'Logged-in members. Visitors see a log-in link.', 'my-iapsnj' ),
                 'page'     => __( 'Membership Portal', 'my-iapsnj' ),
                 'atts'     => [

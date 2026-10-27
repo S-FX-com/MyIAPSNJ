@@ -6,6 +6,8 @@
  * read from the member's FluentCRM contact (member_type, join_date,
  * paid_through, member_number). Read only: nothing is written.
  *
+ * - Membership Role is the member_type, followed by the account's staff /
+ *   admin WordPress role when it has one (see staff_role_labels()).
  * - Status uses My_IAPSNJ_Schema::is_active_state(), the test the daily
  *   expiry job and the member lists use (grace period included).
  * - Lifetime reads LIFETIME; Honorary, which never expires either, reads
@@ -61,6 +63,31 @@ final class My_IAPSNJ_My_Membership {
         $to   = strtotime( $ymd . ' 00:00:00 UTC' );
         $from = strtotime( My_IAPSNJ_Dates::today() . ' 00:00:00 UTC' );
         return (int) round( ( (int) $to - (int) $from ) / DAY_IN_SECONDS );
+    }
+
+    /**
+     * Names of the user's WordPress roles that are not membership roles:
+     * Administrator, Editor, board roles … Subscriber and the roles the
+     * Profile Sync gives members (per type, and the expired role) are what
+     * the membership type already says, so they are left out.
+     *
+     * @return string[]
+     */
+    public static function staff_role_labels( $user ): array {
+        if ( ! $user instanceof WP_User ) {
+            return [];
+        }
+        $managed = array_merge( [ 'subscriber', My_IAPSNJ_Engine::expired_role() ], array_values( My_IAPSNJ_Engine::role_map() ) );
+        $names   = wp_roles()->get_names();
+        $out     = [];
+        foreach ( (array) $user->roles as $slug ) {
+            $slug = (string) $slug;
+            if ( $slug === '' || in_array( $slug, $managed, true ) ) {
+                continue;
+            }
+            $out[] = translate_user_role( (string) ( $names[ $slug ] ?? $slug ) );
+        }
+        return $out;
     }
 
     /**
@@ -137,10 +164,15 @@ final class My_IAPSNJ_My_Membership {
             }
         }
 
+        // The membership type, plus a staff / admin WordPress role when the
+        // account has one ("Regular · Administrator"; "Administrator" alone
+        // for an account with no member type).
+        $role = implode( ' · ', array_filter( array_merge( [ $type ], self::staff_role_labels( wp_get_current_user() ) ), 'strlen' ) );
+
         wp_enqueue_style( self::HANDLE );
 
         $rows = [
-            __( 'Membership Role', 'my-iapsnj' ) => $type !== '' ? $type : $dash,
+            __( 'Membership Role', 'my-iapsnj' ) => $role !== '' ? $role : $dash,
             __( 'Member Since', 'my-iapsnj' )    => $since !== '' ? My_IAPSNJ_Dates::ymd_display( $since ) : $dash,
         ];
 
