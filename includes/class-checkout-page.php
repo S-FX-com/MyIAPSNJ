@@ -24,8 +24,8 @@
  *    automatically" instead of "$30.00 per year until cancel".
  *  - A note under the Discount Code field (family members of a regular
  *    member ask for a code), from Checkout Builder → Checkout settings.
- *  - Pay by Check second in the payment list with a note giving the
- *    mailing address for dues and warning of mail delays.
+ *  - Pay by Check second in the payment list, with a note warning of mail
+ *    delays shown with its instructions once it is picked.
  */
 
 defined( 'ABSPATH' ) || exit;
@@ -134,10 +134,36 @@ class My_IAPSNJ_Checkout_Page {
         return sprintf( __( 'Mail your check to: <strong>%s</strong>', 'my-iapsnj' ), esc_html( self::CHECK_ADDRESS ) );
     }
 
-    /** Default note under Pay by Check. */
+    /**
+     * Default note under Pay by Check: the USPS warning only. The mailing
+     * address is in FluentCart's offline instructions, shown in the same
+     * box once Pay by Check is picked (4.20, client feedback: the address
+     * appeared twice).
+     */
     public static function default_check_note(): string {
-        return self::check_address_line() . '<br>'
-            . __( 'Please note: mailing a check will considerably delay your application because of USPS mail delays. Pay by card to be approved sooner.', 'my-iapsnj' );
+        return __( 'Please note: mailing a check will considerably delay your application because of USPS mail delays. Pay by card to be approved sooner.', 'my-iapsnj' );
+    }
+
+    /**
+     * Data migration (v15): the address line that v12 put in front of a
+     * saved note under Pay by Check comes out again, since the note now sits
+     * with FluentCart's instructions, which already give the address. A note
+     * that is then the built-in text goes back to the default. Idempotent.
+     */
+    public static function strip_address_from_check_note(): void {
+        $settings = get_option( 'my_iapsnj_settings', [] );
+        if ( ! is_array( $settings ) || ! isset( $settings['check_delay_note'] ) ) {
+            return; // never saved: the default no longer carries the address
+        }
+        $note   = trim( (string) $settings['check_delay_note'] );
+        $line   = self::check_address_line();
+        $prefix = $line . '<br>';
+        if ( $note === '' || ( $note !== $line && strpos( $note, $prefix ) !== 0 ) ) {
+            return;
+        }
+        $note = $note === $line ? '' : trim( substr( $note, strlen( $prefix ) ) );
+        $settings['check_delay_note'] = ( $note === '' || $note === self::CHECK_NOTE_4_16 ) ? null : $note;
+        update_option( 'my_iapsnj_settings', $settings );
     }
 
     /**
@@ -597,11 +623,14 @@ class My_IAPSNJ_Checkout_Page {
 
     /**
      * The note on mail delays, printed once as a template; the footer
-     * script puts it inside the Pay by Check box, right under its label
-     * (before the instructions FluentCart reveals on selection), and again after
-     * FluentCart refreshes the payment methods. FluentCart's own hook for a
-     * method prints inside its label, before the title, so it is not used.
-     * Only on a membership checkout (the note speaks of the application).
+     * script puts it at the top of the Pay by Check instructions
+     * (`.fct_payment_method_instructions`, which FluentCart's checkout
+     * script reveals only while Pay by Check is selected — 4.20, client
+     * feedback: the note showed before selection and repeated the address),
+     * creating that block when FluentCart has no instructions saved, and
+     * again after FluentCart refreshes the payment methods. FluentCart's own
+     * hook for a method prints inside its label, so it is not used. Only on
+     * a membership checkout (the note speaks of the application).
      */
     private function print_check_note(): void {
         $note = self::note( 'check_delay_note' );
@@ -614,7 +643,9 @@ class My_IAPSNJ_Checkout_Page {
             . 'function put(){var t=document.getElementById("my-iapsnj-check-note");if(!t||!t.content){return;}'
             . 'document.querySelectorAll(".fct_payment_method_"+M).forEach(function(w){var l=w.querySelector(":scope > label");'
             . 'if(!l||w.querySelector(".my-iapsnj-check-note")){return;}'
-            . 'w.insertBefore(t.content.firstElementChild.cloneNode(true),l.nextSibling);});}'
+            . 'var d=w.querySelector(".fct_payment_method_instructions");'
+            . 'if(!d){d=document.createElement("div");d.className="fct_payment_method_instructions";d.style.display="none";w.insertBefore(d,l.nextSibling);}'
+            . 'd.insertBefore(t.content.firstElementChild.cloneNode(true),d.firstChild);});}'
             . 'put();window.addEventListener("fluentCartFragmentsReplaced",put);'
             . 'var n=0,i=setInterval(function(){put();if(++n>20){clearInterval(i);}},500);'
             . '})();</script>' . "\n";

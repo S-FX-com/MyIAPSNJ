@@ -171,10 +171,10 @@
     opacity: 0.85;
 }
 
-/* Note inside the Pay by Check box, under its title (beats FluentCart's
-   `.fct_payment_method p`). */
+/* Note at the top of the Pay by Check instructions, shown once it is picked
+   (beats FluentCart's `.fct_payment_method p`). */
 .fct_payment_method_wrapper p.my-iapsnj-check-note {
-    margin: 0 16px 12px;
+    margin: 0 0 12px;
     padding: 8px 10px;
     border-left: 3px solid #dba617;
     background: #fcf9e8;

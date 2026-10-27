@@ -487,6 +487,7 @@ class My_IAPSNJ_Admin {
             [ (int) $settings['renewal_variation_associate'] > 0, __( 'Renewal product set for Associate members', 'my-iapsnj' ), admin_url( 'admin.php?page=my-iapsnj-products#join-renew' ) ],
             [ $offline['configured'] && $offline['active'] && stripos( $offline['label'], 'check' ) !== false, sprintf( __( 'Offline payment method active and labelled "%s"', 'my-iapsnj' ), $offline['label'] !== '' ? $offline['label'] : 'Cash' ), admin_url( 'admin.php?page=my-iapsnj-checkout#pay-by-check' ) ],
             [ My_IAPSNJ_Membership::check_offered_on_subscriptions() !== false, __( 'Pay by Check offered on yearly memberships (FluentCart → Settings → Subscriptions: Manual Fallback on; the plugin switches it on at upgrade)', 'my-iapsnj' ), admin_url( 'admin.php?page=my-iapsnj-checkout#pay-by-check' ) ],
+            [ My_IAPSNJ_Membership::checkout_phone_enabled() !== false, __( 'Phone field on every FluentCart checkout (FluentCart → Settings → Checkout Fields → Billing → Phone on; a membership checkout labels it "Cell phone"; the plugin switches it on at upgrade)', 'my-iapsnj' ), '' ],
             [ ! empty( $settings['notify_new_member'] ) && ! empty( $settings['notify_emails'] ), __( 'New-member notification recipients set', 'my-iapsnj' ), admin_url( 'admin.php?page=my-iapsnj-sync#notifications' ) ],
             [ My_IAPSNJ_Applications::table_exists(), __( 'Applications table present', 'my-iapsnj' ), '' ],
             [ ! My_IAPSNJ_Migration::tables_exist() || ! function_exists( 'pmpro_getMembershipLevelForUser' ), __( 'Paid Memberships Pro deactivated (tables may remain)', 'my-iapsnj' ), '' ],
@@ -1292,7 +1293,7 @@ class My_IAPSNJ_Admin {
                     </td></tr>
                     <tr><th><?php esc_html_e( 'Note under Pay by Check', 'my-iapsnj' ); ?></th><td>
                         <textarea name="check_delay_note" rows="2" class="large-text"><?php echo esc_textarea( My_IAPSNJ_Checkout_Page::note( 'check_delay_note' ) ); ?></textarea>
-                        <p class="description"><?php esc_html_e( 'Shown inside the Pay by Check box, under its title, on membership checkouts, before the member picks it. On those checkouts Pay by Check is always listed second, after the card, which stays preselected. The mailing instructions (Pay by Check below) still show once it is picked. Empty = no note.', 'my-iapsnj' ); ?></p>
+                        <p class="description"><?php esc_html_e( 'Shown on membership checkouts at the top of the Pay by Check instructions, so only once the member picks Pay by Check (4.20). The mailing address comes from the instructions (Pay by Check below): do not repeat it here. On those checkouts Pay by Check is always listed second, after the card, which stays preselected. Empty = no note.', 'my-iapsnj' ); ?></p>
                     </td></tr>
                 </table>
                 <p><button type="submit" class="button button-primary"><?php esc_html_e( 'Save', 'my-iapsnj' ); ?></button></p>

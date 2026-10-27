@@ -70,7 +70,9 @@ expects. Lifetime is one-time and was never affected.
   added to the plugin.
 * Drag the offline method **below** the card options. On membership
   checkouts the plugin puts it second anyway (4.16), with the USPS-delay note
-  under it (Checkout Builder → Checkout settings).
+  (Checkout Builder → Checkout settings) at the top of its instructions, so
+  it shows only once Pay by Check is picked (4.20; the address is given once,
+  by the instructions).
 
 ## Checkout
 
@@ -82,8 +84,11 @@ expects. Lifetime is one-time and was never affected.
   (2026-09-29). Create them in FluentCart → Coupons. The storefront calls
   them "Discount Code" (the plugin rewords FluentCart's text).
 * Checkout fields: **First Name + Last Name** switched on (not the single
-  Name field), email, phone enabled (a membership checkout labels it "Cell
-  phone" and requires it, 4.18), billing address required (this is the
+  Name field), email, **Billing → Phone on and required** (FluentCart ships
+  it off; data version 15 / 4.20 switches it on for every checkout at the
+  client's request, and the Health check row *Phone field on every
+  FluentCart checkout* warns if it is off again; a membership checkout
+  labels it "Cell phone", 4.18), billing address required (this is the
   address that fills gaps in the CRM). No shipping section (digital).
 * Receipt numbering prefix e.g. `IAPSNJ-`.
 
