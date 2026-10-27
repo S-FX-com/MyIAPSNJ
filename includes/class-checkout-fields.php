@@ -2334,6 +2334,39 @@ class My_IAPSNJ_Checkout_Fields {
     }
 
     /**
+     * The billing fields of a membership checkout with the required "Cell
+     * phone" in them. FluentCart prints its billing phone only when Phone is
+     * switched on in its own Checkout Fields settings (off by default), so a
+     * store that never turned it on had no phone on the application: the field
+     * is added here when FluentCart left it out. Same input name and shape as
+     * FluentCart's, so its checkout saves it (billing_phone) and validate()
+     * checks it. FluentCart prints no label, only the placeholder, and a
+     * required field's placeholder ends in " *".
+     *
+     * @param array<string,mixed> $fields FluentCart's billing fields, keyed country, address_1 … phone
+     * @return array<string,mixed>
+     */
+    public static function with_cell_phone( array $fields ): array {
+        if ( ! isset( $fields['phone'] ) || ! is_array( $fields['phone'] ) ) {
+            $fields['phone'] = [
+                'name'         => 'billing_phone',
+                'id'           => 'billing_phone',
+                'type'         => 'tel',
+                'data-type'    => 'text',
+                'label'        => '',
+                'autocomplete' => 'tel',
+                'value'        => '',
+                // FluentCart marks each field's wrapper before the billing_fields filter runs.
+                'wrapper_atts' => [ 'data-fluent-cart-checkout-page-form-input-wrapper' => '' ],
+            ];
+        }
+        $fields['phone']['placeholder'] = __( 'Cell phone', 'my-iapsnj' ) . ' *';
+        $fields['phone']['aria-label']  = __( 'Cell phone', 'my-iapsnj' );
+        $fields['phone']['required']    = 'yes';
+        return $fields;
+    }
+
+    /**
      * fluent_cart/checkout_renderer/billing_fields — address and phone from
      * the CRM contact when the cart holds nothing yet. Country and state are
      * matched against FluentCart's option lists (code or name).
@@ -2351,12 +2384,9 @@ class My_IAPSNJ_Checkout_Fields {
         $cart = is_array( $data ) ? ( $data['cart'] ?? null ) : null;
         // A membership asks for one number, the member's cell phone (4.18,
         // client request): it is the contact's Phone, the primary number.
-        // FluentCart prints no label, only the placeholder. Event and
-        // merchandise checkouts keep FluentCart's field.
-        if ( isset( $fields['phone'] ) && is_array( $fields['phone'] ) && ( self::preview_form_id() !== '' || self::form_for_cart( $cart ) !== '' ) ) {
-            $fields['phone']['placeholder'] = __( 'Cell phone', 'my-iapsnj' );
-            $fields['phone']['aria-label']  = __( 'Cell phone', 'my-iapsnj' );
-            $fields['phone']['required']    = 'yes';
+        // Event and merchandise checkouts keep FluentCart's field.
+        if ( self::preview_form_id() !== '' || self::form_for_cart( $cart ) !== '' ) {
+            $fields = self::with_cell_phone( $fields );
         }
 
         $contact = self::current_contact( $cart );

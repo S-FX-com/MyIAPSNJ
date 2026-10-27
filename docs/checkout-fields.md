@@ -33,7 +33,7 @@ after the product import (`docs/not-in-git.md`).
 ## 2. Checkout page
 
 **FluentCart's own fields** (FluentCart → Settings → Checkout Fields): first
-name, last name (required), email (system), phone (billing, **required**),
+name, last name (required), email (system), phone (billing; since 4.30.2 the plugin adds the required *Cell phone* itself on a membership checkout when FluentCart leaves it out: FluentCart shows its billing phone only when Phone is switched on in its Checkout Fields settings, which is off by default, so no setting is needed),
 billing address (all required except line 2), no shipping (digital). Turn on
 *User account creation = automatic*, guest checkout off. Optional: FluentCart's
 *Agree to terms* checkbox.
