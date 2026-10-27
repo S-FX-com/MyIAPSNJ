@@ -3,7 +3,7 @@
  * Plugin Name:       My IAPSNJ
  * Plugin URI:        https://github.com/S-FX-com/MyIAPSNJ
  * Description:       Membership operations for the IAPSNJ website. FluentCRM is the single source of truth: the membership application is collected on the FluentCart checkout page, FluentCart payments set membership state (Paid-YYYY tags, member_type, paid_through), applications are tracked until they are paid, mailed checks are reconciled in batch, and WordPress user profiles are mirrored one way from the CRM. Includes the PMPro → FluentCRM migration toolkit.
- * Version:           4.25.0
+ * Version:           4.26.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Requires Plugins:  fluent-crm
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'MY_IAPSNJ_VERSION', '4.25.0' );
+define( 'MY_IAPSNJ_VERSION', '4.26.0' );
 define( 'MY_IAPSNJ_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'MY_IAPSNJ_URL',     plugin_dir_url( __FILE__ ) );
 define( 'MY_IAPSNJ_FILE',    __FILE__ );
@@ -109,6 +109,8 @@ final class My_IAPSNJ_Plugin {
             // Page title, one-column layout, Discount Code wording, billing
             // line and payment notes around the application.
             My_IAPSNJ_Checkout_Page::get_instance();
+            // "This email is already registered: log in" prompt under the email field.
+            My_IAPSNJ_Email_Check::get_instance();
             // Names and addresses stored capitalised in FluentCart's records.
             My_IAPSNJ_Capitalization::register_fluentcart_hooks();
             My_IAPSNJ_Membership::ensure_cron();
