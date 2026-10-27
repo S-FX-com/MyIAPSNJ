@@ -224,6 +224,16 @@ Number. **Renew Now** appears when the membership has lapsed or ends within
 Membership Products (variation ids differ between sites, so prefer that setting
 or pass the URLs per site).
 
+`[iapsnj_directory per_page="24" photo_meta="headshot"]` — members-only directory of
+**active** members (the Active Membership rule): cards with headshot (silhouette
+when missing), name, member type, member since, department, rank and email /
+phone icons (`mailto:` / `tel:`). Filters, as a plain GET form so a filtered page
+can be bookmarked: department, rank (the values present among active members),
+join date range, retired Yes / No (retired = a retirement date on the contact, or
+Lifetime). Visible to administrators and logged-in members whose own membership
+is active; nobody else. The headshot is the user meta named by `photo_meta` (an
+image URL or an attachment id), or the `my_iapsnj/directory_photo_url` filter.
+
 `[iapsnj_edit_profile button="Save Changes"]` — "Edit Profile" form for the
 logged-in member, written straight to their FluentCRM contact (the WordPress
 profile follows through the usual mirror). It shows name, cell phone, address
@@ -234,6 +244,18 @@ never empty (Checkout Builder list → ACF choices → values in the CRM → bui
 list) and a value on file that the list lacks stays selectable. Emptying a field
 clears it. Email, member type, paid-through, member number and join date are not
 editable. FluentCart's own customer and saved-address records are not updated.
+
+**Photo.** A file field at the top. On save (`My_IAPSNJ_Headshot`) the photo is
+checked (JPG / PNG / WebP, under 10 MB or the server's limit, at least 150 px, not
+a disguised file), turned upright from its camera orientation, cropped to a centred
+square, shrunk to 400 px and re-saved as a JPEG at quality 82 (a few dozen KB, location
+data gone; transparency becomes white), stored in the Media Library under
+`uploads/iapsnj-headshots/`, and its address written to the contact's **avatar**
+(FluentCRM's own contact photo, so it also shows in the CRM). Replacing or removing a
+photo deletes the old file; a photo is only stored once every field has validated, and
+is dropped again if the CRM write fails. The directory shows it. Only photos stored
+here are used: a Gravatar or another address in the avatar field is ignored (and left
+alone by *Remove my photo*).
 
 `[iapsnj_renew_link text="Renew my membership" join_text="Join IAPSNJ" class="button"]`
 — renewal checkout link for the logged-in member (product per member type in

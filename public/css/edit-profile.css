@@ -137,6 +137,57 @@
 .my-iapsnj-ep-notice {
     margin: 0;
 }
+/* Photo: a round preview beside the file chooser. */
+.my-iapsnj-ep .my-iapsnj-ep-photo {
+    display: flex;
+    grid-column: 1 / -1;
+    align-items: center;
+    gap: 20px;
+}
+.my-iapsnj-ep .my-iapsnj-ep-photo-preview {
+    position: relative;
+    flex: 0 0 96px;
+    width: 96px;
+    height: 96px;
+    overflow: hidden;
+    border-radius: 50%;
+    background: #eceef1;
+}
+.my-iapsnj-ep .my-iapsnj-ep-photo-placeholder,
+.my-iapsnj-ep .my-iapsnj-ep-photo-placeholder svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+.my-iapsnj-ep .my-iapsnj-ep-photo-placeholder svg {
+    fill: #b8bec7;
+}
+.my-iapsnj-ep .my-iapsnj-ep-photo-preview img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.my-iapsnj-ep .my-iapsnj-ep-photo-controls {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.my-iapsnj-ep .my-iapsnj-ep-photo-controls input[type="file"] {
+    display: block;
+    max-width: 100%;
+    margin: 0 0 8px;
+    font-size: 14px;
+}
+.my-iapsnj-ep .my-iapsnj-ep-photo-remove[hidden] {
+    display: none;
+}
+.my-iapsnj-ep .my-iapsnj-ep-photo-remove {
+    margin: 0 0 6px;
+    font-size: 14px;
+}
 @media (max-width: 600px) {
     .my-iapsnj-ep .my-iapsnj-section {
         grid-template-columns: minmax(0, 1fr);
