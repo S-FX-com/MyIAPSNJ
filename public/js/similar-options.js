@@ -18,25 +18,30 @@
         } ).join( ' ' );
     }
 
-    // Edits (insert, delete, change, or swap two neighbours).
+    // The characters of a string (code points, like the PHP side counts them).
+    function chars( s ) {
+        return Array.from( s );
+    }
+
+    // Edits (insert, delete, change, or swap two neighbours), counted in characters.
     function distance( a, b ) {
-        var d = [], i, j, cost;
-        for ( i = 0; i <= a.length; i++ ) {
+        var x = chars( a ), y = chars( b ), d = [], i, j, cost;
+        for ( i = 0; i <= x.length; i++ ) {
             d[ i ] = [ i ];
         }
-        for ( j = 0; j <= b.length; j++ ) {
+        for ( j = 0; j <= y.length; j++ ) {
             d[ 0 ][ j ] = j;
         }
-        for ( i = 1; i <= a.length; i++ ) {
-            for ( j = 1; j <= b.length; j++ ) {
-                cost = a.charAt( i - 1 ) === b.charAt( j - 1 ) ? 0 : 1;
+        for ( i = 1; i <= x.length; i++ ) {
+            for ( j = 1; j <= y.length; j++ ) {
+                cost = x[ i - 1 ] === y[ j - 1 ] ? 0 : 1;
                 d[ i ][ j ] = Math.min( d[ i - 1 ][ j ] + 1, d[ i ][ j - 1 ] + 1, d[ i - 1 ][ j - 1 ] + cost );
-                if ( i > 1 && j > 1 && a.charAt( i - 1 ) === b.charAt( j - 2 ) && a.charAt( i - 2 ) === b.charAt( j - 1 ) ) {
+                if ( i > 1 && j > 1 && x[ i - 1 ] === y[ j - 2 ] && x[ i - 2 ] === y[ j - 1 ] ) {
                     d[ i ][ j ] = Math.min( d[ i ][ j ], d[ i - 2 ][ j - 2 ] + 1 );
                 }
             }
         }
-        return d[ a.length ][ b.length ];
+        return d[ x.length ][ y.length ];
     }
 
     function score( a, b ) {
@@ -51,12 +56,13 @@
         if ( ca === cb ) {
             return 0.95;
         }
-        var short = ca.length <= cb.length ? ca : cb;
+        var la = chars( ca ).length, lb = chars( cb ).length;
+        var short = la <= lb ? ca : cb;
         var long = short === ca ? cb : ca;
-        if ( short.length >= C.minLength && ( ' ' + long + ' ' ).indexOf( ' ' + short + ' ' ) >= 0 ) {
+        if ( Math.min( la, lb ) >= C.minLength && ( ' ' + long + ' ' ).indexOf( ' ' + short + ' ' ) >= 0 ) {
             return 0.85;
         }
-        var max = Math.max( ca.length, cb.length );
+        var max = Math.max( la, lb );
         if ( max >= C.minLength && max <= 255 ) {
             return 1 - distance( ca, cb ) / max;
         }

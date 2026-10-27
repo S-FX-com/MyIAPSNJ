@@ -204,7 +204,7 @@ one-time products with the January renewal campaign.
   refuses an unconfirmed close match, naming the listed one, so a form sent
   without the script cannot slip a near-duplicate in (it can only choose the
   listed one). Rules: `My_IAPSNJ_Similar` (PHP) and `public/js/similar-options.js`
-  (the same rules in the browser).
+  (the same rules in the browser; lengths and edits are counted in characters on both sides, so accented names such as "San Germán" behave the same in each).
 * **Dropdown lists come from the CRM**: a row writing to a select-one custom
   field (Rank, Marital status …) offers that field's own option list; a field
   with no list keeps the list set in the Checkout Builder.

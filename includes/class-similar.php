@@ -75,22 +75,34 @@ final class My_IAPSNJ_Similar {
         if ( $ca === $cb ) {
             return 0.95;
         }
-        $short = strlen( $ca ) <= strlen( $cb ) ? $ca : $cb;
+        // Lengths are in characters, not bytes, like the browser's: an accented
+        // letter is one character here too.
+        $la    = count( self::chars( $ca ) );
+        $lb    = count( self::chars( $cb ) );
+        $short = $la <= $lb ? $ca : $cb;
         $long  = $short === $ca ? $cb : $ca;
-        if ( strlen( $short ) >= self::MIN_LENGTH && strpos( ' ' . $long . ' ', ' ' . $short . ' ' ) !== false ) {
+        if ( min( $la, $lb ) >= self::MIN_LENGTH && strpos( ' ' . $long . ' ', ' ' . $short . ' ' ) !== false ) {
             return 0.85;
         }
-        $max = max( strlen( $ca ), strlen( $cb ) );
+        $max = max( $la, $lb );
         if ( $max >= self::MIN_LENGTH && $max <= 255 ) {
             return 1 - self::distance( $ca, $cb ) / $max;
         }
         return 0.0;
     }
 
-    /** Edits (insert, delete, change, or swap two neighbours) between two strings. */
+    /** The characters of a string (UTF-8 aware; bytes when it is not valid UTF-8). */
+    private static function chars( string $s ): array {
+        $chars = preg_split( '//u', $s, -1, PREG_SPLIT_NO_EMPTY );
+        return $chars === false ? str_split( $s ) : $chars;
+    }
+
+    /** Edits (insert, delete, change, or swap two neighbours) between two strings, counted in characters. */
     public static function distance( string $a, string $b ): int {
-        $la = strlen( $a );
-        $lb = strlen( $b );
+        $a  = self::chars( $a );
+        $b  = self::chars( $b );
+        $la = count( $a );
+        $lb = count( $b );
         $d  = [];
         for ( $i = 0; $i <= $la; $i++ ) {
             $d[ $i ][0] = $i;
@@ -100,7 +112,7 @@ final class My_IAPSNJ_Similar {
         }
         for ( $i = 1; $i <= $la; $i++ ) {
             for ( $j = 1; $j <= $lb; $j++ ) {
-                $cost         = $a[ $i - 1 ] === $b[ $j - 1 ] ? 0 : 1;
+                $cost          = $a[ $i - 1 ] === $b[ $j - 1 ] ? 0 : 1;
                 $d[ $i ][ $j ] = min( $d[ $i - 1 ][ $j ] + 1, $d[ $i ][ $j - 1 ] + 1, $d[ $i - 1 ][ $j - 1 ] + $cost );
                 if ( $i > 1 && $j > 1 && $a[ $i - 1 ] === $b[ $j - 2 ] && $a[ $i - 2 ] === $b[ $j - 1 ] ) {
                     $d[ $i ][ $j ] = min( $d[ $i ][ $j ], $d[ $i - 2 ][ $j - 2 ] + 1 );
