@@ -37,6 +37,20 @@ final class My_IAPSNJ_Shortcodes {
                     '[' . My_IAPSNJ_My_Membership::SHORTCODE . ' regular_url="https://example.com/?fluent-cart=instant_checkout&item_id=1&quantity=1" associate_url="https://example.com/?fluent-cart=instant_checkout&item_id=2&quantity=1"]',
                 ],
             ],
+            My_IAPSNJ_Directory::SHORTCODE => [
+                'title'    => __( 'Member Directory', 'my-iapsnj' ),
+                'summary'  => __( 'A directory of active members, as cards: headshot (a silhouette when there is none), name, member type, member since, department, rank, and email / phone icons that open the mail or phone app. Filter by department, rank, join date range and retired (Yes / No); results are paged. Retired means a retirement date on the contact or a Lifetime membership. Only administrators and members with an active membership can see it, because the cards carry email addresses and phone numbers.', 'my-iapsnj' ),
+                'audience' => __( 'Logged-in members with an active membership, and administrators. Everyone else sees a message.', 'my-iapsnj' ),
+                'page'     => __( 'Membership Directory', 'my-iapsnj' ),
+                'atts'     => [
+                    [ 'per_page', (string) My_IAPSNJ_Directory::PER_PAGE_DEFAULT, __( 'Members per page (1–100).', 'my-iapsnj' ) ],
+                    [ 'photo_meta', 'headshot', __( 'Name of the user-meta field holding each member\'s headshot (an image address or a Media Library attachment id). Members without one show the silhouette. Developers can also use the my_iapsnj/directory_photo_url filter.', 'my-iapsnj' ) ],
+                ],
+                'examples' => [
+                    '[' . My_IAPSNJ_Directory::SHORTCODE . ']',
+                    '[' . My_IAPSNJ_Directory::SHORTCODE . ' per_page="48" photo_meta="profile_photo"]',
+                ],
+            ],
             My_IAPSNJ_Profile::SHORTCODE => [
                 'title'    => __( 'Edit Profile', 'my-iapsnj' ),
                 'summary'  => __( 'The member edits their own FluentCRM contact: name, cell phone, address and the fields of the Checkout Builder form for their level, with the same labels, dropdown lists and rules as the checkout. Every field is filled with what is on file. Email and membership state (type, paid through, member number, join date) cannot be changed here.', 'my-iapsnj' ),

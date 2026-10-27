@@ -336,7 +336,7 @@ final class My_IAPSNJ_Members {
     /**
      * @return array{meta:string,subs:string,pivot:string,tags:string,users:string}
      */
-    private static function tables(): array {
+    public static function tables(): array {
         global $wpdb;
         return [
             'meta'  => $wpdb->prefix . 'fc_subscriber_meta',
@@ -352,7 +352,7 @@ final class My_IAPSNJ_Members {
      * contact with either key. MAX() keeps duplicate meta rows from creating
      * duplicate list rows.
      */
-    private static function derived_sql(): string {
+    public static function derived_sql(): string {
         global $wpdb;
         $t = self::tables();
         // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
@@ -371,7 +371,7 @@ final class My_IAPSNJ_Members {
     }
 
     /** member_type set (state_of() !== ''). LENGTH, not <> '', so ' ' counts as PHP does. */
-    private static function is_member_sql(): string {
+    public static function is_member_sql(): string {
         return "LENGTH(COALESCE(m.member_type, '')) > 0";
     }
 
@@ -392,7 +392,7 @@ final class My_IAPSNJ_Members {
     }
 
     /** My_IAPSNJ_Schema::is_active_state() in SQL (never NULL). */
-    private static function active_sql(): string {
+    public static function active_sql(): string {
         global $wpdb;
         return '(' . self::comped_sql() . ' OR (' . self::valid_date_sql() . $wpdb->prepare( ' AND m.paid_through >= %s', My_IAPSNJ_Schema::active_cutoff() ) . '))';
     }

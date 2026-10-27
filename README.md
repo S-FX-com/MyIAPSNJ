@@ -224,6 +224,16 @@ Number. **Renew Now** appears when the membership has lapsed or ends within
 Membership Products (variation ids differ between sites, so prefer that setting
 or pass the URLs per site).
 
+`[iapsnj_directory per_page="24" photo_meta="headshot"]` — members-only directory of
+**active** members (the Active Membership rule): cards with headshot (silhouette
+when missing), name, member type, member since, department, rank and email /
+phone icons (`mailto:` / `tel:`). Filters, as a plain GET form so a filtered page
+can be bookmarked: department, rank (the values present among active members),
+join date range, retired Yes / No (retired = a retirement date on the contact, or
+Lifetime). Visible to administrators and logged-in members whose own membership
+is active; nobody else. The headshot is the user meta named by `photo_meta` (an
+image URL or an attachment id), or the `my_iapsnj/directory_photo_url` filter.
+
 `[iapsnj_edit_profile button="Save Changes"]` — "Edit Profile" form for the
 logged-in member, written straight to their FluentCRM contact (the WordPress
 profile follows through the usual mirror). It shows name, cell phone, address
