@@ -53,7 +53,7 @@ final class My_IAPSNJ_Shortcodes {
             ],
             My_IAPSNJ_Profile::SHORTCODE => [
                 'title'    => __( 'Edit Profile', 'my-iapsnj' ),
-                'summary'  => __( 'The member edits their own FluentCRM contact: name, cell phone, address and the fields of the Checkout Builder form for their level, with the same labels, dropdown lists and rules as the checkout. Every field is filled with what is on file. The member can also upload a photo: it is cropped to a square, shrunk and compressed, saved in the Media Library and written to the contact\'s photo (FluentCRM avatar), and it shows in the member directory. Email and membership state (type, paid through, member number, join date) cannot be changed here.', 'my-iapsnj' ),
+                'summary'  => __( 'The member edits their own FluentCRM contact: name, cell phone, address and the fields of the Checkout Builder form for their level, with the same labels, dropdown lists and rules as the checkout. Every field is filled with what is on file; State is a dropdown of full US state names, and Department is the contact\'s primary company (FluentCRM Companies). The member can also upload a photo: it is cropped to a square, shrunk and compressed, saved in the Media Library and written to the contact\'s photo (FluentCRM avatar), and it shows in the member directory. Email and membership state (type, paid through, member number, join date) cannot be changed here.', 'my-iapsnj' ),
                 'audience' => __( 'Logged-in members whose account is linked to a CRM contact.', 'my-iapsnj' ),
                 'page'     => __( 'Edit Profile', 'my-iapsnj' ),
                 'atts'     => [

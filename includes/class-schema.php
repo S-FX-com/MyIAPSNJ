@@ -31,20 +31,21 @@ final class My_IAPSNJ_Schema {
     const FIELD_PAID_THROUGH   = 'paid_through';
     const FIELD_MEMBER_NUMBER  = 'member_number';
     const FIELD_DEPARTMENT     = 'department';
-    const FIELD_RANK           = 'rank_level';
+    // The CRM's own Rank dropdown (select-one); earlier plugin versions wrote a
+    // duplicate text field, rank_level (see legacy_slugs()).
+    const FIELD_RANK           = 'iapsnj_rank';
     const FIELD_JOIN_DATE      = 'join_date';
     const FIELD_LEGACY_LEVEL   = 'legacy_pmpro_level';
     const FIELD_RETIREMENT_DATE = 'retirement_date';
     const FIELD_REFERRED_BY    = 'referred_by';
     // Profile fields collected by the checkout application (ACF-era slugs,
     // already populated in the CRM by the pre-4.0 sync for existing members).
-    const FIELD_PHONE_WORK     = 'phone_work';
-    const FIELD_PHONE2         = 'phone2';
     const FIELD_UNION_AFFILIATION = 'union_affiliation';
     const FIELD_UNION_POSITION = 'union_position';
     const FIELD_MARITAL_STATUS = 'marital_status';
-    const FIELD_SPOUSE_NAME    = 'spouse_name';
-    const FIELD_ARMED_SERVICE  = 'armed_service';
+    const FIELD_SPOUSE_NAME    = 'spouse';
+    const FIELD_ARMED_SERVICE  = 'armed_services'; // "Veteran Status"
+    const FIELD_ANCESTRY       = 'explain_your_ancestry';
     const FIELD_ADDITIONAL_INFO = 'additional_information';
     const FIELD_COMPANY_NAME   = 'company_name';
     const FIELD_COMPANY_TITLE  = 'company_title';
@@ -171,7 +172,26 @@ final class My_IAPSNJ_Schema {
      * @return string[]
      */
     public static function retired_fields(): array {
-        return [ self::FIELD_PHONE_WORK, self::FIELD_PHONE2 ];
+        // Work phone and Alternate phone: dropped altogether (4.29). The
+        // plugin neither collects, formats nor creates them; the slugs are
+        // listed only so a CRM that still has the fields never offers them.
+        return [ 'phone_work', 'phone2' ];
+    }
+
+    /**
+     * CRM slugs earlier plugin versions wrote to that duplicated a field the
+     * CRM already had: old slug => the slug to use. The upgrade copies the
+     * values over (My_IAPSNJ_Plugin::maybe_upgrade, v15); the old fields can
+     * then be deleted in FluentCRM.
+     *
+     * @return array<string,string>
+     */
+    public static function legacy_slugs(): array {
+        return [
+            'rank_level'  => self::FIELD_RANK,
+            'spouse_name' => self::FIELD_SPOUSE_NAME,
+            'armed_service' => self::FIELD_ARMED_SERVICE,
+        ];
     }
 
     /**
@@ -227,16 +247,6 @@ final class My_IAPSNJ_Schema {
                 'type'  => 'text',
             ],
             [
-                'slug'  => self::FIELD_PHONE_WORK,
-                'label' => 'Work Phone',
-                'type'  => 'text',
-            ],
-            [
-                'slug'  => self::FIELD_PHONE2,
-                'label' => 'Alternate Phone',
-                'type'  => 'text',
-            ],
-            [
                 'slug'  => self::FIELD_UNION_AFFILIATION,
                 'label' => 'Union Affiliation',
                 'type'  => 'text',
@@ -254,14 +264,19 @@ final class My_IAPSNJ_Schema {
             ],
             [
                 'slug'  => self::FIELD_SPOUSE_NAME,
-                'label' => 'Spouse Name',
+                'label' => 'Spouse',
                 'type'  => 'text',
             ],
             [
                 'slug'    => self::FIELD_ARMED_SERVICE,
-                'label'   => 'Armed Service',
+                'label'   => 'Veteran Status',
                 'type'    => 'checkbox',
                 'options' => [ 'Yes' ],
+            ],
+            [
+                'slug'  => self::FIELD_ANCESTRY,
+                'label' => 'Explain Your Ancestry',
+                'type'  => 'textarea',
             ],
             [
                 'slug'  => self::FIELD_ADDITIONAL_INFO,
@@ -514,5 +529,169 @@ final class My_IAPSNJ_Schema {
             return;
         }
         $subscriber->syncCustomFieldValues( $values, true );
+    }
+
+    // -----------------------------------------------------------------------
+    // Department = FluentCRM's Companies module
+    // -----------------------------------------------------------------------
+
+    /**
+     * Is FluentCRM's Companies module on? The site uses it for departments
+     * (the CRM labels it "Departments"): a contact's primary company is their
+     * department. The `department` custom field is kept in step with it.
+     */
+    public static function company_enabled(): bool {
+        try {
+            return class_exists( '\FluentCrm\App\Models\Company' )
+                && class_exists( '\FluentCrm\App\Services\Helper' )
+                && \FluentCrm\App\Services\Helper::isCompanyEnabled();
+        } catch ( \Throwable $e ) {
+            return false;
+        }
+    }
+
+    /**
+     * Names of all companies (departments), alphabetical; [] when the module
+     * is off or has none.
+     *
+     * @return string[]
+     */
+    public static function company_names(): array {
+        if ( ! self::company_enabled() ) {
+            return [];
+        }
+        try {
+            $names = \FluentCrm\App\Models\Company::orderBy( 'name', 'asc' )->pluck( 'name' )->toArray();
+        } catch ( \Throwable $e ) {
+            return [];
+        }
+        return array_values( array_filter( array_map( 'trim', array_map( 'strval', $names ) ), 'strlen' ) );
+    }
+
+    /**
+     * A contact's department: the name of their primary company when the
+     * module is on and they have one, else the `department` custom field.
+     */
+    public static function department_of( Subscriber $subscriber ): string {
+        if ( self::company_enabled() ) {
+            try {
+                $company = $subscriber->company;
+                $name    = is_object( $company ) ? trim( (string) $company->name ) : '';
+                if ( $name !== '' ) {
+                    return $name;
+                }
+            } catch ( \Throwable $e ) {
+                // fall back to the field
+            }
+        }
+        return self::field( $subscriber, self::FIELD_DEPARTMENT );
+    }
+
+    /**
+     * Make the company called $name the contact's primary company (their
+     * department), replacing the previous primary one. A name that is not a
+     * company is not created (a typed "not listed" answer would fill the
+     * module with spelling variants): the contact's primary company is
+     * cleared instead, so the CRM never shows a department they left, and the
+     * custom field keeps the typed answer for an administrator to place.
+     *
+     * @return bool whether the contact's company changed
+     */
+    public static function set_department( Subscriber $subscriber, string $name ): bool {
+        $name = trim( $name );
+        if ( $name === '' || ! self::company_enabled() ) {
+            return false;
+        }
+        try {
+            $company = \FluentCrm\App\Models\Company::where( 'name', $name )->first();
+            $old     = (int) $subscriber->company_id;
+            $new     = $company ? (int) $company->id : 0;
+            if ( $old === $new ) {
+                if ( $new > 0 ) {
+                    $subscriber->attachCompanies( [ $new ] ); // the pivot row, if it was missing
+                }
+                return false;
+            }
+            $subscriber->company_id = $new > 0 ? $new : null;
+            $subscriber->save();
+            if ( $new > 0 ) {
+                $subscriber->attachCompanies( [ $new ] );
+            }
+            if ( $old > 0 ) {
+                $subscriber->detachCompanies( [ $old ] );
+            }
+            return true;
+        } catch ( \Throwable $e ) {
+            error_log( 'My IAPSNJ: could not set the department company for contact #' . (int) $subscriber->id . ': ' . $e->getMessage() );
+            return false;
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Values written under an old slug
+    // -----------------------------------------------------------------------
+
+    /**
+     * Copy values stored under a legacy slug to the slug the CRM already had
+     * (legacy_slugs()), for the contacts that have nothing there yet. The
+     * legacy values are left in place. Direct table writes, no automations.
+     *
+     * @return int rows copied or filled in
+     */
+    public static function copy_legacy_values(): int {
+        global $wpdb;
+        $meta  = $wpdb->prefix . 'fc_subscriber_meta';
+        $total = 0;
+        // phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared -- identifiers are the plugin's own, values are prepared
+        foreach ( self::legacy_slugs() as $old => $new ) {
+            // Contacts whose new field exists but is empty.
+            $filled = $wpdb->query( $wpdb->prepare(
+                "UPDATE {$meta} n INNER JOIN {$meta} o ON o.subscriber_id = n.subscriber_id AND o.object_type = 'custom_field' AND o.`key` = %s AND TRIM(COALESCE(o.`value`, '')) <> ''
+                 SET n.`value` = o.`value`
+                 WHERE n.object_type = 'custom_field' AND n.`key` = %s AND TRIM(COALESCE(n.`value`, '')) = ''",
+                $old,
+                $new
+            ) );
+            // Contacts with no row for the new field at all.
+            $added = $wpdb->query( $wpdb->prepare(
+                "INSERT INTO {$meta} (subscriber_id, created_by, object_type, `key`, `value`, created_at, updated_at)
+                 SELECT o.subscriber_id, 0, 'custom_field', %s, MAX(o.`value`), NOW(), NOW()
+                 FROM {$meta} o
+                 WHERE o.object_type = 'custom_field' AND o.`key` = %s AND TRIM(COALESCE(o.`value`, '')) <> ''
+                   AND NOT EXISTS (SELECT 1 FROM {$meta} n WHERE n.subscriber_id = o.subscriber_id AND n.object_type = 'custom_field' AND n.`key` = %s)
+                 GROUP BY o.subscriber_id",
+                $new,
+                $old,
+                $new
+            ) );
+            $total += max( 0, (int) $filled ) + max( 0, (int) $added );
+        }
+        // phpcs:enable
+        return $total;
+    }
+
+    /**
+     * US states written as codes ("NJ") become full names ("New Jersey") on
+     * contacts whose country is the US or empty. Idempotent; direct table
+     * write, no automations (like the Names & addresses tool).
+     *
+     * @return int contacts changed
+     */
+    public static function expand_state_codes(): int {
+        global $wpdb;
+        $subs  = $wpdb->prefix . 'fc_subscribers';
+        $cases = '';
+        $codes = [];
+        foreach ( My_IAPSNJ_States::names() as $code => $name ) {
+            $cases  .= $wpdb->prepare( ' WHEN %s THEN %s', $code, $name );
+            $codes[] = $code;
+        }
+        $in  = implode( ', ', array_fill( 0, count( $codes ), '%s' ) );
+        $sql = "UPDATE {$subs} SET state = CASE UPPER(TRIM(state)){$cases} ELSE state END
+                WHERE UPPER(TRIM(state)) IN ({$in})
+                  AND (country IS NULL OR TRIM(country) = '' OR UPPER(TRIM(country)) IN ('US', 'USA', 'UNITED STATES', 'UNITED STATES OF AMERICA'))";
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared -- the CASE values and the IN list are prepared
+        $changed = $wpdb->query( $wpdb->prepare( $sql, $codes ) );
+        return (int) $changed;
     }
 }

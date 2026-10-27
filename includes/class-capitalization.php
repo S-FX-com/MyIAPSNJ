@@ -73,8 +73,14 @@ final class My_IAPSNJ_Capitalization {
         return self::apply( $value, self::CITY );
     }
 
-    public static function state( string $value ): string {
-        return self::apply( $value, self::STATE );
+    /**
+     * A state for the CRM: a US state (code or name) becomes its full name
+     * ("NJ" → "New Jersey") when the country is the US or empty; anything else
+     * keeps the capitalisation rule (a province code stays as typed).
+     */
+    public static function state( string $value, string $country = '' ): string {
+        $name = My_IAPSNJ_States::full_name( $value, $country );
+        return $name !== '' ? $name : self::apply( $value, self::STATE );
     }
 
     /**
@@ -424,7 +430,7 @@ final class My_IAPSNJ_Capitalization {
         global $wpdb;
         $subs    = $wpdb->prefix . 'fc_subscribers';
         $columns = self::contact_columns();
-        $select  = 'id, email, ' . implode( ', ', array_keys( $columns ) );
+        $select  = 'id, email, country, ' . implode( ', ', array_keys( $columns ) );
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
         $rows = (array) $wpdb->get_results( "SELECT {$select} FROM {$subs}", ARRAY_A );
 
@@ -437,7 +443,8 @@ final class My_IAPSNJ_Capitalization {
                 if ( trim( $from ) === '' ) {
                     continue;
                 }
-                $to = self::apply( $from, $kind );
+                // A US state becomes its full name (country-aware).
+                $to = $kind === self::STATE ? self::state( $from, (string) ( $r['country'] ?? '' ) ) : self::apply( $from, $kind );
                 // Never blank a stored value.
                 if ( $to !== $from && trim( $to ) !== '' ) {
                     $update[ $col ] = $to;

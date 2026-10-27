@@ -134,9 +134,9 @@ final class My_IAPSNJ_Profile {
             self::BASE_PREFIX . 'address_line_1' => $field( __( 'Address', 'my-iapsnj' ), 'address_line_1', 'text', [ 'case' => My_IAPSNJ_Capitalization::STREET ] ),
             self::BASE_PREFIX . 'address_line_2' => $field( __( 'Address line 2', 'my-iapsnj' ), 'address_line_2', 'text', [ 'required' => false, 'case' => My_IAPSNJ_Capitalization::STREET ] ),
             self::BASE_PREFIX . 'city'           => $field( __( 'City', 'my-iapsnj' ), 'city', 'text', [ 'case' => My_IAPSNJ_Capitalization::CITY ] ),
-            // No client-side case: a state is two capitals, and the server
-            // applies My_IAPSNJ_Capitalization::state() when it saves.
-            self::BASE_PREFIX . 'state'          => $field( __( 'State', 'my-iapsnj' ), 'state' ),
+            // A dropdown of US states by full name (My_IAPSNJ_States); a province
+            // or region elsewhere goes under "State not listed? Add it here".
+            self::BASE_PREFIX . 'state'          => $field( __( 'State', 'my-iapsnj' ), 'state', 'select', [ 'options' => My_IAPSNJ_States::options(), 'other' => true ] ),
             self::BASE_PREFIX . 'postal_code'    => $field( __( 'ZIP / Postal code', 'my-iapsnj' ), 'postal_code' ),
             self::BASE_PREFIX . 'country'        => $field(
                 __( 'Country', 'my-iapsnj' ),
@@ -219,7 +219,9 @@ final class My_IAPSNJ_Profile {
         $values = [];
         foreach ( $inputs as $key => $def ) {
             $raw = '';
-            if ( $def['crm_kind'] === 'custom' ) {
+            if ( $def['crm_kind'] === 'custom' && $def['crm'] === My_IAPSNJ_Schema::FIELD_DEPARTMENT ) {
+                $raw = My_IAPSNJ_Schema::department_of( $contact ); // the primary company, else the field
+            } elseif ( $def['crm_kind'] === 'custom' ) {
                 $v   = $custom[ $def['crm'] ] ?? '';
                 $raw = is_array( $v ) ? (string) reset( $v ) : (string) $v;
             } elseif ( $def['crm_kind'] === 'default' ) {
@@ -276,7 +278,8 @@ final class My_IAPSNJ_Profile {
             self::BASE_PREFIX . 'address_line_1' => (string) $contact->address_line_1,
             self::BASE_PREFIX . 'address_line_2' => (string) $contact->address_line_2,
             self::BASE_PREFIX . 'city'           => (string) $contact->city,
-            self::BASE_PREFIX . 'state'          => (string) $contact->state,
+            // "NJ" on file shows as "New Jersey"; a value that is not a US state is kept as it is.
+            self::BASE_PREFIX . 'state'          => My_IAPSNJ_States::full_name( (string) $contact->state, (string) $contact->country ) ?: (string) $contact->state,
             self::BASE_PREFIX . 'postal_code'    => (string) $contact->postal_code,
             self::BASE_PREFIX . 'country'        => self::country_name( (string) $contact->country ),
         ];
@@ -512,15 +515,19 @@ final class My_IAPSNJ_Profile {
                     case 'phone':
                         $value = My_IAPSNJ_Phone::e164( $value );
                         break;
-                    case 'state':
-                        $value = My_IAPSNJ_Capitalization::state( $value );
-                        break;
                     case 'country':
                         // The list shows names; the contact keeps FluentCRM's country code.
                         $value = $def['type'] === 'select' ? self::country_code( $value ) : strtoupper( $value );
                         break;
                 }
                 $columns[ $def['column'] ] = $value;
+            }
+            // The full state name for a US address (typed codes included); other
+            // countries keep what was typed. Needs the country, so it runs last.
+            $columns['state'] = My_IAPSNJ_Capitalization::state( (string) $columns['state'], (string) $columns['country'] );
+            if ( ! My_IAPSNJ_States::is_us( (string) $columns['country'] ) && strlen( (string) $columns['state'] ) > 3 ) {
+                // A region typed in full ("new south wales") is capitalised like a city; codes (ON, NSW) are left as they are.
+                $columns['state'] = My_IAPSNJ_Capitalization::city( (string) $columns['state'] );
             }
 
             // A field that is not shown for the answers (a retirement date
@@ -548,7 +555,10 @@ final class My_IAPSNJ_Profile {
                 $contact->save();
             }
             My_IAPSNJ_Schema::set_fields( $contact, $custom );
-            $changed = $dirty || $contact->custom_fields() != $before; // phpcs:ignore Universal.Operators.StrictComparisons.LooseNotEqual -- arrays of the same shape
+            // The department is the primary company (Companies module); the field above stays in step.
+            $dept            = $custom[ My_IAPSNJ_Schema::FIELD_DEPARTMENT ] ?? '';
+            $company_changed = is_string( $dept ) && $dept !== '' && My_IAPSNJ_Schema::set_department( $contact, $dept );
+            $changed         = $dirty || $company_changed || $contact->custom_fields() != $before; // phpcs:ignore Universal.Operators.StrictComparisons.LooseNotEqual -- arrays of the same shape
         } catch ( \Throwable $e ) {
             if ( $stored ) {
                 wp_delete_attachment( $stored['id'], true ); // the contact was not changed: drop the new file

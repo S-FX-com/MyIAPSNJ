@@ -1183,7 +1183,7 @@ class My_IAPSNJ_Membership {
                 'address_line_1' => My_IAPSNJ_Capitalization::street( (string) ( $billing->address_1 ?? '' ) ),
                 'address_line_2' => My_IAPSNJ_Capitalization::street( (string) ( $billing->address_2 ?? '' ) ),
                 'city'           => My_IAPSNJ_Capitalization::city( (string) ( $billing->city ?? '' ) ),
-                'state'          => My_IAPSNJ_Capitalization::state( (string) ( $billing->state ?? '' ) ),
+                'state'          => My_IAPSNJ_Capitalization::state( (string) ( $billing->state ?? '' ), (string) ( $billing->country ?? '' ) ),
                 'postal_code'    => (string) ( $billing->postcode ?? '' ),
                 'country'        => (string) ( $billing->country ?? '' ),
             ];
