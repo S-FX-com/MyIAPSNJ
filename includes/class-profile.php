@@ -335,7 +335,11 @@ final class My_IAPSNJ_Profile {
             'nonce'      => wp_create_nonce( self::ACTION ),
             'prefix'     => My_IAPSNJ_Checkout_Fields::PREFIX,
             'otherValue' => My_IAPSNJ_Checkout_Fields::OTHER_VALUE,
+            'maxBytes'   => My_IAPSNJ_Headshot::max_bytes(),
             'i18n'       => [
+                'photoType' => __( 'Please choose a JPG, PNG or WebP photo.', 'my-iapsnj' ),
+                /* translators: %s: size such as 10 MB */
+                'photoSize' => sprintf( __( 'The photo is too large. Please use one under %s.', 'my-iapsnj' ), size_format( My_IAPSNJ_Headshot::max_bytes() ) ),
                 'saving' => __( 'Saving…', 'my-iapsnj' ),
                 'fix'    => __( 'Please correct the highlighted fields.', 'my-iapsnj' ),
                 'error'  => __( 'Your profile could not be saved. Please try again.', 'my-iapsnj' ),
@@ -344,14 +348,39 @@ final class My_IAPSNJ_Profile {
 
         $ctx    = self::context( $contact );
         $inputs = $ctx['inputs'];
+        $photo  = My_IAPSNJ_Headshot::is_ours( (string) $contact->avatar ) ? (string) $contact->avatar : '';
 
         ob_start();
         ?>
         <div class="my-iapsnj-application my-iapsnj-ep">
-            <form class="my-iapsnj-ep-form" method="post">
+            <form class="my-iapsnj-ep-form" method="post" enctype="multipart/form-data">
                 <p class="my-iapsnj-ep-message" role="alert" hidden></p>
                 <div class="my-iapsnj-section" role="group" aria-labelledby="my-iapsnj-ep-contact">
                     <h3 class="my-iapsnj-section-title" id="my-iapsnj-ep-contact"><?php esc_html_e( 'Contact information', 'my-iapsnj' ); ?></h3>
+                    <div class="fct_form_group my-iapsnj-field my-iapsnj-ep-photo">
+                        <span class="my-iapsnj-ep-photo-preview">
+                            <span class="my-iapsnj-ep-photo-placeholder" aria-hidden="true"><?php echo My_IAPSNJ_Headshot::placeholder_svg(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- static SVG ?></span>
+                            <?php if ( $photo !== '' ) : ?>
+                                <img class="my-iapsnj-ep-photo-img" src="<?php echo esc_url( $photo ); ?>" alt="<?php esc_attr_e( 'Your photo', 'my-iapsnj' ); ?>" width="96" height="96">
+                            <?php endif; ?>
+                        </span>
+                        <div class="my-iapsnj-ep-photo-controls">
+                            <label class="fct_input_label" for="my-iapsnj-ep-photo"><?php esc_html_e( 'Photo', 'my-iapsnj' ); ?></label>
+                            <input type="file" id="my-iapsnj-ep-photo" name="iapsnj_photo" accept="image/jpeg,image/png,image/webp">
+                            <label class="my-iapsnj-checkbox my-iapsnj-ep-photo-remove"<?php echo $photo === '' ? ' hidden' : ''; ?>>
+                                <input type="checkbox" name="iapsnj_photo_remove" value="1"> <span><?php esc_html_e( 'Remove my photo', 'my-iapsnj' ); ?></span>
+                            </label>
+                            <p class="fct_input_help my-iapsnj-help">
+                                <?php
+                                echo esc_html( sprintf(
+                                    /* translators: %s: size such as 10 MB */
+                                    __( 'JPG, PNG or WebP, up to %s. We crop it to a square and shrink it for you. It appears in the member directory.', 'my-iapsnj' ),
+                                    size_format( My_IAPSNJ_Headshot::max_bytes() )
+                                ) );
+                                ?>
+                            </p>
+                        </div>
+                    </div>
                     <?php
                     foreach ( $ctx['base'] as $key => $def ) {
                         My_IAPSNJ_Checkout_Fields::render_field( $key, $def, (string) $ctx['base_values'][ $key ] );
@@ -438,6 +467,16 @@ final class My_IAPSNJ_Profile {
         foreach ( $visible as $key => $def ) {
             $merge( My_IAPSNJ_Checkout_Fields::field_errors( $key, $def, $request, $type ) );
         }
+        // The photo, checked with the rest so every problem is reported at once.
+        // phpcs:ignore WordPress.Security.NonceVerification.Missing -- verified above
+        $file   = isset( $_FILES['iapsnj_photo'] ) ? $_FILES['iapsnj_photo'] : null;
+        $upload = My_IAPSNJ_Headshot::has_upload( $file );
+        if ( $upload ) {
+            $problem = My_IAPSNJ_Headshot::check( $file );
+            if ( $problem !== '' ) {
+                $errors['iapsnj_photo'] = $problem;
+            }
+        }
         if ( $errors ) {
             wp_send_json_error( [
                 'message' => __( 'Please correct the highlighted fields.', 'my-iapsnj' ),
@@ -445,9 +484,28 @@ final class My_IAPSNJ_Profile {
             ], 422 );
         }
 
+        // Everything is valid: shrink and store the new photo before anything
+        // is written, so a photo that cannot be processed changes nothing.
+        $remove = ! $upload && ! empty( $request['iapsnj_photo_remove'] ) && My_IAPSNJ_Headshot::is_ours( (string) $contact->avatar );
+        $stored = null;
+        if ( $upload ) {
+            $stored = My_IAPSNJ_Headshot::store( $file, (int) $contact->id, get_current_user_id() );
+            if ( is_wp_error( $stored ) ) {
+                wp_send_json_error( [
+                    'message' => __( 'Please correct the highlighted fields.', 'my-iapsnj' ),
+                    'errors'  => [ 'iapsnj_photo' => $stored->get_error_message() ],
+                ], 422 );
+            }
+        }
+
         // ---- Write ---------------------------------------------------------
         try {
             $columns = [];
+            if ( $stored ) {
+                $columns['avatar'] = $stored['url']; // FluentCRM's contact photo
+            } elseif ( $remove ) {
+                $columns['avatar'] = null;
+            }
             foreach ( $ctx['base'] as $key => $def ) {
                 $value = My_IAPSNJ_Checkout_Fields::sanitize_value( $def, My_IAPSNJ_Checkout_Fields::posted_value( $key, $def, $request ) );
                 switch ( $def['column'] ) {
@@ -492,6 +550,9 @@ final class My_IAPSNJ_Profile {
             My_IAPSNJ_Schema::set_fields( $contact, $custom );
             $changed = $dirty || $contact->custom_fields() != $before; // phpcs:ignore Universal.Operators.StrictComparisons.LooseNotEqual -- arrays of the same shape
         } catch ( \Throwable $e ) {
+            if ( $stored ) {
+                wp_delete_attachment( $stored['id'], true ); // the contact was not changed: drop the new file
+            }
             error_log( 'My IAPSNJ: profile save failed for contact #' . (int) $contact->id . ': ' . $e->getMessage() );
             wp_send_json_error( [ 'message' => __( 'Your profile could not be saved. Please try again.', 'my-iapsnj' ) ], 500 );
         }
@@ -503,6 +564,17 @@ final class My_IAPSNJ_Profile {
             do_action( 'fluent_crm/contact_updated', $contact, $dirty );
         }
 
-        wp_send_json_success( [ 'message' => __( 'Your profile has been updated.', 'my-iapsnj' ) ] );
+        // The contact points at the new photo (or none): the old files go.
+        if ( $stored ) {
+            My_IAPSNJ_Headshot::delete_for_contact( (int) $contact->id, $stored['id'] );
+        } elseif ( $remove ) {
+            My_IAPSNJ_Headshot::delete_for_contact( (int) $contact->id );
+        }
+
+        $reply = [ 'message' => __( 'Your profile has been updated.', 'my-iapsnj' ) ];
+        if ( $stored || $remove ) {
+            $reply['photo'] = $stored ? $stored['url'] : '';
+        }
+        wp_send_json_success( $reply );
     }
 }

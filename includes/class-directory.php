@@ -11,9 +11,10 @@
  *
  * - Retired = a retirement date on the contact, or a Lifetime membership
  *   (Lifetime is for retired law enforcement only).
- * - Headshot = the user meta named by the shortcode's photo_meta (default
- *   "headshot"; an attachment id or an image URL) of the member's WordPress
- *   user, else the filter my_iapsnj/directory_photo_url, else a silhouette.
+ * - Headshot = the photo the member uploaded on Edit Profile (the contact's
+ *   avatar, stored by My_IAPSNJ_Headshot), else the user meta named by the
+ *   shortcode's photo_meta (default "headshot"; an attachment id or an image
+ *   URL), then the filter my_iapsnj/directory_photo_url, else a silhouette.
  * - Access: administrators and logged-in members whose own membership is
  *   active. Visitors and lapsed members see a message, never the list: the
  *   cards carry email addresses and phone numbers.
@@ -169,7 +170,7 @@ final class My_IAPSNJ_Directory {
         $paged  = max( 1, min( $paged, $pages ) );
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared -- fragments are prepared
         $raw = (array) $wpdb->get_results(
-            "SELECT s.id, s.first_name, s.last_name, s.email, s.phone, s.user_id, m.member_type
+            "SELECT s.id, s.first_name, s.last_name, s.email, s.phone, s.avatar, s.user_id, m.member_type
              FROM {$from} WHERE {$where}
              ORDER BY s.last_name ASC, s.first_name ASC, s.id ASC "
             . $wpdb->prepare( 'LIMIT %d OFFSET %d', $per_page, ( $paged - 1 ) * $per_page ),
@@ -187,6 +188,7 @@ final class My_IAPSNJ_Directory {
                 'name'        => trim( (string) $r['first_name'] . ' ' . (string) $r['last_name'] ),
                 'email'       => (string) $r['email'],
                 'phone'       => (string) $r['phone'],
+                'avatar'      => (string) $r['avatar'],
                 'user_id'     => (int) $r['user_id'],
                 'member_type' => (string) $r['member_type'],
                 'department'  => (string) ( $extra[ self::key_department() ] ?? '' ),
@@ -257,10 +259,12 @@ final class My_IAPSNJ_Directory {
     // Headshot
     // -----------------------------------------------------------------------
 
-    /** The member's headshot URL, '' when there is none. */
+    /** The member's headshot URL: their uploaded photo, else the user meta, else ''. */
     private static function photo_url( array $row, string $meta_key ): string {
-        $url = '';
-        if ( $row['user_id'] > 0 && $meta_key !== '' ) {
+        // The photo the member uploaded on Edit Profile (the contact's avatar),
+        // never a Gravatar or another site's picture FluentCRM may hold there.
+        $url = My_IAPSNJ_Headshot::is_ours( $row['avatar'] ) ? $row['avatar'] : '';
+        if ( $url === '' && $row['user_id'] > 0 && $meta_key !== '' ) {
             $v = get_user_meta( $row['user_id'], $meta_key, true );
             if ( is_array( $v ) ) {
                 $v = $v['ID'] ?? ( $v['url'] ?? '' ); // an ACF image array
@@ -324,10 +328,6 @@ final class My_IAPSNJ_Directory {
 
     private static function icon_phone(): string {
         return '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/></svg>';
-    }
-
-    private static function icon_person(): string {
-        return '<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false"><circle cx="32" cy="24" r="12"/><path d="M8 58c0-13 10-20 24-20s24 7 24 20z"/></svg>';
     }
 
     /**
@@ -450,7 +450,7 @@ final class My_IAPSNJ_Directory {
                         ?>
                         <li class="my-iapsnj-dir-card">
                             <span class="my-iapsnj-dir-photo">
-                                <span class="my-iapsnj-dir-placeholder" role="img" aria-label="<?php esc_attr_e( 'No photo', 'my-iapsnj' ); ?>"><?php echo self::icon_person(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- static SVG ?></span>
+                                <span class="my-iapsnj-dir-placeholder" role="img" aria-label="<?php esc_attr_e( 'No photo', 'my-iapsnj' ); ?>"><?php echo My_IAPSNJ_Headshot::placeholder_svg(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- static SVG ?></span>
                                 <?php if ( $photo !== '' ) : ?>
                                     <?php // On top of the silhouette; a photo that fails to load hides itself and the silhouette shows. ?>
                                     <img src="<?php echo esc_url( $photo ); ?>" alt="<?php echo esc_attr( $m['name'] ); ?>" width="80" height="80" loading="lazy" onerror="this.style.display='none'">

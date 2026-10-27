@@ -245,6 +245,18 @@ list) and a value on file that the list lacks stays selectable. Emptying a field
 clears it. Email, member type, paid-through, member number and join date are not
 editable. FluentCart's own customer and saved-address records are not updated.
 
+**Photo.** A file field at the top. On save (`My_IAPSNJ_Headshot`) the photo is
+checked (JPG / PNG / WebP, under 10 MB or the server's limit, at least 150 px, not
+a disguised file), turned upright from its camera orientation, cropped to a centred
+square, shrunk to 400 px and re-saved as a JPEG at quality 82 (a few dozen KB, location
+data gone; transparency becomes white), stored in the Media Library under
+`uploads/iapsnj-headshots/`, and its address written to the contact's **avatar**
+(FluentCRM's own contact photo, so it also shows in the CRM). Replacing or removing a
+photo deletes the old file; a photo is only stored once every field has validated, and
+is dropped again if the CRM write fails. The directory shows it. Only photos stored
+here are used: a Gravatar or another address in the avatar field is ignored (and left
+alone by *Remove my photo*).
+
 `[iapsnj_renew_link text="Renew my membership" join_text="Join IAPSNJ" class="button"]`
 — renewal checkout link for the logged-in member (product per member type in
 Dues → Membership Products), Join page link for visitors, nothing for Lifetime / Honorary.

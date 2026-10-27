@@ -13,6 +13,85 @@
     var P = cfg.prefix;
     var O = cfg.otherValue;
 
+    // ---- Photo: preview what was chosen, check it before it is sent --------
+    var photoInput   = form.querySelector( 'input[name="iapsnj_photo"]' );
+    var photoRemove  = form.querySelector( 'input[name="iapsnj_photo_remove"]' );
+    var photoRemoveW = form.querySelector( '.my-iapsnj-ep-photo-remove' );
+    var photoBox     = form.querySelector( '.my-iapsnj-ep-photo-preview' );
+    var savedPhoto   = photoBox ? ( photoBox.querySelector( 'img' ) ? photoBox.querySelector( 'img' ).getAttribute( 'src' ) : '' ) : '';
+    var objectUrl    = '';
+    var TYPES        = [ 'image/jpeg', 'image/png', 'image/webp' ];
+
+    function setPreview( url ) {
+        if ( ! photoBox ) {
+            return;
+        }
+        var img = photoBox.querySelector( 'img' );
+        if ( ! url ) {
+            if ( img ) {
+                img.remove();
+            }
+            return;
+        }
+        if ( ! img ) {
+            img = document.createElement( 'img' );
+            img.className = 'my-iapsnj-ep-photo-img';
+            img.width = 96;
+            img.height = 96;
+            img.alt = '';
+            // A photo that fails to load falls back to the silhouette under it.
+            img.onerror = function () { img.style.display = 'none'; };
+            photoBox.appendChild( img );
+        }
+        img.style.display = '';
+        img.setAttribute( 'src', url );
+    }
+
+    function photoProblem( file ) {
+        if ( TYPES.indexOf( file.type ) < 0 ) {
+            return cfg.i18n.photoType;
+        }
+        if ( cfg.maxBytes && file.size > cfg.maxBytes ) {
+            return cfg.i18n.photoSize;
+        }
+        return '';
+    }
+
+    if ( photoInput ) {
+        photoInput.addEventListener( 'change', function () {
+            clearErrors();
+            if ( objectUrl ) {
+                URL.revokeObjectURL( objectUrl );
+                objectUrl = '';
+            }
+            var file = photoInput.files && photoInput.files[ 0 ];
+            if ( ! file ) {
+                setPreview( photoRemove && photoRemove.checked ? '' : savedPhoto );
+                return;
+            }
+            var problem = photoProblem( file );
+            if ( problem ) {
+                photoInput.value = '';
+                setPreview( savedPhoto );
+                showErrors( { iapsnj_photo: problem } );
+                return;
+            }
+            if ( photoRemove ) {
+                photoRemove.checked = false;
+            }
+            objectUrl = URL.createObjectURL( file );
+            setPreview( objectUrl );
+        } );
+    }
+    if ( photoRemove ) {
+        photoRemove.addEventListener( 'change', function () {
+            if ( photoRemove.checked && photoInput ) {
+                photoInput.value = '';
+            }
+            setPreview( photoRemove.checked ? '' : savedPhoto );
+        } );
+    }
+
     function val( name ) {
         var v = '';
         form.querySelectorAll( '[name="' + name + '"]' ).forEach( function ( i ) {
@@ -101,7 +180,7 @@
             var note = document.createElement( 'p' );
             note.className = 'my-iapsnj-ep-error';
             note.textContent = errors[ name ];
-            var wrap = input.closest( '.my-iapsnj-field, .my-iapsnj-other' ) || input.parentNode;
+            var wrap = input.closest( '.my-iapsnj-ep-photo-controls, .my-iapsnj-field, .my-iapsnj-other' ) || input.parentNode;
             wrap.appendChild( note );
             if ( ! first ) {
                 first = input;
@@ -159,6 +238,19 @@
             } )
             .then( function ( json ) {
                 if ( json && json.success ) {
+                    if ( typeof json.data.photo === 'string' ) {
+                        savedPhoto = json.data.photo;
+                        setPreview( savedPhoto );
+                        if ( photoInput ) {
+                            photoInput.value = '';
+                        }
+                        if ( photoRemove ) {
+                            photoRemove.checked = false;
+                        }
+                        if ( photoRemoveW ) {
+                            photoRemoveW.hidden = savedPhoto === '';
+                        }
+                    }
                     showMessage( json.data.message, true );
                 } else if ( json && json.data ) {
                     if ( json.data.errors ) {
