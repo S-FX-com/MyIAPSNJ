@@ -63,6 +63,7 @@ class My_IAPSNJ_Checkout_Fields {
     const NEW_TARGET   = '__new__';                          // "create a CRM custom field" picker value
     const OTHER_VALUE  = '__other__';                        // dropdown choice "Other (not listed)"
     const OTHER_SUFFIX = '__other';                          // input name suffix of the typed "Other" answer
+    const CONFIRM_SUFFIX = '__confirm';                      // input name suffix: the typed answer the member confirmed is not a listed option
 
     /** @var string[] 'section' is a heading row, not an input */
     const TYPES = [ 'text', 'phone', 'textarea', 'select', 'radio', 'date', 'checkbox', 'section' ];
@@ -1909,6 +1910,13 @@ class My_IAPSNJ_Checkout_Fields {
         $raw = $request[ self::input_name( $key ) ] ?? null;
         if ( self::chose_other( $def, $raw ) ) {
             $raw = $request[ self::input_name( $key ) . self::OTHER_SUFFIX ] ?? '';
+            // "newark p.d." typed for the listed "Newark PD" is that option.
+            if ( is_scalar( $raw ) && ! empty( $def['options'] ) ) {
+                $listed = My_IAPSNJ_Similar::exact( (string) $raw, (array) $def['options'] );
+                if ( $listed !== '' ) {
+                    $raw = $listed;
+                }
+            }
         }
         return $raw;
     }
@@ -2221,7 +2229,12 @@ class My_IAPSNJ_Checkout_Fields {
                     echo '<div class="my-iapsnj-other" data-my-iapsnj-other-for="' . esc_attr( $name ) . '"' . ( $on ? '' : ' style="display:none"' ) . '>';
                     echo '<label class="fct_input_label" for="' . esc_attr( $id . '-other' ) . '">' . esc_html( sprintf( /* translators: field label, e.g. Department */ __( 'Your %s (not listed)', 'my-iapsnj' ), $def['label'] ) ) . $star . '</label>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- $star is static markup
                     echo '<input type="text" class="fct-input" id="' . esc_attr( $id . '-other' ) . '" name="' . esc_attr( $name . self::OTHER_SUFFIX ) . '" value="' . esc_attr( $is_other ? $value : '' ) . '" maxlength="120" autocomplete="off"' . ( $required ? ' required aria-required="true"' : '' ) . ( $on ? '' : ' disabled' ) . '>';
+                    // "Did you mean …?": the script fills this box with the closest listed options
+                    // and, when the member says theirs is different, the typed text here.
+                    echo '<input type="hidden" name="' . esc_attr( $name . self::CONFIRM_SUFFIX ) . '" value=""' . ( $on ? '' : ' disabled' ) . '>';
+                    echo '<div class="my-iapsnj-suggest" data-my-iapsnj-suggest-for="' . esc_attr( $name ) . '" role="status" aria-live="polite" hidden></div>';
                     echo '</div>';
+                    My_IAPSNJ_Similar::enqueue();
                 }
             } elseif ( $type === 'textarea' ) {
                 echo '<textarea class="fct-input" id="' . esc_attr( $id ) . '" name="' . esc_attr( $name ) . '" rows="3"' . $req_attr . '>' . esc_textarea( $value ) . '</textarea>';
@@ -2321,6 +2334,29 @@ class My_IAPSNJ_Checkout_Fields {
     }
 
     /**
+     * FluentCart's own billing phone, made the required "Cell phone" on a
+     * membership checkout. The field is FluentCart's: it appears when Phone is
+     * switched on in FluentCart → Settings → Store Settings → Checkout Fields →
+     * Billing Address (off by default; "optional" is enough, the plugin makes it
+     * required here and leaves event and merchandise checkouts as they are).
+     * With Phone off there is no field and nothing is added.
+     *
+     * FluentCart prints no label, only the placeholder, and a required field's
+     * placeholder ends in " *".
+     *
+     * @param array<string,mixed> $fields FluentCart's billing fields, keyed country, address_1 … phone
+     * @return array<string,mixed>
+     */
+    public static function with_cell_phone( array $fields ): array {
+        if ( isset( $fields['phone'] ) && is_array( $fields['phone'] ) ) {
+            $fields['phone']['placeholder'] = __( 'Cell phone', 'my-iapsnj' ) . ' *';
+            $fields['phone']['aria-label']  = __( 'Cell phone', 'my-iapsnj' );
+            $fields['phone']['required']    = 'yes';
+        }
+        return $fields;
+    }
+
+    /**
      * fluent_cart/checkout_renderer/billing_fields — address and phone from
      * the CRM contact when the cart holds nothing yet. Country and state are
      * matched against FluentCart's option lists (code or name).
@@ -2338,12 +2374,9 @@ class My_IAPSNJ_Checkout_Fields {
         $cart = is_array( $data ) ? ( $data['cart'] ?? null ) : null;
         // A membership asks for one number, the member's cell phone (4.18,
         // client request): it is the contact's Phone, the primary number.
-        // FluentCart prints no label, only the placeholder. Event and
-        // merchandise checkouts keep FluentCart's field.
-        if ( isset( $fields['phone'] ) && is_array( $fields['phone'] ) && ( self::preview_form_id() !== '' || self::form_for_cart( $cart ) !== '' ) ) {
-            $fields['phone']['placeholder'] = __( 'Cell phone', 'my-iapsnj' );
-            $fields['phone']['aria-label']  = __( 'Cell phone', 'my-iapsnj' );
-            $fields['phone']['required']    = 'yes';
+        // Event and merchandise checkouts keep FluentCart's field.
+        if ( self::preview_form_id() !== '' || self::form_for_cart( $cart ) !== '' ) {
+            $fields = self::with_cell_phone( $fields );
         }
 
         $contact = self::current_contact( $cart );
@@ -2622,6 +2655,20 @@ class My_IAPSNJ_Checkout_Fields {
         }
         if ( ! $other && in_array( $def['type'], [ 'select', 'radio' ], true ) && ! empty( $def['options'] ) && ! in_array( $value, $def['options'], true ) ) {
             $errors[ $name ]['invalid'] = sprintf( /* translators: field label */ __( 'Please choose a valid %s.', 'my-iapsnj' ), $label );
+        }
+        // A typed "Other" answer that closely matches a listed option: propose
+        // the listed one, unless the member confirmed theirs is different.
+        if ( $other && ! empty( $def['options'] ) && ! in_array( $value, $def['options'], true ) ) {
+            $close = My_IAPSNJ_Similar::matches( $value, (array) $def['options'] );
+            if ( $close && ! My_IAPSNJ_Similar::same( (string) ( $data[ $name . self::CONFIRM_SUFFIX ] ?? '' ), $value ) ) {
+                $errors[ $name . self::OTHER_SUFFIX ]['similar'] = sprintf(
+                    /* translators: 1: what the member typed, 2: the listed options, 3: field label */
+                    __( '"%1$s" looks like %2$s, which is already in the list. Please choose it from the list, or confirm that your %3$s is different.', 'my-iapsnj' ),
+                    $value,
+                    '"' . implode( '" or "', $close ) . '"',
+                    strtolower( (string) $def['label'] )
+                );
+            }
         }
         return $errors;
     }
