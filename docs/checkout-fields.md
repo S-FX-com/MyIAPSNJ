@@ -251,6 +251,19 @@ lists.
   application fields. Only empty fields are filled; what the member typed in
   this session wins. Typed values survive FluentCart's client-side re-renders
   (sessionStorage, cleared on the receipt page).
+* **Already registered? (4.26).** On a membership checkout shown to a visitor,
+  `My_IAPSNJ_Email_Check` asks `admin-ajax` (`my_iapsnj_email_check`, nonce,
+  yes / no answer) whether a WordPress account uses the email, as it is typed
+  (700 ms after the last key) or left, and for an email already filled in at
+  load. If so, a notice under the name / email box says the address is already
+  registered, with **Log in** (back to the same checkout URL afterwards) and
+  *Forgot your password?* links. It never blocks the checkout, and a logged-in
+  member never sees it. It reveals which emails have accounts, so it is rate
+  limited per IP (30 checks per 10 minutes; past that it answers "no" and the
+  prompt stays away) and answers nothing else. FluentCart 2.2.0 has no check
+  of its own. Selector: `input[name="billing_email"]`, notice placed after
+  `.fct_checkout_input_group`; if a FluentCart update renames either, the
+  prompt silently stops appearing.
 * Only carts with a product mapped in Membership Products get an
   application (see *Checkout Builder* above); a membership product that is
   not mapped checks out like any other product and, on payment, the order
