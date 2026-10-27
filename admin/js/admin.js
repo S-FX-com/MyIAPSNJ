@@ -1379,4 +1379,26 @@
         return $row;
     }
 
+    // =========================================================================
+    // Shortcodes screen: copy a ready-made shortcode
+    // =========================================================================
+
+    $(document).on('click', '.my-iapsnj-copy', function () {
+        var $btn = $(this), text = String($btn.attr('data-copy') || '');
+        function done() {
+            var label = $btn.data('orig-label') || $btn.text();
+            $btn.data('orig-label', label).text(i18n.copied);
+            setTimeout(function () { $btn.text(label); }, 1500);
+        }
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(text).then(done);
+            return;
+        }
+        // Older browsers / plain http: select a temporary field and copy.
+        var $tmp = $('<textarea readonly>').css({ position: 'fixed', top: 0, left: 0, opacity: 0 }).val(text).appendTo('body');
+        $tmp[0].select();
+        try { document.execCommand('copy'); done(); } catch (e) { /* the shortcode is still shown to select by hand */ }
+        $tmp.remove();
+    });
+
 }(jQuery));
