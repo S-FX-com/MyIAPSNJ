@@ -203,6 +203,8 @@ Dashboard when FluentHub is not installed); no other menu is moved.
 
 ## Shortcodes
 
+The list below is also on **My IAPSNJ → Settings → Shortcodes**, with every option and copy-ready examples. It is generated from `My_IAPSNJ_Shortcodes::catalog()`: add an entry there when you add a shortcode.
+
 `[iapsnj_change_password button="Update Password"]` — "Change My Password" form
 for the logged-in member: new password typed twice, a strength meter (WordPress's
 zxcvbn), a show / hide eye on each field. Saves through AJAX

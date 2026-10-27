@@ -18,6 +18,7 @@
  *    Configurations       new-member notification, email design, CRM schema, phones, names & addresses (slug my-iapsnj-sync)
  *    Profile Mirror       CRM → WP field map
  *    Profile Sync         mirror triggers, mirror all now, WordPress role per member type
+ *    Shortcodes           every shortcode the plugin provides, with options and copy-ready examples
  *    Migrate PMPro        PMPro → FluentCRM toolkit (only while PMPro tables exist)
  */
 
@@ -84,6 +85,7 @@ class My_IAPSNJ_Admin {
             [ 'my-iapsnj-sync',         esc_html__( 'Configurations', 'my-iapsnj' ), 'render_sync_page' ],
             [ 'my-iapsnj-mapping',      esc_html__( 'Profile Mirror', 'my-iapsnj' ), 'render_field_mapping_page' ],
             [ 'my-iapsnj-profile-sync', esc_html__( 'Profile Sync', 'my-iapsnj' ),   'render_profile_sync_page' ],
+            [ 'my-iapsnj-shortcodes',   esc_html__( 'Shortcodes', 'my-iapsnj' ),     'render_shortcodes_page' ],
         ];
         if ( My_IAPSNJ_Migration::tables_exist() ) {
             $settings[] = [ 'my-iapsnj-migration', esc_html__( 'Migrate PMPro', 'my-iapsnj' ), 'render_migration_page' ];
@@ -272,6 +274,7 @@ class My_IAPSNJ_Admin {
                 'saved'      => __( 'Saved!', 'my-iapsnj' ),
                 'error'      => __( 'Error. Please try again.', 'my-iapsnj' ),
                 'loading'    => __( 'Loading…', 'my-iapsnj' ),
+                'copied'     => __( 'Copied!', 'my-iapsnj' ),
                 'syncing'    => __( 'Mirroring…', 'my-iapsnj' ),
                 'syncDone'   => __( 'Mirror complete.', 'my-iapsnj' ),
                 'confirmDelete' => __( 'Remove this mapping row?', 'my-iapsnj' ),
@@ -1061,6 +1064,59 @@ class My_IAPSNJ_Admin {
         }
         $redirects['expiry-grace'] = $redirects['expiry'];
         echo '<script>(function(){var m=' . wp_json_encode( $redirects ) . ',h=(location.hash||"").replace("#","");if(h&&m[h]){location.replace(m[h]);}}());</script>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- JSON-encoded admin URLs
+    }
+
+    /**
+     * Settings → Shortcodes: every shortcode the plugin provides.
+     */
+    public function render_shortcodes_page(): void {
+        $this->guard();
+        $this->page_header( __( 'Shortcodes', 'my-iapsnj' ), __( 'Paste a shortcode into any page, post or email. Options are written inside the brackets, e.g. [iapsnj_my_membership button="Renew today"]; leave them out to use the defaults.', 'my-iapsnj' ) );
+        foreach ( My_IAPSNJ_Shortcodes::catalog() as $tag => $sc ) {
+            $exists = shortcode_exists( $tag );
+            ?>
+            <div class="fcrm-section">
+                <h2>
+                    <?php echo esc_html( $sc['title'] ); ?>
+                    <code>[<?php echo esc_html( $tag ); ?>]</code>
+                    <?php if ( ! $exists ) : ?>
+                        <span class="fcrm-badge fcrm-badge-warn"><?php esc_html_e( 'Not registered', 'my-iapsnj' ); ?></span>
+                    <?php endif; ?>
+                </h2>
+                <p><?php echo esc_html( $sc['summary'] ); ?></p>
+                <p>
+                    <strong><?php esc_html_e( 'Who sees it:', 'my-iapsnj' ); ?></strong> <?php echo esc_html( $sc['audience'] ); ?><br>
+                    <strong><?php esc_html_e( 'Typical page:', 'my-iapsnj' ); ?></strong> <?php echo esc_html( $sc['page'] ); ?>
+                </p>
+                <?php if ( $sc['atts'] ) : ?>
+                    <table class="widefat striped my-iapsnj-sc-atts">
+                        <thead><tr>
+                            <th><?php esc_html_e( 'Option', 'my-iapsnj' ); ?></th>
+                            <th><?php esc_html_e( 'Default', 'my-iapsnj' ); ?></th>
+                            <th><?php esc_html_e( 'What it does', 'my-iapsnj' ); ?></th>
+                        </tr></thead>
+                        <tbody>
+                        <?php foreach ( $sc['atts'] as [ $name, $default, $what ] ) : ?>
+                            <tr>
+                                <td><code><?php echo esc_html( $name ); ?></code></td>
+                                <td><?php echo $default !== '' ? '<code>' . esc_html( $default ) . '</code>' : '<em>' . esc_html__( 'empty', 'my-iapsnj' ) . '</em>'; ?></td>
+                                <td><?php echo esc_html( $what ); ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                <?php endif; ?>
+                <h3><?php esc_html_e( 'Copy', 'my-iapsnj' ); ?></h3>
+                <?php foreach ( $sc['examples'] as $example ) : ?>
+                    <p class="my-iapsnj-sc-example">
+                        <code><?php echo esc_html( $example ); ?></code>
+                        <button type="button" class="button button-secondary my-iapsnj-copy" data-copy="<?php echo esc_attr( $example ); ?>"><?php esc_html_e( 'Copy', 'my-iapsnj' ); ?></button>
+                    </p>
+                <?php endforeach; ?>
+            </div>
+            <?php
+        }
+        echo '</div>';
     }
 
     /**

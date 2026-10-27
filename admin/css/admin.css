@@ -652,3 +652,8 @@ tr.fcrm-sort-helper { background: #fff; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.1
 .fcrm-inline-form .fcrm-notice { margin-bottom: 8px; }
 .fcrm-moved-list { margin: 6px 0 0 18px; list-style: disc; }
 .fcrm-form-notice { margin: 0 0 12px; }
+
+/* Shortcodes screen ------------------------------------------------------- */
+.my-iapsnj-sc-example { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 6px 0; }
+.my-iapsnj-sc-example code { padding: 6px 10px; word-break: break-all; }
+.my-iapsnj-sc-atts { margin-top: 8px; }
