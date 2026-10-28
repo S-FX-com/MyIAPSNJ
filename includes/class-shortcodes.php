@@ -23,12 +23,11 @@ final class My_IAPSNJ_Shortcodes {
         return [
             My_IAPSNJ_My_Membership::SHORTCODE => [
                 'title'    => __( 'My Membership', 'my-iapsnj' ),
-                'summary'  => __( 'A horizontal bar, full width of its column, with the member\'s Membership Role (the CRM member type, plus an Administrator / Editor / other staff WordPress role when the account has one), Member Since, Expiration Date, Active / Inactive status and Member Number, read from their FluentCRM contact. Lifetime members read LIFETIME (Honorary: NO EXPIRATION). A Renew Now button appears when the membership has lapsed or ends within the renewal window; never for Lifetime or Honorary.', 'my-iapsnj' ),
+                'summary'  => __( 'A horizontal bar, full width of its column, with the member\'s Membership Role (the CRM member type, plus an Administrator / Editor / other staff WordPress role when the account has one), Member Since, Expiration Date, Active / Inactive status and Member Number, read from their FluentCRM contact. Lifetime members read LIFETIME (Honorary: NO EXPIRATION). A Renew Now button appears when the membership has lapsed, or from the renewal season start date set in Dues → Membership Products (Renewal season starts) for a member whose membership runs out before a payment then would; never for Lifetime or Honorary.', 'my-iapsnj' ),
                 'audience' => __( 'Logged-in members. Visitors see a log-in link.', 'my-iapsnj' ),
                 'page'     => __( 'Membership Portal', 'my-iapsnj' ),
                 'atts'     => [
                     [ 'button', __( 'Renew Now', 'my-iapsnj' ), __( 'Text of the renewal button.', 'my-iapsnj' ) ],
-                    [ 'window', (string) My_IAPSNJ_My_Membership::RENEW_WINDOW_DAYS, __( 'Days before the expiration date when the button first appears.', 'my-iapsnj' ) ],
                     [ 'regular_url', '', __( 'Renewal checkout link for Regular members. Empty = the renewal product in Dues → Membership Products.', 'my-iapsnj' ) ],
                     [ 'associate_url', '', __( 'Renewal checkout link for Associate members. Empty = the renewal product in Dues → Membership Products.', 'my-iapsnj' ) ],
                 ],

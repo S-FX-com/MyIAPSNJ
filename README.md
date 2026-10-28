@@ -214,13 +214,16 @@ characters and a password different from the current one, keeps the member
 signed in on this device and sends WordPress's "password changed" email.
 Visitors see a log-in link. WordPress account only; nothing is written to the CRM.
 
-`[iapsnj_my_membership button="Renew Now" window="60" regular_url="" associate_url=""]`
+`[iapsnj_my_membership button="Renew Now" regular_url="" associate_url=""]`
 — "My Membership" bar (full width of its column) for the logged-in member, read from their CRM contact:
 Membership Role (`member_type`, plus a staff / admin WordPress role such as Administrator when the account has one), Member Since (`join_date`), Expiration Date
 (`paid_through`; Lifetime reads LIFETIME, Honorary NO EXPIRATION), Active /
 Inactive (the same test as the daily expiry job, grace days included) and Member
-Number. **Renew Now** appears when the membership has lapsed or ends within
-`window` days (60), never for Lifetime / Honorary. It links to `regular_url` /
+Number. **Renew Now** appears when the membership has lapsed, or once the
+**Renewal season starts** date (Dues → Membership Products, MM-DD) has passed
+and a payment today would carry the member further than their `paid_through`
+(a member paid through Dec 31 of this year sees it from the start date; one who
+renewed after it waits for next year's). Never for Lifetime / Honorary. It links to `regular_url` /
 `associate_url` for the member's type, else to the renewal product set in Dues →
 Membership Products (variation ids differ between sites, so prefer that setting
 or pass the URLs per site).

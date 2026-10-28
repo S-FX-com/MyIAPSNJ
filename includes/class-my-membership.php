@@ -12,10 +12,12 @@
  *   expiry job and the member lists use (grace period included).
  * - Lifetime reads LIFETIME; Honorary, which never expires either, reads
  *   NO EXPIRATION. Both are always Active and never see Renew Now.
- * - Renew Now shows when the membership has lapsed or ends within the
- *   renewal window (60 days). It links to the product for the member's type:
- *   the shortcode's regular_url / associate_url, else the renewal products
- *   set in Dues → Membership Products.
+ * - Renew Now shows when the membership has lapsed, or once the renewal
+ *   season has started (Dues → Membership Products → "Renewal season
+ *   starts") and a payment today would carry the membership further than
+ *   it already goes. It links to the product for the member's type: the
+ *   shortcode's regular_url / associate_url, else the renewal products set
+ *   in Dues → Membership Products.
  *
  * @package MyIAPSNJ
  */
@@ -28,9 +30,6 @@ final class My_IAPSNJ_My_Membership {
 
     const SHORTCODE = 'iapsnj_my_membership';
     const HANDLE    = 'my-iapsnj-my-membership';
-
-    /** Days before the expiration date when Renew Now first appears. */
-    const RENEW_WINDOW_DAYS = 60;
 
     /** @var self|null */
     private static $instance = null;
@@ -66,6 +65,26 @@ final class My_IAPSNJ_My_Membership {
     }
 
     /**
+     * Would a payment made today carry the membership past $paid_through?
+     * That is what "the renewal season has started" means for a member in
+     * good standing: a payment buys through Dec 31 of this year until the
+     * season starts (Dues → Membership Products → Renewal season starts,
+     * default Oct 1) and through Dec 31 of the next year from then on, so a
+     * member paid through Dec 31 of this year may renew from the start date,
+     * and one who renewed after it has to wait for next year's.
+     *
+     * @param string $paid_through Y-m-d on the contact
+     */
+    public static function renewal_season_open( string $paid_through ): bool {
+        $paid_through = My_IAPSNJ_Dates::ymd( $paid_through );
+        if ( $paid_through === '' ) {
+            return false;
+        }
+        $term = My_IAPSNJ_Dates::membership_term( My_IAPSNJ_Dates::today(), My_IAPSNJ_Membership::renewal_cutover() );
+        return strcmp( $term['paid_through'], $paid_through ) > 0;
+    }
+
+    /**
      * Names of the user's WordPress roles that are not membership roles:
      * Administrator, Editor, board roles … Subscriber and the roles the
      * Profile Sync gives members (per type, and the expired role) are what
@@ -91,14 +110,13 @@ final class My_IAPSNJ_My_Membership {
     }
 
     /**
-     * [iapsnj_my_membership button="Renew Now" window="60" regular_url="" associate_url=""]
+     * [iapsnj_my_membership button="Renew Now" regular_url="" associate_url=""]
      *
      * @param array|string $atts
      */
     public function shortcode( $atts ): string {
         $atts = shortcode_atts( [
             'button'        => __( 'Renew Now', 'my-iapsnj' ),
-            'window'        => (string) self::RENEW_WINDOW_DAYS,
             'regular_url'   => '',
             'associate_url' => '',
         ], (array) $atts, self::SHORTCODE );
@@ -154,10 +172,9 @@ final class My_IAPSNJ_My_Membership {
             }
         }
 
-        // Renew Now: lapsed, or ending inside the window. Never for Lifetime / Honorary.
-        $window = max( 0, (int) $atts['window'] );
-        $renew  = '';
-        if ( ! $comped && ( ! $active || ( $paid !== '' && self::days_until( $paid ) <= $window ) ) ) {
+        // Renew Now: lapsed, or the renewal season has started. Never for Lifetime / Honorary.
+        $renew = '';
+        if ( ! $comped && ( ! $active || self::renewal_season_open( $paid ) ) ) {
             $renew = $type === My_IAPSNJ_Schema::TYPE_ASSOCIATE ? (string) $atts['associate_url'] : (string) $atts['regular_url'];
             if ( $renew === '' ) {
                 $renew = My_IAPSNJ_Checkout_Fields::renewal_url_for_user( get_current_user_id() );
