@@ -100,10 +100,6 @@
 .my-iapsnj-application .my-iapsnj-fields > .my-iapsnj-field {
     margin: 12px 0 8px;
 }
-.my-iapsnj-field input[type="checkbox"].fct-input,
-.my-iapsnj-field input[type="radio"].fct-input {
-    width: auto;
-}
 .my-iapsnj-application .my-iapsnj-fields > .my-iapsnj-field-textarea,
 .my-iapsnj-application .my-iapsnj-fields > .my-iapsnj-field-checkbox,
 .my-iapsnj-application .my-iapsnj-fields > .my-iapsnj-field-radio,
@@ -133,24 +129,48 @@
     line-height: 1.3;
     color: #0c3d54;
 }
-.my-iapsnj-application .my-iapsnj-field[data-my-iapsnj-field="retired"] .my-iapsnj-checkbox input {
-    display: inline-block;
-    flex: 0 0 24px;
-    width: 24px;
-    height: 24px;
-    margin: 0;
-    accent-color: #0c3d54;
-}
 .my-iapsnj-application .my-iapsnj-field[data-my-iapsnj-field="retired"] .my-iapsnj-help {
     margin: 8px 0 0 36px;
     font-size: 14px;
     opacity: 1;
 }
-/* The certification closes the application, right above the payment. */
+/* The certification closes the application, right above the payment: a
+   quiet boxed row so the tick box reads as the last step, not a stray line. */
 .my-iapsnj-application .my-iapsnj-field[data-my-iapsnj-field="certify"] {
     margin-top: 28px;
-    padding-top: 18px;
-    border-top: 2px solid rgba(0, 0, 0, 0.12);
+    padding: 16px 18px;
+    border: 1px solid rgba(0, 0, 0, 0.18);
+    border-radius: 10px;
+    background: #f6f7f8;
+}
+.my-iapsnj-application .my-iapsnj-field[data-my-iapsnj-field="certify"] > label.my-iapsnj-checkbox {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.5;
+}
+/* The larger tick box of both. FluentCart draws its own 16px box and check
+   mark (appearance: none, a :before at fixed offsets), so the box is sized
+   here and the check mark is moved to match; it is never left to "auto",
+   which collapses FluentCart's box to a sliver. */
+.my-iapsnj-application .my-iapsnj-field[data-my-iapsnj-field="retired"] .my-iapsnj-checkbox input,
+.my-iapsnj-application .my-iapsnj-field[data-my-iapsnj-field="certify"] .my-iapsnj-checkbox input {
+    flex: 0 0 24px;
+    width: 24px;
+    height: 24px;
+    min-width: 24px;
+    margin: 0;
+    align-self: flex-start;
+    accent-color: #0c3d54;
+}
+.my-iapsnj-application .my-iapsnj-field[data-my-iapsnj-field="retired"] .my-iapsnj-checkbox input:before,
+.my-iapsnj-application .my-iapsnj-field[data-my-iapsnj-field="certify"] .my-iapsnj-checkbox input:before {
+    top: 2px;
+    left: 7.5px;
+    width: 7px;
+    height: 13px;
 }
 .my-iapsnj-preview-notice {
     margin: 0 0 16px;
