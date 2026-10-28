@@ -1316,7 +1316,7 @@ class My_IAPSNJ_Admin {
                 </tbody>
             </table>
             <p style="margin-top:10px"><button type="button" id="fcrm-form-create" class="button">+ <?php esc_html_e( 'New form (built-in fields)', 'my-iapsnj' ); ?></button></p>
-            <p class="description"><?php esc_html_e( 'Regular (also Lifetime) and Associate each have their own form. The Employer fields (Employer / company name, Job title, Type of business) are for Associate members: hidden on the Regular form since 4.19, shown on the Associate form. Whether Associates must give a Department / Rank is still the client\'s call: edit the Associate form here.', 'my-iapsnj' ); ?></p>
+            <p class="description"><?php esc_html_e( 'Regular (also Lifetime) and Associate each have their own form. The Employer fields (Employer / company name, Job title, Type of business) are for Associate members: hidden on the Regular form since 4.19, shown on the Associate form. Department, Rank, Retired (with its date) and the union fields are for Regular and Lifetime (law enforcement) members only: an Associate member is never asked for them, on the application or in Edit Profile, whatever a form says.', 'my-iapsnj' ); ?></p>
         </div>
 
         <div class="fcrm-section" id="checkout-settings">

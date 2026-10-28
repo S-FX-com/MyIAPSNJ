@@ -85,6 +85,27 @@ final class My_IAPSNJ_Schema {
         return in_array( (string) $type, self::comped_types(), true );
     }
 
+    /**
+     * Types that are law enforcement: Department, Rank, Retired and the union
+     * fields are asked of them only. Associate members are non-law-enforcement
+     * supporters; Honorary members are never sold or edited as one.
+     *
+     * @return string[]
+     */
+    public static function law_enforcement_types(): array {
+        return [ self::TYPE_REGULAR, self::TYPE_LIFETIME ];
+    }
+
+    /**
+     * The branches a Veteran Status answer picks from (the CRM field's own
+     * list; "n/a" is no service).
+     *
+     * @return string[]
+     */
+    public static function veteran_options(): array {
+        return [ 'Army', 'Air Force', 'Coast Guard', 'Marines', 'Navy', 'n/a' ];
+    }
+
     public static function paid_tag_slug( int $year ): string {
         return self::TAG_PAID_PREFIX . $year;
     }
@@ -271,7 +292,7 @@ final class My_IAPSNJ_Schema {
                 'slug'    => self::FIELD_ARMED_SERVICE,
                 'label'   => 'Veteran Status',
                 'type'    => 'checkbox',
-                'options' => [ 'Yes' ],
+                'options' => self::veteran_options(),
             ],
             [
                 'slug'  => self::FIELD_ANCESTRY,

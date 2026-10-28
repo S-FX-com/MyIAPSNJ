@@ -533,6 +533,7 @@ final class My_IAPSNJ_Profile {
             // A field that is not shown for the answers (a retirement date
             // under an unticked "I am retired") is cleared, not kept.
             $crm_defs = My_IAPSNJ_Checkout_Fields::crm_custom_fields();
+            $before   = $contact->custom_fields();
             $custom   = [];
             foreach ( $inputs as $key => $def ) {
                 if ( $def['crm_kind'] === 'none' ) {
@@ -542,13 +543,19 @@ final class My_IAPSNJ_Profile {
                     ? My_IAPSNJ_Checkout_Fields::sanitize_value( $def, My_IAPSNJ_Checkout_Fields::posted_value( $key, $def, $request ) )
                     : '';
                 if ( $def['crm_kind'] === 'custom' ) {
-                    $custom[ $def['crm'] ] = My_IAPSNJ_Checkout_Fields::crm_custom_value( $def, $value, $crm_defs );
+                    $new  = My_IAPSNJ_Checkout_Fields::crm_custom_value( $def, $value, $crm_defs );
+                    $held = $before[ $def['crm'] ] ?? null;
+                    // A multiple-answer CRM field (Veteran status: Army and Navy) is shown as a
+                    // dropdown of one choice; leaving that choice alone keeps the other answers.
+                    if ( is_array( $new ) && is_array( $held ) && count( $held ) > 1 && in_array( $value, $held, true ) ) {
+                        $new = array_values( $held );
+                    }
+                    $custom[ $def['crm'] ] = $new;
                 } elseif ( isset( My_IAPSNJ_Checkout_Fields::DEFAULT_TARGETS[ $def['crm'] ] ) ) {
                     $columns[ $def['crm'] ] = $value === '' ? null : $value;
                 }
             }
 
-            $before = $contact->custom_fields();
             $contact->fill( $columns );
             $dirty = $contact->getDirty();
             if ( $dirty ) {

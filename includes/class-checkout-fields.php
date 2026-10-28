@@ -201,7 +201,12 @@ class My_IAPSNJ_Checkout_Fields {
             ],
             'marital_status'  => $custom( __( 'Marital status', 'my-iapsnj' ), '', 'select', My_IAPSNJ_Schema::FIELD_MARITAL_STATUS ),
             'spouse_name'     => $custom( __( 'Spouse\'s name', 'my-iapsnj' ), '', 'text', My_IAPSNJ_Schema::FIELD_SPOUSE_NAME ),
-            'armed_service'   => $custom( __( 'I have served in the U.S. Armed Forces', 'my-iapsnj' ), '', 'checkbox', My_IAPSNJ_Schema::FIELD_ARMED_SERVICE ),
+            // A dropdown of the branches (4.33, client request; it was one "I have
+            // served" tick box). The CRM field's own list replaces this one.
+            'armed_service'   => array_merge(
+                $custom( __( 'Veteran status', 'my-iapsnj' ), '', 'select', My_IAPSNJ_Schema::FIELD_ARMED_SERVICE ),
+                [ 'options' => My_IAPSNJ_Schema::veteran_options() ]
+            ),
             'explain_your_ancestry' => $custom( __( 'Explain your ancestry', 'my-iapsnj' ), __( 'Optional.', 'my-iapsnj' ), 'textarea', My_IAPSNJ_Schema::FIELD_ANCESTRY ),
             // -- Employer (Associate members) -------------------------------
             'company_name'    => $custom( __( 'Employer / company name', 'my-iapsnj' ), __( 'Associate members: where you work.', 'my-iapsnj' ), 'text', My_IAPSNJ_Schema::FIELD_COMPANY_NAME ),
@@ -459,8 +464,8 @@ class My_IAPSNJ_Checkout_Fields {
     }
 
     /**
-     * $saved plus the built-ins it lacks, slotted before a trailing
-     * certification checkbox.
+     * $saved plus the built-ins it lacks, slotted before the certification
+     * checkbox (which stays the last row).
      *
      * @param array<string|int,array> $saved
      * @param string[]|null           $added set to the keys added
@@ -475,24 +480,24 @@ class My_IAPSNJ_Checkout_Fields {
         foreach ( $saved as $k => $row ) {
             $have[ sanitize_key( (string) ( is_array( $row ) && isset( $row['key'] ) ? $row['key'] : $k ) ) ] = true;
         }
-        $rows  = [];
-        // Keep the saved order; slot new built-ins before the certification
-        // checkbox when it is the last row, otherwise append.
-        $certify  = null;
-        $last_row = end( $saved );
-        $last_key = sanitize_key( (string) ( is_array( $last_row ) && isset( $last_row['key'] ) ? $last_row['key'] : key( $saved ) ) );
+        $missing = array_diff_key( self::definitions(), $have );
+        if ( ! $missing ) {
+            return $saved;
+        }
+        // Keep the saved order and slot the new built-ins in before the
+        // certification checkbox, which stays the last row (4.33: it sat
+        // above the fields added after it).
+        $certify = null;
+        $rows    = [];
         foreach ( $saved as $k => $row ) {
             $key = sanitize_key( (string) ( is_array( $row ) && isset( $row['key'] ) ? $row['key'] : $k ) );
-            if ( $key === 'certify' && $last_key === 'certify' ) {
+            if ( $key === 'certify' ) {
                 $certify = [ $k, $row ];
                 continue;
             }
             $rows[ $k ] = $row;
         }
-        foreach ( self::definitions() as $key => $def ) {
-            if ( isset( $have[ $key ] ) ) {
-                continue;
-            }
+        foreach ( $missing as $key => $def ) {
             $rows[ $key ] = array_merge( [ 'key' => $key ], $def );
             $added[]      = $key;
         }
@@ -918,7 +923,9 @@ class My_IAPSNJ_Checkout_Fields {
                 $field   = $crm[ $def['crm'] ] ?? [];
                 $options = array_values( array_unique( array_filter( array_map( 'trim', array_map( 'strval', array_filter( (array) ( $field['options'] ?? [] ), 'is_scalar' ) ) ), 'strlen' ) ) );
             }
-            if ( $options ) {
+            // A CRM list of one option ("Yes", from a tick box field) is not a
+            // choice: a row that has its own list keeps it.
+            if ( $options && ( count( $options ) > 1 || empty( $def['options'] ) ) ) {
                 $defs[ $key ]['options'] = $options;
             }
         }
@@ -1011,6 +1018,9 @@ class My_IAPSNJ_Checkout_Fields {
             }
             if ( isset( $row['options'] ) && is_array( $row['options'] ) ) {
                 $def['options'] = array_values( array_filter( array_map( 'trim', array_map( 'strval', $row['options'] ) ), 'strlen' ) );
+            }
+            if ( ! $def['options'] && ! empty( $base['options'] ) ) {
+                $def['options'] = $base['options']; // a built-in list (Veteran status) is never left empty
             }
             // A built-in field's type comes from definitions() (its type
             // picker is read-only), so a changed built-in type reaches forms
@@ -1183,17 +1193,53 @@ class My_IAPSNJ_Checkout_Fields {
     }
 
     /**
+     * Built-in fields that are law enforcement only (4.33, client request):
+     * Associate members are non-law-enforcement supporters, so Department,
+     * Rank, Retired (and its date) and the union fields are never asked of
+     * them, on the application or in Edit Profile, whatever a form says.
+     *
+     * @return string[]
+     */
+    public static function law_enforcement_fields(): array {
+        return [ 'department', 'rank_level', 'retired', 'retirement_date', 'union_affiliation', 'union_position' ];
+    }
+
+    /** Is this row one of the law-enforcement-only fields (by key, or by the CRM field it writes)? */
+    private static function is_law_enforcement_field( string $key, array $def ): bool {
+        if ( in_array( $key, self::law_enforcement_fields(), true ) ) {
+            return true;
+        }
+        return ( $def['crm_kind'] ?? '' ) === 'custom' && in_array( (string) ( $def['crm'] ?? '' ), [
+            My_IAPSNJ_Schema::FIELD_DEPARTMENT,
+            My_IAPSNJ_Schema::FIELD_RANK,
+            My_IAPSNJ_Schema::FIELD_RETIREMENT_DATE,
+            My_IAPSNJ_Schema::FIELD_UNION_AFFILIATION,
+            My_IAPSNJ_Schema::FIELD_UNION_POSITION,
+        ], true );
+    }
+
+    /**
      * A form's definitions adjusted for the member type being bought. One
      * form serves several types (Lifetime uses the Regular form), so a rule
      * that belongs to one type is applied here, not in the Checkout Builder:
      * a Lifetime application must tick "I am retired" (4.18, client
      * request: Lifetime is for retired law enforcement only), shown and
-     * required whatever the form says.
+     * required whatever the form says; and the law-enforcement fields
+     * (law_enforcement_fields()) are off for every type but Regular and
+     * Lifetime.
      *
      * @param array<string,array> $defs
      * @return array<string,array>
      */
     private static function for_member_type( array $defs, string $member_type ): array {
+        if ( $member_type !== '' && ! in_array( $member_type, My_IAPSNJ_Schema::law_enforcement_types(), true ) ) {
+            foreach ( $defs as $key => $def ) {
+                if ( self::is_law_enforcement_field( (string) $key, $def ) ) {
+                    $defs[ $key ]['enabled']  = false;
+                    $defs[ $key ]['required'] = false;
+                }
+            }
+        }
         if ( $member_type === My_IAPSNJ_Schema::TYPE_LIFETIME && isset( $defs['retired'] ) && $defs['retired']['type'] === 'checkbox' ) {
             $defs['retired']['enabled']   = true;
             $defs['retired']['required']  = true;
@@ -1863,6 +1909,166 @@ class My_IAPSNJ_Checkout_Fields {
         return $changed;
     }
 
+    /**
+     * Hide the law-enforcement rows (law_enforcement_fields()) on the form
+     * Associate members use (data migration v17): Associate is for
+     * non-law-enforcement supporters. A form shared with Regular is left
+     * alone; for_member_type() keeps those rows off an Associate application
+     * either way. Idempotent.
+     *
+     * @return int rows hidden
+     */
+    public static function hide_law_enforcement_rows_for_associate(): int {
+        $store   = self::store();
+        $assoc   = (string) $store['assign'][ My_IAPSNJ_Schema::TYPE_ASSOCIATE ];
+        $regular = (string) $store['assign'][ My_IAPSNJ_Schema::TYPE_REGULAR ];
+        if ( $assoc === '' || $assoc === $regular || ! isset( $store['forms'][ $assoc ] ) ) {
+            return 0;
+        }
+        $hidden = 0;
+        $rows   = (array) ( $store['forms'][ $assoc ]['fields'] ?? [] );
+        foreach ( $rows as $k => $row ) {
+            if ( ! is_array( $row ) ) {
+                continue;
+            }
+            $key = sanitize_key( (string) ( $row['key'] ?? $k ) );
+            if ( self::is_law_enforcement_field( $key, $row ) && ( ! empty( $row['enabled'] ) || ! empty( $row['required'] ) ) ) {
+                $rows[ $k ]['enabled']  = false;
+                $rows[ $k ]['required'] = false;
+                $hidden++;
+            }
+        }
+        if ( $hidden ) {
+            $store['forms'][ $assoc ]['fields'] = $rows;
+            self::save_store( $store );
+        }
+        return $hidden;
+    }
+
+    /**
+     * Put Veteran status and Explain your ancestry with the personal fields
+     * (data migration v17): the upgrades that added them appended them after
+     * the certification checkbox, away from Marital status and Spouse. Only
+     * a row sitting below the certification is moved (an admin's own
+     * placement is kept), to just under Spouse's name, else Marital status.
+     * Idempotent.
+     *
+     * @return int forms changed
+     */
+    public static function group_personal_fields(): int {
+        $store   = self::store();
+        $changed = 0;
+        foreach ( $store['forms'] as $id => $form ) {
+            $rows   = (array) ( $form['fields'] ?? [] );
+            $order  = [];
+            foreach ( $rows as $k => $row ) {
+                $order[ sanitize_key( (string) ( is_array( $row ) && isset( $row['key'] ) ? $row['key'] : $k ) ) ] = $k;
+            }
+            $keys   = array_keys( $order );
+            $cert   = array_search( 'certify', $keys, true );
+            $anchor = isset( $order['spouse_name'] ) ? 'spouse_name' : ( isset( $order['marital_status'] ) ? 'marital_status' : '' );
+            if ( $cert === false || $anchor === '' ) {
+                continue;
+            }
+            $move = [];
+            foreach ( [ 'armed_service', 'explain_your_ancestry' ] as $key ) {
+                if ( isset( $order[ $key ] ) && array_search( $key, $keys, true ) > $cert ) {
+                    $move[ $order[ $key ] ] = $rows[ $order[ $key ] ];
+                }
+            }
+            if ( ! $move ) {
+                continue;
+            }
+            $out = [];
+            foreach ( $rows as $k => $row ) {
+                if ( isset( $move[ $k ] ) ) {
+                    continue;
+                }
+                $out[ $k ] = $row;
+                if ( $k === $order[ $anchor ] ) {
+                    $out = $out + $move;
+                }
+            }
+            $store['forms'][ $id ]['fields'] = $out;
+            $changed++;
+        }
+        if ( $changed ) {
+            self::save_store( $store );
+        }
+        return $changed;
+    }
+
+    /**
+     * Make the certification checkbox the last row of every form (data
+     * migration v17, client request: it must sit right before the payment;
+     * fields added after it had landed below it). Idempotent.
+     *
+     * @return int forms changed
+     */
+    public static function certify_last(): int {
+        $store   = self::store();
+        $changed = 0;
+        foreach ( $store['forms'] as $id => $form ) {
+            $rows    = (array) ( $form['fields'] ?? [] );
+            $certify = null;
+            $rest    = [];
+            foreach ( $rows as $k => $row ) {
+                $key = sanitize_key( (string) ( is_array( $row ) && isset( $row['key'] ) ? $row['key'] : $k ) );
+                if ( $key === 'certify' ) {
+                    $certify = [ $k, $row ];
+                    continue;
+                }
+                $rest[ $k ] = $row;
+            }
+            if ( ! $certify ) {
+                continue;
+            }
+            $rest[ $certify[0] ] = $certify[1];
+            if ( array_keys( $rest ) !== array_keys( $rows ) ) {
+                $store['forms'][ $id ]['fields'] = $rest;
+                $changed++;
+            }
+        }
+        if ( $changed ) {
+            self::save_store( $store );
+        }
+        return $changed;
+    }
+
+    /**
+     * Veteran status is a dropdown of branches, not one "I have served" tick
+     * box (data migration v17): a saved row still carrying the old label and
+     * type is relabelled and given the built-in list, which the CRM field's
+     * own options replace. A label an admin changed is kept. Idempotent.
+     *
+     * @return int rows changed
+     */
+    public static function veteran_status_dropdown(): int {
+        $store   = self::store();
+        $changed = 0;
+        foreach ( $store['forms'] as $id => $form ) {
+            foreach ( (array) ( $form['fields'] ?? [] ) as $k => $row ) {
+                if ( ! is_array( $row ) || sanitize_key( (string) ( $row['key'] ?? $k ) ) !== 'armed_service' ) {
+                    continue;
+                }
+                $new = $row;
+                if ( trim( (string) ( $row['label'] ?? '' ) ) === 'I have served in the U.S. Armed Forces' ) {
+                    $new['label'] = self::definitions()['armed_service']['label'];
+                }
+                $new['type']    = 'select';
+                $new['options'] = [];
+                if ( $new !== $row ) {
+                    $store['forms'][ $id ]['fields'][ $k ] = $new;
+                    $changed++;
+                }
+            }
+        }
+        if ( $changed ) {
+            self::save_store( $store );
+        }
+        return $changed;
+    }
+
     public static function input_name( string $key ): string {
         return self::PREFIX . $key;
     }
@@ -2062,9 +2268,13 @@ class My_IAPSNJ_Checkout_Fields {
                     echo '<p class="my-iapsnj-section-intro">' . esc_html( $section['help'] ) . '</p>';
                 }
             }
+            // Two columns where the width allows (checkout-fields.css); long
+            // answers and tick boxes take the whole row.
+            echo '<div class="my-iapsnj-fields">';
             foreach ( $section['fields'] as $key => $def ) {
                 self::render_field( $key, $def, (string) ( $values[ $key ] ?? '' ), $shown[ $key ] );
             }
+            echo '</div>';
             if ( $section['key'] !== '' ) {
                 echo '</div>';
             }

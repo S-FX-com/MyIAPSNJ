@@ -36,7 +36,7 @@ Honorary is **never a product**: it is admin-assigned (tag + `member_type`).
 | `union_affiliation`, `union_position` | text | | Checkout application (shown by default since 4.3.0). |
 | `marital_status` | select-one | Single / Married / Divorced / Widowed / Separated | Checkout application. |
 | `spouse` | text | | Checkout application and profile (4.29; was `spouse_name`). |
-| `armed_services` | checkbox | `Yes` | "Veteran Status": checkout application and profile (4.29; was `armed_service`); stored as an array (`["Yes"]`) like every FluentCRM checkbox field. |
+| `armed_services` | checkbox | Army, Air Force, Coast Guard, Marines, Navy, n/a | "Veteran Status": a dropdown on the checkout application and profile (4.29; was `armed_service`; a dropdown of branches since 4.33, before that a "Yes" tick box); stored as an array (`["Army"]`) like every FluentCRM checkbox field. An existing CRM field keeps its own options; a field created with only `Yes` should be given the branches in FluentCRM → Custom Fields. |
 | `explain_your_ancestry` | textarea | | Checkout application and profile (4.29). |
 | `additional_information` | textarea | | Checkout application. |
 | `company_name`, `company_title`, `company_type` | text | | Associate members' employer; checkout application. Created by `crm-schema` if missing. |

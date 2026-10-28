@@ -3,7 +3,7 @@
  * Plugin Name:       My IAPSNJ
  * Plugin URI:        https://github.com/S-FX-com/MyIAPSNJ
  * Description:       Membership operations for the IAPSNJ website. FluentCRM is the single source of truth: the membership application is collected on the FluentCart checkout page, FluentCart payments set membership state (Paid-YYYY tags, member_type, paid_through), applications are tracked until they are paid, mailed checks are reconciled in batch, and WordPress user profiles are mirrored one way from the CRM. Includes the PMPro → FluentCRM migration toolkit.
- * Version:           4.32.0
+ * Version:           4.33.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Requires Plugins:  fluent-crm
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'MY_IAPSNJ_VERSION', '4.32.0' );
+define( 'MY_IAPSNJ_VERSION', '4.33.0' );
 define( 'MY_IAPSNJ_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'MY_IAPSNJ_URL',     plugin_dir_url( __FILE__ ) );
 define( 'MY_IAPSNJ_FILE',    __FILE__ );
@@ -247,7 +247,7 @@ final class My_IAPSNJ_Plugin {
      * below; it is independent of MY_IAPSNJ_VERSION so that ordinary releases
      * do not re-run migrations.
      */
-    const DATA_VERSION = 16;
+    const DATA_VERSION = 17;
 
     /**
      * Runs any migration steps this install has not seen yet.
@@ -608,6 +608,20 @@ final class My_IAPSNJ_Plugin {
                 } else {
                     add_action( 'init', $phone, 20 );
                 }
+            }
+
+            // ---- v17: application clean-up (4.33) -------------------------------
+            // * The Associate application drops Department, Rank, Retired and
+            //   the union fields (law enforcement only).
+            // * Veteran status and Explain your ancestry move up beside the
+            //   personal fields, and the certification checkbox is the last
+            //   row of every form.
+            // * Veteran status is a dropdown of branches.
+            if ( $installed < 17 ) {
+                My_IAPSNJ_Checkout_Fields::veteran_status_dropdown();
+                My_IAPSNJ_Checkout_Fields::hide_law_enforcement_rows_for_associate();
+                My_IAPSNJ_Checkout_Fields::group_personal_fields();
+                My_IAPSNJ_Checkout_Fields::certify_last();
             }
 
             update_option( 'my_iapsnj_data_version', self::DATA_VERSION );
