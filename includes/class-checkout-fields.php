@@ -2400,7 +2400,9 @@ class My_IAPSNJ_Checkout_Fields {
         if ( $type === 'checkbox' ) {
             echo '<label class="fct_input_label fct_input_label_checkbox my-iapsnj-checkbox" for="' . esc_attr( $id ) . '">';
             echo '<input type="checkbox" class="fct-input fct-input-checkbox" id="' . esc_attr( $id ) . '" name="' . esc_attr( $name ) . '" value="yes"' . checked( $value, 'yes', false ) . $req_attr . '> ';
-            echo '<span>' . esc_html( $def['label'] ) . '</span>' . $star; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- $star is static markup
+            // The required mark sits inside the text, so it follows the last word instead of
+            // floating to the edge of a flex label when the text wraps.
+            echo '<span>' . esc_html( $def['label'] ) . $star . '</span>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- $star is static markup
             echo '</label>';
         } elseif ( $type === 'radio' && $options ) {
             echo '<fieldset class="my-iapsnj-radio-group"><legend class="fct_input_label">' . esc_html( $def['label'] ) . $star . '</legend>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped

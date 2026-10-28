@@ -290,8 +290,9 @@ phone), like Edit Profile: each section's fields sit in a
 `.my-iapsnj-fields` grid (`public/css/checkout-fields.css`). Paragraphs, tick
 boxes and radio groups take the whole row; a conditional field (the
 retirement date) sits under its tick box at one column's width. "I am
-retired" is a boxed call-out and the certification is set off by a rule
-above it.
+retired" is a boxed call-out and the certification a boxed row; both have a
+larger tick box (FluentCart draws its own 16px box, so the size is set
+explicitly, never `width: auto`, which collapses it to a sliver — 4.33.1).
 
 ## 2b. The checkout page around the application (4.16)
 
