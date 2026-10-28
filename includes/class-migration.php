@@ -715,6 +715,10 @@ class My_IAPSNJ_Migration {
                 if ( $field === 'country' && $new === '' && $cur === '' ) {
                     $new = (string) $args['default_country'];
                 }
+                if ( $field === 'state' ) {
+                    // ACF and PMPro keep a code (NJ); the CRM keeps the full name (New Jersey).
+                    $new = self::state_for_crm( $new, (string) ( $chosen['country'] ?? '' ), (string) $sub->country, (string) $args['default_country'], $cur );
+                }
                 if ( $new === '' || strcasecmp( $new, $cur ) === 0 ) {
                     continue;
                 }
@@ -739,6 +743,25 @@ class My_IAPSNJ_Migration {
         }
         $report['has_more']    = count( $users ) === $limit;
         $report['next_offset'] = $offset + count( $users );
+    }
+
+    /**
+     * A state from ACF / PMPro as the CRM stores it: a US state (code or name)
+     * as its full name, whatever the source wrote ("NJ" → "New Jersey"), so the
+     * migration neither turns a contact's full name back into a code nor leaves
+     * codes in the CRM. The country is the source's, else the contact's, else
+     * the default. Another country's region keeps its capitalisation rule, and
+     * a short code from the source never replaces the fuller name the contact
+     * already has ("Ontario" stays when ACF says "ON"): only the US has a list
+     * to expand codes from.
+     */
+    public static function state_for_crm( string $state, string $source_country, string $contact_country, string $default_country, string $current = '' ): string {
+        $country = trim( $source_country ) !== '' ? $source_country : ( trim( $contact_country ) !== '' ? $contact_country : $default_country );
+        $new     = My_IAPSNJ_Capitalization::state( $state, $country );
+        if ( trim( $current ) !== '' && ! My_IAPSNJ_States::is_us( $country ) && strlen( $new ) <= 3 && strlen( trim( $current ) ) > 3 ) {
+            return trim( $current );
+        }
+        return $new;
     }
 
     // -----------------------------------------------------------------------
