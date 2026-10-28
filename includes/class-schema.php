@@ -358,6 +358,32 @@ final class My_IAPSNJ_Schema {
     }
 
     /**
+     * Required custom fields the CRM does not have yet (all of them, or only
+     * the slugs in $only). FluentCRM drops a value written to a field that
+     * does not exist without saying so.
+     *
+     * @param string[] $only
+     * @return string[] slugs
+     */
+    public static function missing_custom_fields( array $only = [] ): array {
+        $fields = fluentcrm_get_option( 'contact_custom_fields', [] );
+        $have   = [];
+        foreach ( is_array( $fields ) ? $fields : [] as $f ) {
+            if ( ! empty( $f['slug'] ) ) {
+                $have[ $f['slug'] ] = true;
+            }
+        }
+        $missing = [];
+        foreach ( self::required_fields() as $def ) {
+            if ( ( $only && ! in_array( $def['slug'], $only, true ) ) || isset( $have[ $def['slug'] ] ) ) {
+                continue;
+            }
+            $missing[] = $def['slug'];
+        }
+        return $missing;
+    }
+
+    /**
      * Create the custom fields the plugin depends on (no tags). Idempotent;
      * existing fields are never modified.
      *

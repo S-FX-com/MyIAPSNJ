@@ -643,6 +643,13 @@ tr.fcrm-sort-helper { background: #fff; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.1
 .fcrm-fields-table tr.fcrm-sort-placeholder.fcrm-sort-placeholder-child td { border-left-width: 36px; border-left-color: #8fc39a; }
 .fcrm-products-table input[type="date"] { min-width: 150px; }
 .fcrm-steps-table td { vertical-align: middle; }
+.fcrm-steps-table .fcrm-step-check { display: none; color: #1a7f37; }
+.fcrm-steps-table .fcrm-mig-status { display: none; color: #1a7f37; font-weight: 600; }
+.fcrm-steps-table tr.fcrm-step-done { background: #f6f7f7; }
+.fcrm-steps-table tr.fcrm-step-done .fcrm-step-check { display: inline; }
+.fcrm-steps-table tr.fcrm-step-done .fcrm-mig-status { display: block; }
+.fcrm-steps-table tr.fcrm-step-done td:not(:last-child) { opacity: 0.5; transition: opacity 0.15s; }
+.fcrm-steps-table tr.fcrm-step-done:hover td, .fcrm-steps-table tr.fcrm-step-done:focus-within td { opacity: 1; }
 .fcrm-mig-report h3 { margin-top: 0; }
 .fcrm-mig-report h4 { margin: 18px 0 6px; }
 .fcrm-mig-report table td, .fcrm-mig-report table th { font-size: 12px; }

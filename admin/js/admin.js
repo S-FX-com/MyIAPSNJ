@@ -1271,10 +1271,13 @@
     $('.fcrm-mig-run').on('click', function () {
         var $btn = $(this), step = $btn.data('step'), dry = String($btn.data('dry')) === '1';
         if (!dry && !confirm(i18n.confirmApply)) { return; }
-        var $row = $btn.closest('tr'), $prog = $row.find('.fcrm-mig-progress'), $out = $('#fcrm-mig-report');
+        var $row = $btn.closest('tr'), $prog = $row.find('.fcrm-mig-progress'), $status = $row.find('.fcrm-mig-status'), $out = $('#fcrm-mig-report');
         var agg = null, offset = 0, limit = 100;
         $('.fcrm-mig-run').prop('disabled', true);
         $prog.text(i18n.loading);
+        // A run that writes (a report step's only Run) starts the step over: it is complete again at its last page.
+        // A dry run changes nothing, so it leaves the mark alone.
+        if (!dry || !$row.find('.fcrm-mig-run[data-dry="0"]').length) { $row.removeClass('fcrm-step-done'); $status.text(''); }
         function page() {
             var data = $.extend({ step: step, dry_run: dry ? 1 : 0, offset: offset, limit: limit }, migrationArgs());
             post('migration_run', data).done(function (resp) {
@@ -1294,6 +1297,7 @@
                 offset = r.next_offset;
                 $prog.text((r.total ? Math.min(offset, r.total) + ' / ' + r.total : agg.processed + ' processed') + (r.has_more ? '…' : ' — done'));
                 if (r.has_more) { page(); } else {
+                    if (r.completion) { $row.addClass('fcrm-step-done'); $status.text(r.completion); }
                     $out.html(renderReport(agg));
                     $('.fcrm-mig-run').prop('disabled', false);
                     $('html, body').animate({ scrollTop: $out.offset().top - 40 }, 300);

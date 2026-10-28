@@ -51,6 +51,19 @@ Principles that are enforced in code:
 Run each step as a dry run, review, then apply. `--limit` is the page size
 (default 200); the CLI loops pages automatically.
 
+In wp-admin (Settings → Migrate PMPro) a step you have run to the end —
+**Apply** for the steps that write, **Run** for the three reports — is dimmed
+and marked *Complete* with its count, time and who ran it. A dry run never
+marks a step, an interrupted run is not complete, and starting a step again
+clears its mark until it finishes. The marks live in the option
+`my_iapsnj_migration_done` and are shared with WP-CLI, so a step run from either
+side is marked on both. Dimmed rows stay usable (hover brings them back).
+
+Steps 4–6 write `member_type`, `paid_through` and `legacy_pmpro_level`.
+FluentCRM drops a value written to a custom field that does not exist, so an
+Apply creates any missing plugin field first (a dry run only warns); existing
+fields are never modified.
+
 ```bash
 LM="--level-map=1:Regular,4:Associate,2:Lifetime,6:Honorary"
 
@@ -97,12 +110,12 @@ wp iapsnj export-orders --file=/secure/path/pmpro-orders-$(date +%F).csv
 | Step | Key counts | Red flags |
 |---|---|---|
 | `link_subscribers` | `linked_by_user_id/meta/email`, `unmatched`, `email_conflicts` | `email_conflicts` > 0: two WP users share an email with one contact — fix by hand before continuing |
-| `consolidate_addresses` | `acf_only`, `pmpro_only`, `both_same`, `both_differ`, `chose_acf/pmpro`, `contacts_updated`, `no_address_anywhere` | `no_address_anywhere` is the residual list for the client; `both_differ` rows deserve a spot check. **State** is written as the full name (`New Jersey`, not the `NJ` ACF / PMPro keep), like every other write to a contact: a full name already in the CRM is left alone, a code is replaced, and a short code from the source never replaces a fuller non-US region. Contacts written earlier with `NJ` are corrected by re-running the step (idempotent) or by Settings → Configurations → Names & addresses. |
+| `consolidate_addresses` | `acf_only`, `pmpro_only`, `both_same`, `both_differ`, `chose_acf/pmpro`, `contacts_updated`, `no_address_anywhere` | `no_address_anywhere` is the residual list for the client; `both_differ` rows deserve a spot check. Names, streets and cities follow the checkout's capitalisation rules (`NEWARK` → `Newark`) and the phone is stored as the contact's Cell phone (E.164). **State** is written as the full name (`New Jersey`, not the `NJ` ACF / PMPro keep), like every other write to a contact: a full name already in the CRM is left alone, a code is replaced, and a short code from the source never replaces a fuller non-US region. Contacts written earlier with `NJ` are corrected by re-running the step (idempotent) or by Settings → Configurations → Names & addresses. |
 | `backfill_year_tags` | `tags_by_year`, `orphan_level_orders`, `skipped_zero_total`, `contacts_created` | A year with an unexpectedly low count → check `order_statuses` (PMPro marks cancelled subscriptions' orders `cancelled`; add it with `--order-statuses=success,cancelled` if the client wants them counted) |
 | `migrate_comped` | `members_by_type` | must equal the census `active_members` for those levels |
 | `set_member_state` | `members_by_type`, `paid_through_derived_from_orders`, `paid_through_unknown`, `orphan_level_members` | `paid_through_unknown` > 0 → members with no end date and no paid order; list for the client |
 | `verify_logins` | `users`, `missing_login`, `invalid_email`, `unhashed_password`, `duplicate_emails` | anything non-zero except `duplicate_emails` (report those) |
-| `reconciliation` | sections `pmpro_active_by_level`, `crm_member_type`, `crm_tags`, `addresses`, `integrity` | `users_without_crm_contact` should be ~0; `crm_contacts_pointing_at_missing_user` should be 0 |
+| `reconciliation` | sections `pmpro_active_by_level`, `crm_member_type`, `crm_tags`, `addresses`, `integrity` | `users_without_crm_contact` should be ~0; `crm_contacts_pointing_at_missing_user` should be 0; `crm_us_contacts_with_state_code` should be 0 (re-run `consolidate_addresses`, or Names & addresses) |
 
 Address heuristic ("prefer the more recently modified"): ACF has no modified
 timestamp. `prefer_recent` chooses PMPro billing when the member has a

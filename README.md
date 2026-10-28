@@ -108,7 +108,8 @@ Documentation: [`docs/phase1-findings.md`](docs/phase1-findings.md) ·
 * **Migration toolkit** — census, subscriber linking, address consolidation,
   Paid-YYYY backfill, Honorary/Lifetime from `pmpro_memberships_users`,
   member state, login verification, reconciliation, PMPro order CSV export.
-  Dry-run everywhere, WP-CLI and wp-admin.
+  Dry-run everywhere, WP-CLI and wp-admin; a step run to the end is dimmed and
+  marked complete.
 * **Notes Search** — full-text search across FluentCRM notes with inline tags.
 * **Built-in updater** — GitHub Releases.
 
