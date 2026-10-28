@@ -83,9 +83,18 @@ Builder**.
   **Regular Member Application**), and the Employer rows (Employer /
   company name, Job title, Type of business) are hidden on the Regular form
   (client feedback: those fields are for Associate members only). The
-  Associate form keeps every row as it was; whether Associates must give a
-  Department / Rank is still the client's call (edit the Associate form). A
+  Associate form keeps every row as it was. A
   fresh install runs the same step, so production starts with both forms.
+  **Data version 17 (4.33)** hides Department, Rank, Retired (and its
+  date), Union affiliation and Union position on the Associate form (client
+  request: Associate is for non-law-enforcement supporters), moves the
+  certification checkbox to the end of every form, and turns Veteran status
+  into a dropdown. The first is also a code rule, not only saved rows:
+  `My_IAPSNJ_Checkout_Fields::for_member_type()` switches those fields off for
+  every member type but **Regular and Lifetime**
+  (`My_IAPSNJ_Schema::law_enforcement_types()`), so an Associate (or Honorary)
+  member is never asked for them on the application or in Edit Profile,
+  whatever a form says. Values already on a contact are left alone.
 
 ### Editing a form
 
@@ -192,16 +201,16 @@ phone tool only reformats the contact Phone); delete the CRM fields if present.
 
 | Key | Type | Default | CRM target | Notes |
 |---|---|---|---|---|
-| `department` | dropdown | on, required | custom `department` | Options imported (see below); **no "N/A"**. 4.18: ends with **Other (not listed)**, which opens a text box; the typed name is stored on the contact as typed and the order log asks the admin to add it to the list. Associate treatment still to confirm with the client (make it optional, or relabel "Employer / affiliation"). |
+| `department` | dropdown | on, required | custom `department` | Options imported (see below); **no "N/A"**. 4.18: ends with **Other (not listed)**, which opens a text box; the typed name is stored on the contact as typed and the order log asks the admin to add it to the list. **Law enforcement only (4.33):** never asked of an Associate member (application or Edit Profile). |
 | `rank_level` | dropdown | on, required | custom `iapsnj_rank` (4.29; was `rank_level`) | The CRM field's own option list (4.29); else the options imported; built-in NJ rank list as last resort. 4.18: **Other (not listed)** like Department. |
-| `retired` | checkbox "I am retired" | on, optional | not stored | 4.17: ticked on the checkout when the contact had a retirement date; **4.19: never pre-ticked** (client feedback: a Regular application opened ticked) — the member ticks it and the date on file then shows prefilled; the answers kept in sessionStorage are keyed by form and member type so a tick on a Lifetime application does not come back on a Regular one. 4.18: on a **Lifetime** cart it is shown and **required** whatever the form says (Lifetime is for retired law enforcement only); Regular / Associate keep the form's setting |
+| `retired` | checkbox "I am retired" | on, optional | not stored | **4.33: shown as a boxed call-out** (larger tick box and label) so it is not lost in the form; law enforcement only. 4.17: ticked on the checkout when the contact had a retirement date; **4.19: never pre-ticked** (client feedback: a Regular application opened ticked) — the member ticks it and the date on file then shows prefilled; the answers kept in sessionStorage are keyed by form and member type so a tick on a Lifetime application does not come back on a Regular one. 4.18: on a **Lifetime** cart it is shown and **required** whatever the form says (Lifetime is for retired law enforcement only); Regular / Associate keep the form's setting |
 | `retirement_date` | date | on, required when shown | custom `retirement_date` | 4.17: conditional child of `retired` (shown only once the box is ticked); not after today |
-| `union_affiliation` | text | on, optional | custom `union_affiliation` | |
-| `union_position` | text | on, optional | custom `union_position` | |
+| `union_affiliation` | text | on, optional | custom `union_affiliation` | law enforcement only (4.33) |
+| `union_position` | text | on, optional | custom `union_position` | law enforcement only (4.33) |
 | `date_of_birth` | date | on, **required** (4.16) | contact `date_of_birth` | Never in the future. Data version 11 requires it in every saved form (the added row writing `date_of_birth`, if a form has one). |
 | `marital_status` | dropdown | on, optional | custom `marital_status` | Single / Married / Divorced / Widowed / Separated (ACF choices win if present) |
 | `spouse_name` | text | on, optional | custom `spouse` (4.29; was `spouse_name`) | capitalised like a name (below) |
-| `armed_service` | checkbox "I have served in the U.S. Armed Forces" | on, optional | custom `armed_services` ("Veteran Status"; 4.29, was `armed_service`) | stored as `["Yes"]` (FluentCRM checkbox field); 4.29 switches it on in every form |
+| `armed_service` | dropdown "Veteran status" | on, optional | custom `armed_services` ("Veteran Status"; 4.29, was `armed_service`) | **4.33: a dropdown of branches** (the CRM field's own options — Army, Air Force, Coast Guard, Marines, Navy, n/a — else that built-in list; was one "I have served" tick box). The CRM field is a checkbox field, so the choice is stored as `["Army"]`; a member already holding several branches keeps them while the dropdown is left on one of them (Edit Profile). A value of `Yes` from the old tick box stays selectable. |
 | `explain_your_ancestry` | paragraph | on, optional (4.29) | custom `explain_your_ancestry` | |
 | `company_name` | text | on, optional | custom `company_name` | Associate members' employer |
 | `company_title` | text | on, optional | custom `company_title` | |
@@ -209,7 +218,7 @@ phone tool only reformats the contact Phone); delete the CRM fields if present.
 | `referred_by` | text | on, optional | custom `referred_by` | capitalised like a name (below) |
 | `additional_information` | paragraph | on, optional | custom `additional_information` | |
 | `elo_title` | dropdown | **off** | custom `elo_title` | meaning unconfirmed with the client; switch on once the options are imported |
-| `certify` | checkbox | on, required | — | "I certify that the information I provided is accurate …" |
+| `certify` | checkbox | on, required | — | "I certify that the information I provided is accurate …". **Always the last row** (4.33): data v17 moves it, and fields added later slot in above it. |
 
 Input names are prefixed `iapsnj_` (`iapsnj_department`, …). A dropdown or
 radio group with no options renders as a text box.
@@ -273,6 +282,16 @@ lists.
   gets the note "membership not applied". The Dashboard flags mapped
   variation ids that no longer exist in FluentCart (products recreated).
 * Record a Check (admin) never renders, validates or records an application.
+
+### Layout (4.33)
+
+The application prints its fields in **two columns** from 640px up (one on a
+phone), like Edit Profile: each section's fields sit in a
+`.my-iapsnj-fields` grid (`public/css/checkout-fields.css`). Paragraphs, tick
+boxes and radio groups take the whole row; a conditional field (the
+retirement date) sits under its tick box at one column's width. "I am
+retired" is a boxed call-out and the certification is set off by a rule
+above it.
 
 ## 2b. The checkout page around the application (4.16)
 
@@ -358,6 +377,14 @@ does not fire and the Welcome automation is skipped (Paid history exists).
       the Associate form (heading, fields, required marks per form)
 - [ ] Regular form: no Employer / Job title / Type of business; Associate
       form shows them (4.19)
+- [ ] Associate application and an Associate's Edit Profile: no Department,
+      Rank, "I am retired", Union affiliation or Union position (4.33);
+      Regular and Lifetime show them
+- [ ] Application in two columns on a desktop, one on a phone; "I am retired"
+      is a boxed call-out; the certification is the last field, right above
+      the order summary / payment (4.33)
+- [ ] Veteran status is a dropdown of branches on the application and in Edit
+      Profile (4.33)
 - [ ] "I am retired" opens unticked on a Regular application for a contact
       with a retirement date on file; ticking it shows the date prefilled
       (4.19)

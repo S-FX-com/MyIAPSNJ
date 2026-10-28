@@ -37,6 +37,12 @@ class My_IAPSNJ_Migration {
     /** Steps that never write, whatever the dry-run flag says. */
     const READ_ONLY_STEPS = [ 'census', 'verify_logins', 'reconciliation' ];
 
+    /** Steps that write custom fields: FluentCRM ignores a value for a field it does not have. */
+    const FIELD_WRITING_STEPS = [ 'backfill_year_tags', 'migrate_comped', 'set_member_state' ];
+
+    /** Option remembering which steps have been run: step => [ done, processed, errors, ts, user, version ]. */
+    const DONE_OPTION = 'my_iapsnj_migration_done';
+
     const SAMPLE_ROWS = 100;
 
     /** ACF user-meta keys that hold the member-edited address. */
@@ -265,7 +271,8 @@ class My_IAPSNJ_Migration {
             $report['fatal'] = 'Unknown step: ' . $step;
             return $report;
         }
-        if ( in_array( $step, self::READ_ONLY_STEPS, true ) ) {
+        $read_only = in_array( $step, self::READ_ONLY_STEPS, true );
+        if ( $read_only ) {
             $report['dry_run'] = true;
             $dry_run           = true;
         }
@@ -276,7 +283,10 @@ class My_IAPSNJ_Migration {
             $report['fatal'] = 'PMPro tables not found (pmpro_membership_levels / pmpro_memberships_users / pmpro_membership_orders). Nothing to migrate from.';
             return $report;
         }
-        $args   = self::args( $args );
+        $args = self::args( $args );
+        if ( in_array( $step, self::FIELD_WRITING_STEPS, true ) ) {
+            self::preflight_fields( $report, $dry_run );
+        }
         $method = 'step_' . $step;
         try {
             self::$method( $report, $dry_run, $offset, max( 1, $limit ), $args );
@@ -286,7 +296,120 @@ class My_IAPSNJ_Migration {
         if ( ! $dry_run ) {
             My_IAPSNJ_Reports::flush_summary(); // CRM counts on the Dashboard changed
         }
+        // A dry run changes nothing, so it never counts as having run the step.
+        if ( ! $dry_run || $read_only ) {
+            self::record_run( $step, $offset, $report );
+            if ( empty( $report['fatal'] ) && empty( $report['has_more'] ) ) {
+                $report['completion'] = self::completion_label( $step );
+            }
+        }
         return $report;
+    }
+
+    /**
+     * The custom fields the write steps save into must exist before they run:
+     * FluentCRM would drop the values and the step would still report "done".
+     * A dry run says what is missing; an apply creates them (existing fields
+     * are never modified).
+     */
+    private static function preflight_fields( array &$report, bool $dry ): void {
+        $missing = My_IAPSNJ_Schema::missing_custom_fields( [
+            My_IAPSNJ_Schema::FIELD_MEMBER_TYPE,
+            My_IAPSNJ_Schema::FIELD_PAID_THROUGH,
+            My_IAPSNJ_Schema::FIELD_LEGACY_LEVEL,
+        ] );
+        if ( ! $missing ) {
+            return;
+        }
+        if ( $dry ) {
+            $report['warnings'][] = 'CRM custom fields missing: ' . implode( ', ', $missing ) . '. Apply creates them first (or use Settings → Configurations → Create missing tags & fields).';
+            return;
+        }
+        $created              = My_IAPSNJ_Schema::ensure_custom_fields();
+        $report['warnings'][] = 'Created the missing CRM custom fields before writing: ' . implode( ', ', $created ) . '.';
+    }
+
+    // -----------------------------------------------------------------------
+    // What has been run
+    // -----------------------------------------------------------------------
+
+    /**
+     * @return array<string,array<string,mixed>>
+     */
+    private static function completion_state(): array {
+        $state = get_option( self::DONE_OPTION, [] );
+        return is_array( $state ) ? $state : [];
+    }
+
+    /**
+     * Remember a page of a run that writes (or of a read-only step). A run from
+     * the first page starts the step over, so an interrupted re-run is not
+     * "complete"; the last page without a fatal error completes it. Dry runs
+     * never get here.
+     *
+     * @param array<string,mixed> $report The page report.
+     */
+    private static function record_run( string $step, int $offset, array $report ): void {
+        $state = self::completion_state();
+        $entry = $state[ $step ] ?? null;
+        if ( $offset === 0 ) {
+            $entry = [ 'done' => false, 'processed' => 0, 'errors' => 0 ];
+        } elseif ( ! is_array( $entry ) || ! empty( $entry['done'] ) ) {
+            return; // a page of a run that was not started from the top
+        }
+        $entry['processed'] = (int) ( $entry['processed'] ?? 0 ) + (int) $report['processed'];
+        $entry['errors']    = (int) ( $entry['errors'] ?? 0 ) + count( (array) $report['errors'] );
+        if ( empty( $report['fatal'] ) && empty( $report['has_more'] ) ) {
+            $user = wp_get_current_user();
+            $entry['done']    = true;
+            $entry['ts']      = time();
+            $entry['user']    = $user instanceof WP_User && $user->exists() ? (string) $user->display_name : 'WP-CLI';
+            $entry['version'] = MY_IAPSNJ_VERSION;
+        }
+        $state[ $step ] = $entry;
+        update_option( self::DONE_OPTION, $state, false );
+    }
+
+    /**
+     * Steps that have been run to the end (not just a dry run).
+     *
+     * @return array<string,array<string,mixed>> step => entry
+     */
+    public static function completed(): array {
+        $out = [];
+        foreach ( self::completion_state() as $step => $entry ) {
+            if ( in_array( $step, self::STEPS, true ) && is_array( $entry ) && ! empty( $entry['done'] ) ) {
+                $out[ $step ] = $entry;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * "Complete · 1,530 processed · October 28, 2026 3:12 pm · Shane" for a
+     * finished step, '' when it has not been run.
+     */
+    public static function completion_label( string $step ): string {
+        $entry = self::completed()[ $step ] ?? null;
+        if ( ! $entry ) {
+            return '';
+        }
+        $bits = [ __( 'Complete', 'my-iapsnj' ) ];
+        if ( ! in_array( $step, self::READ_ONLY_STEPS, true ) ) {
+            /* translators: %s: number of records */
+            $bits[] = sprintf( __( '%s processed', 'my-iapsnj' ), number_format_i18n( (int) $entry['processed'] ) );
+        }
+        if ( ! empty( $entry['errors'] ) ) {
+            /* translators: %s: number of errors */
+            $bits[] = sprintf( _n( '%s error', '%s errors', (int) $entry['errors'], 'my-iapsnj' ), number_format_i18n( (int) $entry['errors'] ) );
+        }
+        if ( ! empty( $entry['ts'] ) ) {
+            $bits[] = wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), (int) $entry['ts'] );
+        }
+        if ( ! empty( $entry['user'] ) ) {
+            $bits[] = (string) $entry['user'];
+        }
+        return implode( ' · ', $bits );
     }
 
     /**
@@ -429,8 +552,8 @@ class My_IAPSNJ_Migration {
         }
         $created = FluentCrmApi( 'contacts' )->createOrUpdate( [
             'email'      => $user->user_email,
-            'first_name' => (string) $user->first_name,
-            'last_name'  => (string) $user->last_name,
+            'first_name' => My_IAPSNJ_Capitalization::name( (string) $user->first_name ),
+            'last_name'  => My_IAPSNJ_Capitalization::name( (string) $user->last_name ),
             'user_id'    => $user_id,
             'status'     => 'subscribed',
             'source'     => 'pmpro-migration',
@@ -715,6 +838,14 @@ class My_IAPSNJ_Migration {
                 if ( $field === 'country' && $new === '' && $cur === '' ) {
                     $new = (string) $args['default_country'];
                 }
+                if ( $field === 'state' ) {
+                    // ACF and PMPro keep a code (NJ); the CRM keeps the full name (New Jersey).
+                    $new = self::state_for_crm( $new, (string) ( $chosen['country'] ?? '' ), (string) $sub->country, (string) $args['default_country'], $cur );
+                } elseif ( $field === 'address_line_1' || $field === 'address_line_2' ) {
+                    $new = My_IAPSNJ_Capitalization::street( $new ); // the rules every other write to a contact follows
+                } elseif ( $field === 'city' ) {
+                    $new = My_IAPSNJ_Capitalization::city( $new );
+                }
                 if ( $new === '' || strcasecmp( $new, $cur ) === 0 ) {
                     continue;
                 }
@@ -739,6 +870,25 @@ class My_IAPSNJ_Migration {
         }
         $report['has_more']    = count( $users ) === $limit;
         $report['next_offset'] = $offset + count( $users );
+    }
+
+    /**
+     * A state from ACF / PMPro as the CRM stores it: a US state (code or name)
+     * as its full name, whatever the source wrote ("NJ" → "New Jersey"), so the
+     * migration neither turns a contact's full name back into a code nor leaves
+     * codes in the CRM. The country is the source's, else the contact's, else
+     * the default. Another country's region keeps its capitalisation rule, and
+     * a short code from the source never replaces the fuller name the contact
+     * already has ("Ontario" stays when ACF says "ON"): only the US has a list
+     * to expand codes from.
+     */
+    public static function state_for_crm( string $state, string $source_country, string $contact_country, string $default_country, string $current = '' ): string {
+        $country = trim( $source_country ) !== '' ? $source_country : ( trim( $contact_country ) !== '' ? $contact_country : $default_country );
+        $new     = My_IAPSNJ_Capitalization::state( $state, $country );
+        if ( trim( $current ) !== '' && ! My_IAPSNJ_States::is_us( $country ) && strlen( $new ) <= 3 && strlen( trim( $current ) ) > 3 ) {
+            return trim( $current );
+        }
+        return $new;
     }
 
     // -----------------------------------------------------------------------
@@ -1096,13 +1246,20 @@ class My_IAPSNJ_Migration {
         $crm_addr_linked = (int) $wpdb->get_var( "SELECT COUNT(*) FROM `{$subs}` WHERE address_line_1 <> '' AND user_id IS NOT NULL AND user_id > 0" );
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
         $crm_addr_total  = (int) $wpdb->get_var( "SELECT COUNT(*) FROM `{$subs}` WHERE address_line_1 <> ''" );
+        // Every US state should read as the full name (New Jersey, not NJ).
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $state_codes = (int) $wpdb->get_var( "SELECT COUNT(*) FROM `{$subs}` WHERE CHAR_LENGTH(TRIM(state)) = 2 AND (country IS NULL OR country IN ('', 'US', 'USA', 'United States'))" );
         $report['sections']['addresses'] = [
             'users_with_acf_address'         => $acf_addr,
             'users_with_pmpro_billing'       => $pmpro_addr,
             'users_with_any_address_before'  => $any_addr,
             'crm_linked_contacts_with_address' => $crm_addr_linked,
             'crm_all_contacts_with_address'  => $crm_addr_total,
+            'crm_us_contacts_with_state_code' => $state_codes,
         ];
+        if ( $state_codes > 0 ) {
+            $report['warnings'][] = sprintf( '%d US contact(s) still have a two-letter state. Re-run Consolidate addresses (Apply) or use Settings → Configurations → Names & addresses.', $state_codes );
+        }
 
         // Emails / duplicates.
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery

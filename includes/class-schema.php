@@ -85,6 +85,27 @@ final class My_IAPSNJ_Schema {
         return in_array( (string) $type, self::comped_types(), true );
     }
 
+    /**
+     * Types that are law enforcement: Department, Rank, Retired and the union
+     * fields are asked of them only. Associate members are non-law-enforcement
+     * supporters; Honorary members are never sold or edited as one.
+     *
+     * @return string[]
+     */
+    public static function law_enforcement_types(): array {
+        return [ self::TYPE_REGULAR, self::TYPE_LIFETIME ];
+    }
+
+    /**
+     * The branches a Veteran Status answer picks from (the CRM field's own
+     * list; "n/a" is no service).
+     *
+     * @return string[]
+     */
+    public static function veteran_options(): array {
+        return [ 'Army', 'Air Force', 'Coast Guard', 'Marines', 'Navy', 'n/a' ];
+    }
+
     public static function paid_tag_slug( int $year ): string {
         return self::TAG_PAID_PREFIX . $year;
     }
@@ -271,7 +292,7 @@ final class My_IAPSNJ_Schema {
                 'slug'    => self::FIELD_ARMED_SERVICE,
                 'label'   => 'Veteran Status',
                 'type'    => 'checkbox',
-                'options' => [ 'Yes' ],
+                'options' => self::veteran_options(),
             ],
             [
                 'slug'  => self::FIELD_ANCESTRY,
@@ -355,6 +376,32 @@ final class My_IAPSNJ_Schema {
             }
         }
         return '';
+    }
+
+    /**
+     * Required custom fields the CRM does not have yet (all of them, or only
+     * the slugs in $only). FluentCRM drops a value written to a field that
+     * does not exist without saying so.
+     *
+     * @param string[] $only
+     * @return string[] slugs
+     */
+    public static function missing_custom_fields( array $only = [] ): array {
+        $fields = fluentcrm_get_option( 'contact_custom_fields', [] );
+        $have   = [];
+        foreach ( is_array( $fields ) ? $fields : [] as $f ) {
+            if ( ! empty( $f['slug'] ) ) {
+                $have[ $f['slug'] ] = true;
+            }
+        }
+        $missing = [];
+        foreach ( self::required_fields() as $def ) {
+            if ( ( $only && ! in_array( $def['slug'], $only, true ) ) || isset( $have[ $def['slug'] ] ) ) {
+                continue;
+            }
+            $missing[] = $def['slug'];
+        }
+        return $missing;
     }
 
     /**

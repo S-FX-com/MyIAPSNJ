@@ -1316,7 +1316,7 @@ class My_IAPSNJ_Admin {
                 </tbody>
             </table>
             <p style="margin-top:10px"><button type="button" id="fcrm-form-create" class="button">+ <?php esc_html_e( 'New form (built-in fields)', 'my-iapsnj' ); ?></button></p>
-            <p class="description"><?php esc_html_e( 'Regular (also Lifetime) and Associate each have their own form. The Employer fields (Employer / company name, Job title, Type of business) are for Associate members: hidden on the Regular form since 4.19, shown on the Associate form. Whether Associates must give a Department / Rank is still the client\'s call: edit the Associate form here.', 'my-iapsnj' ); ?></p>
+            <p class="description"><?php esc_html_e( 'Regular (also Lifetime) and Associate each have their own form. The Employer fields (Employer / company name, Job title, Type of business) are for Associate members: hidden on the Regular form since 4.19, shown on the Associate form. Department, Rank, Retired (with its date) and the union fields are for Regular and Lifetime (law enforcement) members only: an Associate member is never asked for them, on the application or in Edit Profile, whatever a form says.', 'my-iapsnj' ); ?></p>
         </div>
 
         <div class="fcrm-section" id="checkout-settings">
@@ -1636,27 +1636,30 @@ class My_IAPSNJ_Admin {
 
         <div class="fcrm-section">
             <h2><?php esc_html_e( 'Steps (run in order)', 'my-iapsnj' ); ?></h2>
+            <p class="description"><?php esc_html_e( 'A step you have run to the end (Apply, or Run for the reports) is dimmed and marked complete; a dry run does not count. You can run any step again.', 'my-iapsnj' ); ?></p>
             <table class="widefat fcrm-steps-table"><tbody>
             <?php
             $steps = [
                 'census'                => [ __( '1. Census (Phase 1)', 'my-iapsnj' ), __( 'Levels, orphaned level IDs, Honorary / Lifetime counts and whether they have orders.', 'my-iapsnj' ), false ],
                 'link_subscribers'      => [ __( '2. Link subscribers (P3-7)', 'my-iapsnj' ), __( 'Write the canonical subscriber_id to user meta and contact.user_id for every matched user.', 'my-iapsnj' ), true ],
-                'consolidate_addresses' => [ __( '3. Consolidate addresses (P1-3)', 'my-iapsnj' ), __( 'Merge ACF address and PMPro billing meta into the CRM address. Never writes to pmpro_b*.', 'my-iapsnj' ), true ],
+                'consolidate_addresses' => [ __( '3. Consolidate addresses (P1-3)', 'my-iapsnj' ), __( 'Merge ACF address and PMPro billing meta into the CRM address: state as the full name, names and streets capitalised like the checkout, phone as the contact\'s Cell phone. Never writes to pmpro_b*.', 'my-iapsnj' ), true ],
                 'backfill_year_tags'    => [ __( '4. Backfill Paid-YYYY tags', 'my-iapsnj' ), __( 'From pmpro_membership_orders, year of the order timestamp. Orphan levels are tagged and recorded in legacy_pmpro_level.', 'my-iapsnj' ), true ],
                 'migrate_comped'        => [ __( '5. Honorary & Lifetime', 'my-iapsnj' ), __( 'From pmpro_memberships_users (they have no orders). Tag, set member_type, paid_through = null.', 'my-iapsnj' ), true ],
                 'set_member_state'      => [ __( '6. member_type & paid_through', 'my-iapsnj' ), __( 'For active Regular / Associate members from their current level and end date.', 'my-iapsnj' ), true ],
                 'verify_logins'         => [ __( '7. Verify logins', 'my-iapsnj' ), __( 'Every user keeps user_login, user_email and a hashed password.', 'my-iapsnj' ), false ],
                 'reconciliation'        => [ __( '8. Reconciliation report', 'my-iapsnj' ), __( 'Totals before / after: per level, per type, addresses, emails, duplicates.', 'my-iapsnj' ), false ],
             ];
+            $completed = My_IAPSNJ_Migration::completed();
             foreach ( $steps as $key => [ $title, $desc, $writes ] ) :
+                $done_label = isset( $completed[ $key ] ) ? My_IAPSNJ_Migration::completion_label( $key ) : '';
             ?>
-                <tr data-step="<?php echo esc_attr( $key ); ?>">
-                    <td style="width:26%"><strong><?php echo esc_html( $title ); ?></strong><br><small class="fcrm-muted"><?php echo esc_html( $desc ); ?></small></td>
+                <tr data-step="<?php echo esc_attr( $key ); ?>"<?php echo $done_label !== '' ? ' class="fcrm-step-done"' : ''; ?>>
+                    <td style="width:26%"><strong><span class="fcrm-step-check" aria-hidden="true">&#10003; </span><?php echo esc_html( $title ); ?></strong><br><small class="fcrm-muted"><?php echo esc_html( $desc ); ?></small></td>
                     <td style="width:22%">
                         <button class="button fcrm-mig-run" data-step="<?php echo esc_attr( $key ); ?>" data-dry="1"><?php echo esc_html( $writes ? __( 'Dry run', 'my-iapsnj' ) : __( 'Run', 'my-iapsnj' ) ); ?></button>
                         <?php if ( $writes ) : ?><button class="button button-primary fcrm-mig-run" data-step="<?php echo esc_attr( $key ); ?>" data-dry="0"><?php esc_html_e( 'Apply', 'my-iapsnj' ); ?></button><?php endif; ?>
                     </td>
-                    <td><div class="fcrm-mig-progress fcrm-muted"></div></td>
+                    <td><div class="fcrm-mig-progress fcrm-muted"></div><div class="fcrm-mig-status"><?php echo esc_html( $done_label ); ?></div></td>
                 </tr>
             <?php endforeach; ?>
             </tbody></table>
