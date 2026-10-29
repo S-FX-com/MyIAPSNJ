@@ -121,11 +121,19 @@
 
     // Each form saves only its own settings (ajax_save_settings touches the
     // keys it receives), and reports in its own notice.
+    // The notice an action reports in: the one under its own email card when it has one, else the form's.
+    function noticeFor($el) {
+        var $n = $el.closest('.fcrm-email-card').find('.fcrm-card-notice').first();
+        if (!$n.length) { $n = $el.closest('form').find('.fcrm-form-notice').first(); }
+        return $n.length ? $n : $('#fcrm-settings-notice');
+    }
+
     $(document).on('submit', '.fcrm-settings-form', function (e) {
         e.preventDefault();
-        var $btn = $(this).find('[type="submit"]'), data = {};
-        var $notice = $(this).find('.fcrm-form-notice').first();
-        if (!$notice.length) { $notice = $('#fcrm-settings-notice'); }
+        // The button that was pressed (an email card has its own Save), else the form's first.
+        var submitter = e.originalEvent && e.originalEvent.submitter;
+        var $btn = submitter ? $(submitter) : $(this).find('[type="submit"]').first(), data = {};
+        var $notice = noticeFor($btn);
         // The email message editors (TinyMCE) hold their text apart until told to write it back.
         if (window.tinyMCE && window.tinyMCE.triggerSave) { window.tinyMCE.triggerSave(); }
         $(this).find('input, select, textarea').each(function () {
@@ -642,11 +650,31 @@
         el.selectionStart = el.selectionEnd = start + token.length;
     });
 
+    // The subject and message of the email card a button sits in, as they are on the screen.
+    function emailDraft($el) {
+        if (window.tinyMCE && window.tinyMCE.triggerSave) { window.tinyMCE.triggerSave(); }
+        var $card = $el.closest('.fcrm-email-card');
+        return { subject: $card.find('input[name$="[subject]"]').val() || '', body: $card.find('textarea[name$="[body]"]').val() || '' };
+    }
+
+    // Emails → Preview shows the email as it is on the screen, saved or not (the link itself opens the saved one).
+    $(document).on('click', 'a.fcrm-preview', function (e) {
+        if (e.which > 1 || e.metaKey || e.ctrlKey || e.shiftKey) { return; }
+        e.preventDefault();
+        var draft = emailDraft($(this));
+        var $form = $('<form method="post" target="_blank" style="display:none"></form>').attr('action', this.href);
+        $('<input type="hidden" name="subject">').val(draft.subject).appendTo($form);
+        $('<input type="hidden" name="body">').val(draft.body).appendTo($form);
+        $form.appendTo(document.body);
+        $form[0].submit();
+        $form.remove();
+    });
+
     // Emails → Send test of a member / staff email (to the "Send tests to" address).
     $(document).on('click', '.fcrm-send-test-notification', function () {
-        var $btn = $(this), $notice = $btn.closest('form').find('.fcrm-form-notice').first();
+        var $btn = $(this), $notice = noticeFor($btn);
         setBtn($btn, i18n.loading, true);
-        post('send_test_notification', { kind: $btn.data('kind'), to: testTo() })
+        post('send_test_notification', $.extend({ kind: $btn.data('kind'), to: testTo() }, emailDraft($btn)))
             .done(function (resp) { showNotice($notice, resp.success ? resp.data.message : errMsg(resp), resp.success ? 'success' : 'error'); })
             .fail(function () { showNotice($notice, i18n.error, 'error'); })
             .always(function () { resetBtn($btn); });

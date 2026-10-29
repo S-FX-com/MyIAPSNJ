@@ -583,11 +583,12 @@ final class My_IAPSNJ_Notifications {
      *
      * @param string[]            $to
      * @param array<string,mixed> $facts
+     * @param array<string,string> $draft unsaved subject / body to use instead of the saved ones (Preview, Send test)
      * @return array{to:string[],subject:string,body:string,headers:string[]}
      */
-    public static function staff_message( array $facts, array $to ): array {
+    public static function staff_message( array $facts, array $to, array $draft = [] ): array {
         $kind    = $facts['kind'] === 'renewal' ? 'renewal' : 'join';
-        $cfg     = self::staff_template()[ $kind ];
+        $cfg     = array_merge( self::staff_template()[ $kind ], $draft );
         $values  = self::token_values( $facts );
         $subject = self::subject_text( (string) $cfg['subject'], $values, self::staff_message_defaults()[ $kind ]['subject'] );
         // The application is always in a staff notice: put at the end when the message has no {application}.
@@ -807,12 +808,13 @@ final class My_IAPSNJ_Notifications {
      * written in the editor). {application} here is the member's own copy:
      * no payment, order or CRM rows.
      *
-     * @param array<string,mixed> $facts
+     * @param array<string,mixed>  $facts
+     * @param array<string,string> $draft unsaved subject / body to use instead of the saved ones (Preview, Send test)
      * @return array{to:string,subject:string,body:string,headers:string[]}
      */
-    public static function member_message( string $kind, array $facts ): array {
+    public static function member_message( string $kind, array $facts, array $draft = [] ): array {
         $kind    = $kind === 'renewal' ? 'renewal' : 'join';
-        $cfg     = self::member()[ $kind ];
+        $cfg     = array_merge( self::member()[ $kind ], $draft );
         $values  = self::token_values( $facts );
         $subject = self::subject_text( (string) $cfg['subject'], $values, self::member_defaults()[ $kind ]['subject'] );
         $content = self::message_html( (string) $cfg['body'], $values, $facts, false, false );
@@ -881,21 +883,48 @@ final class My_IAPSNJ_Notifications {
     /**
      * kind: member:join | member:renewal | staff:join | staff:renewal
      *
+     * @param array<string,string> $draft unsaved subject / body from the screen (see sanitize_draft())
      * @return array{to:string|string[],subject:string,body:string,headers:string[]}|null
      */
-    public static function sample_message( string $kind ): ?array {
+    public static function sample_message( string $kind, array $draft = [] ): ?array {
         $parts = explode( ':', $kind );
         $last  = (string) end( $parts );
         if ( ! in_array( $last, [ 'join', 'renewal' ], true ) ) {
             return null;
         }
         if ( $parts[0] === 'member' ) {
-            return self::member_message( $last, self::sample_facts( $last ) );
+            return self::member_message( $last, self::sample_facts( $last ), $draft );
         }
         if ( $parts[0] === 'staff' ) {
-            return self::staff_message( self::sample_facts( $last ), [ 'sample@example.com' ] );
+            return self::staff_message( self::sample_facts( $last ), [ 'sample@example.com' ], $draft );
         }
         return null;
+    }
+
+    /**
+     * A subject and message typed on Settings → Emails but not saved yet,
+     * cleaned the way a save cleans them, so Preview and Send test show what is
+     * on the screen. A part that is empty or missing is left out (the saved
+     * text is used).
+     *
+     * @param array<string,mixed> $raw unslashed 'subject' / 'body'
+     * @return array<string,string>
+     */
+    public static function sanitize_draft( array $raw ): array {
+        $out = [];
+        if ( isset( $raw['subject'] ) && is_scalar( $raw['subject'] ) ) {
+            $subject = trim( mb_substr( sanitize_text_field( (string) $raw['subject'] ), 0, self::SUBJECT_MAX ) );
+            if ( $subject !== '' ) {
+                $out['subject'] = $subject;
+            }
+        }
+        if ( isset( $raw['body'] ) && is_scalar( $raw['body'] ) ) {
+            $body = trim( mb_substr( wp_kses_post( (string) $raw['body'] ), 0, self::BODY_MAX ) );
+            if ( $body !== '' ) {
+                $out['body'] = $body;
+            }
+        }
+        return $out;
     }
 
     /**
@@ -941,10 +970,11 @@ final class My_IAPSNJ_Notifications {
     /**
      * Send the sample for $kind to $to (never to the real recipients).
      *
-     * @param string|string[] $to
+     * @param string|string[]      $to
+     * @param array<string,string> $draft unsaved subject / body from the screen
      */
-    public static function send_test( string $kind, $to ): bool {
-        $mail = self::sample_message( $kind );
+    public static function send_test( string $kind, $to, array $draft = [] ): bool {
+        $mail = self::sample_message( $kind, $draft );
         $to   = array_values( array_filter( (array) $to, 'is_email' ) );
         if ( ! $mail || ! $to ) {
             return false;
@@ -958,15 +988,19 @@ final class My_IAPSNJ_Notifications {
 
     /**
      * admin-post.php?action=my_iapsnj_notification_preview&kind=… — the sample
-     * as the recipient sees it.
+     * as the recipient sees it (GET: as saved; POST with subject / body: as on
+     * the screen).
      */
     public static function render_preview(): void {
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_die( esc_html__( 'Insufficient permissions', 'my-iapsnj' ), 403 );
         }
         check_admin_referer( self::PREVIEW_ACTION );
-        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- verified above
-        $mail = self::sample_message( sanitize_text_field( wp_unslash( (string) ( $_GET['kind'] ?? '' ) ) ) );
+        // The link opens the saved email; the Preview button of Settings → Emails posts what is on the screen too.
+        // phpcs:disable WordPress.Security.NonceVerification -- verified above
+        $draft = isset( $_POST['subject'] ) || isset( $_POST['body'] ) ? self::sanitize_draft( wp_unslash( [ 'subject' => $_POST['subject'] ?? '', 'body' => $_POST['body'] ?? '' ] ) ) : [];
+        $mail  = self::sample_message( sanitize_text_field( wp_unslash( (string) ( $_REQUEST['kind'] ?? '' ) ) ), $draft );
+        // phpcs:enable
         if ( ! $mail ) {
             wp_die( esc_html__( 'Unknown email.', 'my-iapsnj' ), 404 );
         }

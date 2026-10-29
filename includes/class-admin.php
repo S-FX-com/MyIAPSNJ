@@ -854,17 +854,29 @@ class My_IAPSNJ_Admin {
                 echo '<button type="button" class="fcrm-token" data-editor="' . esc_attr( $editor_id ) . '" data-token="{' . esc_attr( $token ) . '}" title="' . esc_attr( $what ) . '"><code>{' . esc_html( $token ) . '}</code></button> ';
             }
         };
-        // "Send test" and where it goes (kept in step with the box above by the script).
-        $test_buttons = function ( string $kind ) use ( $test_typed, $test_self ): void {
+        // Under each email: Save, Preview and Send test (they use what is on the screen, saved or not;
+        // the address shown follows the "Send tests to" box), and a notice of its own.
+        $card_actions = function ( string $kind ) use ( $test_typed, $test_self ): void {
             ?>
-            <button type="button" class="button fcrm-send-test-notification" data-kind="<?php echo esc_attr( $kind ); ?>"><?php esc_html_e( 'Send test', 'my-iapsnj' ); ?></button>
+            <p>
+                <button type="submit" class="button button-primary"><?php esc_html_e( 'Save', 'my-iapsnj' ); ?></button>
+                <a class="button fcrm-preview" href="<?php echo esc_url( My_IAPSNJ_Notifications::preview_url( $kind ) ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'Preview', 'my-iapsnj' ); ?></a>
+                <button type="button" class="button fcrm-send-test-notification" data-kind="<?php echo esc_attr( $kind ); ?>"><?php esc_html_e( 'Send test', 'my-iapsnj' ); ?></button>
+                <span class="description"><?php esc_html_e( 'to', 'my-iapsnj' ); ?> <strong class="fcrm-test-to-label"><?php echo esc_html( $test_typed !== '' ? $test_typed : $test_self ); ?></strong></span>
+            </p>
+            <div class="fcrm-notice fcrm-card-notice" style="display:none" role="status"></div>
+            <?php
+        };
+        // The design test button sits outside an email card.
+        $test_to_label = function () use ( $test_typed, $test_self ): void {
+            ?>
             <span class="description"><?php esc_html_e( 'to', 'my-iapsnj' ); ?> <strong class="fcrm-test-to-label"><?php echo esc_html( $test_typed !== '' ? $test_typed : $test_self ); ?></strong></span>
             <?php
         };
         ?>
         <div class="fcrm-section" id="test-emails">
             <h2><?php esc_html_e( 'Test emails', 'my-iapsnj' ); ?></h2>
-            <p class="description"><?php esc_html_e( 'Preview shows an email as its recipient sees it, with a made-up member. Send test mails a copy, marked [TEST], to the address below: never to the real recipients.', 'my-iapsnj' ); ?></p>
+            <p class="description"><?php esc_html_e( 'Preview shows an email as its recipient sees it, with a made-up member. Send test mails a copy, marked [TEST], to the address below: never to the real recipients. Both use what is on the screen, saved or not.', 'my-iapsnj' ); ?></p>
             <p>
                 <label for="fcrm-test-to"><strong><?php esc_html_e( 'Send tests to', 'my-iapsnj' ); ?></strong></label>
                 <input type="text" id="fcrm-test-to" class="regular-text" value="<?php echo esc_attr( $test_typed ); ?>" placeholder="<?php echo esc_attr( $test_self ); ?>" data-default="<?php echo esc_attr( $test_self ); ?>" autocomplete="off">
@@ -897,7 +909,7 @@ class My_IAPSNJ_Admin {
             <?php $fluentcart_table( 'member' ); ?>
 
             <h3><?php esc_html_e( 'Our own Welcome and Renewal emails', 'my-iapsnj' ); ?></h3>
-            <p class="description"><?php esc_html_e( 'Off until switched on. To replace FluentCart\'s receipt with your own wording, turn its "Send" off above and switch the matching email on here. Each is sent to the member once the payment is confirmed. Save before using Preview or Send test.', 'my-iapsnj' ); ?></p>
+            <p class="description"><?php esc_html_e( 'Off until switched on. To replace FluentCart\'s receipt with your own wording, turn its "Send" off above and switch the matching email on here. Each is sent to the member once the payment is confirmed.', 'my-iapsnj' ); ?></p>
             <?php foreach ( [ 'join' => __( 'Welcome email (a new member\'s first payment)', 'my-iapsnj' ), 'renewal' => __( 'Renewal email (a returning member\'s payment)', 'my-iapsnj' ) ] as $kind => $label ) : ?>
                 <div class="fcrm-email-card">
                     <h4><?php echo esc_html( $label ); ?></h4>
@@ -909,10 +921,7 @@ class My_IAPSNJ_Admin {
                             <p class="description"><?php esc_html_e( 'Click a code to put it in the message; each is replaced with the member\'s details when the email is sent (the subject takes them too). {application} adds a copy of their application.', 'my-iapsnj' ); ?></p>
                             <p><?php $token_chips( 'my_iapsnj_member_' . $kind . '_body' ); ?></p></td></tr>
                     </table>
-                    <p>
-                        <a class="button" href="<?php echo esc_url( My_IAPSNJ_Notifications::preview_url( 'member:' . $kind ) ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'Preview', 'my-iapsnj' ); ?></a>
-                        <?php $test_buttons( 'member:' . $kind ); ?>
-                    </p>
+                    <?php $card_actions( 'member:' . $kind ); ?>
                 </div>
             <?php endforeach; ?>
 
@@ -935,22 +944,30 @@ class My_IAPSNJ_Admin {
         <div class="fcrm-section">
             <h2><?php esc_html_e( 'Emails to IAPSNJ staff', 'my-iapsnj' ); ?></h2>
             <div class="fcrm-notice fcrm-form-notice" style="display:none"></div>
-            <p class="description"><?php esc_html_e( 'When a payment is confirmed the President and the Membership Committee get the same email, once per order: one message for a new member and one for a renewal, each marked New member or Renewal at the top. Choose who receives it, then write the message. Save before using Preview or Send test.', 'my-iapsnj' ); ?></p>
+            <p class="description"><?php esc_html_e( 'When a payment is confirmed the President and the Membership Committee get the same email, once per order: one message for a new member and one for a renewal, each marked New member or Renewal at the top. Choose who receives it, then write the message.', 'my-iapsnj' ); ?></p>
 
             <h3><?php esc_html_e( 'Who gets it', 'my-iapsnj' ); ?></h3>
-            <?php foreach ( My_IAPSNJ_Notifications::staff_groups() as $group => $label ) : $cfg = My_IAPSNJ_Notifications::staff( $group ); ?>
-                <div class="fcrm-email-card" id="staff-<?php echo esc_attr( $group ); ?>">
-                    <h4><?php echo esc_html( $label ); ?></h4>
-                    <table class="form-table">
-                        <tr><th><?php esc_html_e( 'Send', 'my-iapsnj' ); ?></th><td><label><input type="checkbox" name="staff_mail[<?php echo esc_attr( $group ); ?>][enabled]" value="1" <?php checked( ! empty( $cfg['enabled'] ) ); ?>> <?php echo esc_html( sprintf( /* translators: %s: President / Membership Committee */ __( 'Email the %s about payments', 'my-iapsnj' ), $label ) ); ?></label></td></tr>
-                        <tr><th><?php esc_html_e( 'To', 'my-iapsnj' ); ?></th><td><input type="text" class="large-text" name="staff_mail[<?php echo esc_attr( $group ); ?>][to]" value="<?php echo esc_attr( (string) $cfg['to'] ); ?>" placeholder="name@example.org, other@example.org"></td></tr>
-                        <tr><th><?php esc_html_e( 'When', 'my-iapsnj' ); ?></th><td>
-                            <label><input type="checkbox" name="staff_mail[<?php echo esc_attr( $group ); ?>][on_join]" value="1" <?php checked( ! empty( $cfg['on_join'] ) ); ?>> <?php esc_html_e( 'A new member joins (first payment)', 'my-iapsnj' ); ?></label><br>
-                            <label><input type="checkbox" name="staff_mail[<?php echo esc_attr( $group ); ?>][on_renewal]" value="1" <?php checked( ! empty( $cfg['on_renewal'] ) ); ?>> <?php esc_html_e( 'A member renews', 'my-iapsnj' ); ?></label>
-                        </td></tr>
-                    </table>
-                </div>
-            <?php endforeach; ?>
+            <table class="widefat striped fcrm-staff-recipients">
+                <thead><tr>
+                    <th class="fcrm-col-check"><?php esc_html_e( 'Send', 'my-iapsnj' ); ?></th>
+                    <th><?php esc_html_e( 'Who', 'my-iapsnj' ); ?></th>
+                    <th><?php esc_html_e( 'To', 'my-iapsnj' ); ?></th>
+                    <th class="fcrm-col-check"><?php esc_html_e( 'New member', 'my-iapsnj' ); ?></th>
+                    <th class="fcrm-col-check"><?php esc_html_e( 'Renewal', 'my-iapsnj' ); ?></th>
+                </tr></thead>
+                <tbody>
+                <?php foreach ( My_IAPSNJ_Notifications::staff_groups() as $group => $label ) : $cfg = My_IAPSNJ_Notifications::staff( $group ); ?>
+                    <tr id="staff-<?php echo esc_attr( $group ); ?>">
+                        <td class="fcrm-col-check"><input type="checkbox" name="staff_mail[<?php echo esc_attr( $group ); ?>][enabled]" value="1" <?php checked( ! empty( $cfg['enabled'] ) ); ?> aria-label="<?php echo esc_attr( sprintf( /* translators: %s: President / Membership Committee */ __( 'Email the %s about payments', 'my-iapsnj' ), $label ) ); ?>"></td>
+                        <td><strong><?php echo esc_html( $label ); ?></strong></td>
+                        <td><input type="text" class="large-text" name="staff_mail[<?php echo esc_attr( $group ); ?>][to]" value="<?php echo esc_attr( (string) $cfg['to'] ); ?>" placeholder="name@example.org, other@example.org" aria-label="<?php echo esc_attr( sprintf( /* translators: %s: President / Membership Committee */ __( 'Email addresses of the %s', 'my-iapsnj' ), $label ) ); ?>"></td>
+                        <td class="fcrm-col-check"><input type="checkbox" name="staff_mail[<?php echo esc_attr( $group ); ?>][on_join]" value="1" <?php checked( ! empty( $cfg['on_join'] ) ); ?> aria-label="<?php echo esc_attr( sprintf( /* translators: %s: President / Membership Committee */ __( '%s: when a new member joins', 'my-iapsnj' ), $label ) ); ?>"></td>
+                        <td class="fcrm-col-check"><input type="checkbox" name="staff_mail[<?php echo esc_attr( $group ); ?>][on_renewal]" value="1" <?php checked( ! empty( $cfg['on_renewal'] ) ); ?> aria-label="<?php echo esc_attr( sprintf( /* translators: %s: President / Membership Committee */ __( '%s: when a member renews', 'my-iapsnj' ), $label ) ); ?>"></td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+            <p class="description"><?php esc_html_e( 'Separate several addresses with commas.', 'my-iapsnj' ); ?></p>
 
             <h3><?php esc_html_e( 'The email', 'my-iapsnj' ); ?></h3>
             <p class="description"><?php esc_html_e( 'Type your own note above the application if you like. The code {application} inserts the member\'s entire application in one styled table: membership, contact details, every answer on the application form for their level, the payment and the CRM / order links. A new question added in the Checkout Builder appears by itself. Leave {application} out and it is added at the end.', 'my-iapsnj' ); ?></p>
@@ -965,10 +982,7 @@ class My_IAPSNJ_Admin {
                             <p class="description"><?php esc_html_e( 'Click a code to put it in the message (the subject takes the short ones too).', 'my-iapsnj' ); ?></p>
                             <p><?php $token_chips( 'my_iapsnj_staff_' . $kind . '_body' ); ?></p></td></tr>
                     </table>
-                    <p>
-                        <a class="button" href="<?php echo esc_url( My_IAPSNJ_Notifications::preview_url( 'staff:' . $kind ) ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'Preview', 'my-iapsnj' ); ?></a>
-                        <?php $test_buttons( 'staff:' . $kind ); ?>
-                    </p>
+                    <?php $card_actions( 'staff:' . $kind ); ?>
                 </div>
             <?php endforeach; ?>
 
@@ -1013,7 +1027,7 @@ class My_IAPSNJ_Admin {
                 <button type="submit" class="button button-primary"><?php esc_html_e( 'Save', 'my-iapsnj' ); ?></button>
                 <a class="button" href="<?php echo esc_url( My_IAPSNJ_Emails::preview_url() ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'Preview', 'my-iapsnj' ); ?></a>
                 <button type="button" class="button fcrm-send-test-email"><?php esc_html_e( 'Send test', 'my-iapsnj' ); ?></button>
-                <span class="description"><?php esc_html_e( 'to', 'my-iapsnj' ); ?> <strong class="fcrm-test-to-label"><?php echo esc_html( $test_typed !== '' ? $test_typed : $test_self ); ?></strong></span>
+                <?php $test_to_label(); ?>
             </p>
             <p class="description"><?php esc_html_e( 'Preview and Send test show the saved design, logo and footer (save first), even while Apply is off. The sample is the "Login details" email a new member receives. On staging, sending is simulated: find the test in FluentSMTP → Email Logs.', 'my-iapsnj' ); ?></p>
             <?php if ( My_IAPSNJ_Membership::is_available() && ! My_IAPSNJ_Emails::fluentcart_supported() ) : ?>
@@ -1938,7 +1952,9 @@ class My_IAPSNJ_Admin {
             wp_send_json_error( [ 'message' => __( 'Unknown email.', 'my-iapsnj' ) ] );
         }
         $to = $this->test_recipients_from_post();
-        if ( ! My_IAPSNJ_Notifications::send_test( $kind, $to ) ) {
+        // The subject and message as they are on the screen, saved or not.
+        $draft = My_IAPSNJ_Notifications::sanitize_draft( wp_unslash( [ 'subject' => $_POST['subject'] ?? '', 'body' => $_POST['body'] ?? '' ] ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- ajax_guard()
+        if ( ! My_IAPSNJ_Notifications::send_test( $kind, $to, $draft ) ) {
             wp_send_json_error( [ 'message' => __( 'WordPress could not send the email (see the mail log).', 'my-iapsnj' ) ] );
         }
         /* translators: %s: email address(es) */
