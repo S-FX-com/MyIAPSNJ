@@ -39,6 +39,7 @@ email is blocked — verify emails in the mail log / catcher. Tick every row.
 | 30 | Member emails (4.36) | Emails → FluentCart's emails: untick *Send* on Purchase receipt; switch on the Welcome email; Save. Join as a new member, then buy an event ticket | | | Member gets our Welcome (their name, type, date, number) and no FluentCart receipt; the event ticket still gets FluentCart's receipt | |
 | 31 | Old notice carried over | After upgrading from ≤ 4.35 | Committee's *Send* and recipients are what New-member notification had; President is off | | Committee: new members only, Full | |
 | 32 | Directory type filter (4.36) | Member Directory → Membership type: Associate, Regular, Lifetime | | | Each shows only that type; the count, paging and Reset follow; type + department combine | |
+| 33 | Directory name search (4.37) | Member Directory (logged in as an active member) → type a name in *Search by name*, slowly, then a first and last name in either order; add a Membership type; clear the box | | | The list narrows after a short pause with no page reload; the count line and paging follow; the address updates (bookmarkable); a lapsed member or an email address never matches; Reset clears everything. Logged out or lapsed: the notice only, never the box | |
 
 ## Client UAT (acceptance gate)
 

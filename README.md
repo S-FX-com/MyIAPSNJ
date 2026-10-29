@@ -237,8 +237,12 @@ or pass the URLs per site).
 `[iapsnj_directory per_page="24" photo_meta="headshot"]` — members-only directory of
 **active** members (the Active Membership rule): cards with headshot (silhouette
 when missing), name, member type, member since, department, rank and email /
-phone icons (`mailto:` / `tel:`). Filters, as a plain GET form so a filtered page
-can be bookmarked: membership type (Regular, Associate, Lifetime, and Honorary
+phone icons (`mailto:` / `tel:`). A **Search by name** box on top finds members as
+the person types (every word must be in the first or last name, so "jo sm" finds
+John Smith; two characters or more; the cards, count and paging update in place,
+through a members-only wp-ajax call). Filters, as a plain GET form so a filtered
+page can be bookmarked (the search box too; without scripts the Filter button
+does the same with a page load): membership type (Regular, Associate, Lifetime, and Honorary
 while there is an active Honorary member), department, rank (the values present
 among active members), join date range, retired Yes / No (retired = a retirement date on the contact, or
 Lifetime). Visible to administrators and logged-in members whose own membership
