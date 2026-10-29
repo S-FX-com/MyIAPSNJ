@@ -15,13 +15,21 @@
  *       for a site that turns FluentCart's receipt off;
  *     - FluentCRM automations are listed and linked, never touched.
  *  2. To IAPSNJ staff: the President and the Membership Committee, each with
- *     recipients, "send on join / on renewal" and a Summary or Full layout.
- *     The single recipient list of ≤ 4.35 (Configurations → New-member
+ *     recipients and "send on join / on renewal". They get the same email: one
+ *     message for a new member and one for a renewal (a subject and a message
+ *     written in WordPress's editor), each topped by a New member / Renewal
+ *     label. The single recipient list of ≤ 4.35 (Configurations → New-member
  *     notification) became the Committee's (data v19).
+ *
+ * Messages are HTML and may use {tokens}. The one token {application} prints the
+ * member's whole application as a styled table (membership, contact, every
+ * answer of the checkout form for their level and, for staff, the CRM / order
+ * links), so no field is ever missed.
  *
  * Everything is sent once per order and only after the payment is applied to
  * the CRM (My_IAPSNJ_Membership::apply_paid_order), never for an unpaid
- * application. Settings live in my_iapsnj_settings: staff_mail, member_mail.
+ * application. Settings live in my_iapsnj_settings: staff_mail (the groups and
+ * their 'message'), member_mail.
  *
  * @package MyIAPSNJ
  */
@@ -40,6 +48,8 @@ final class My_IAPSNJ_Notifications {
     const META_MEMBER = '_my_iapsnj_member_mailed';
     /** Order meta of ≤ 4.35: one notice to the admins; counts as the Committee's. */
     const META_LEGACY = '_my_iapsnj_notified';
+    /** User meta: where this administrator's test emails go (typed on Settings → Emails). */
+    const META_TEST_TO = 'my_iapsnj_test_email';
 
     const SUBJECT_MAX = 200;
     const BODY_MAX    = 20000;
@@ -71,12 +81,32 @@ final class My_IAPSNJ_Notifications {
      * is off until an address is given. Nothing here is translated, so it is
      * safe to read before init.
      *
-     * @return array<string,array{enabled:bool,to:string,on_join:bool,on_renewal:bool,detail:string}>
+     * @return array<string,array{enabled:bool,to:string,on_join:bool,on_renewal:bool}>
      */
     public static function staff_defaults(): array {
         return [
-            'president' => [ 'enabled' => false, 'to' => '', 'on_join' => true, 'on_renewal' => true, 'detail' => 'summary' ],
-            'committee' => [ 'enabled' => true, 'to' => (string) get_option( 'admin_email' ), 'on_join' => true, 'on_renewal' => false, 'detail' => 'full' ],
+            'president' => [ 'enabled' => false, 'to' => '', 'on_join' => true, 'on_renewal' => true ],
+            'committee' => [ 'enabled' => true, 'to' => (string) get_option( 'admin_email' ), 'on_join' => true, 'on_renewal' => false ],
+        ];
+    }
+
+    /**
+     * The staff email's subject and message for a new member and for a renewal
+     * (translated: read after init only).
+     *
+     * @return array{join:array{subject:string,body:string},renewal:array{subject:string,body:string}}
+     */
+    public static function staff_message_defaults(): array {
+        $closing = __( 'This notice is sent only after payment is confirmed; it never fires for an unpaid application.', 'my-iapsnj' );
+        return [
+            'join'    => [
+                'subject' => __( '[IAPSNJ] New member paid: {full_name} ({member_type})', 'my-iapsnj' ),
+                'body'    => '<p>' . esc_html__( 'A new IAPSNJ member has joined and paid (order {order_number}).', 'my-iapsnj' ) . '</p><p>{application}</p><p><small>' . esc_html( $closing ) . '</small></p>',
+            ],
+            'renewal' => [
+                'subject' => __( '[IAPSNJ] Membership renewed: {full_name} ({member_type})', 'my-iapsnj' ),
+                'body'    => '<p>' . esc_html__( 'An IAPSNJ member has renewed and paid (order {order_number}).', 'my-iapsnj' ) . '</p><p>{application}</p><p><small>' . esc_html( $closing ) . '</small></p>',
+            ],
         ];
     }
 
@@ -108,13 +138,35 @@ final class My_IAPSNJ_Notifications {
     /**
      * One staff notice, saved values over the defaults.
      *
-     * @return array{enabled:bool,to:string,on_join:bool,on_renewal:bool,detail:string}
+     * @return array{enabled:bool,to:string,on_join:bool,on_renewal:bool}
      */
     public static function staff( string $group ): array {
-        $defaults = self::staff_defaults()[ $group ] ?? [ 'enabled' => false, 'to' => '', 'on_join' => true, 'on_renewal' => false, 'detail' => 'full' ];
+        $defaults = self::staff_defaults()[ $group ] ?? [ 'enabled' => false, 'to' => '', 'on_join' => true, 'on_renewal' => false ];
         $saved    = My_IAPSNJ_Plugin::settings()['staff_mail'][ $group ] ?? [];
-        $out      = array_merge( $defaults, is_array( $saved ) ? $saved : [] );
-        $out['detail'] = $out['detail'] === 'summary' ? 'summary' : 'full';
+        // A 'detail' (Summary / Full) saved by 4.36 is ignored: every notice carries the whole application.
+        return array_intersect_key( array_merge( $defaults, is_array( $saved ) ? $saved : [] ), $defaults );
+    }
+
+    /**
+     * The staff email, saved values over the defaults (an empty subject or
+     * message reads as the default text).
+     *
+     * @return array{join:array{subject:string,body:string},renewal:array{subject:string,body:string}}
+     */
+    public static function staff_template(): array {
+        $defaults = self::staff_message_defaults();
+        $saved    = My_IAPSNJ_Plugin::settings()['staff_mail']['message'] ?? [];
+        $saved    = is_array( $saved ) ? $saved : [];
+        $out      = [];
+        foreach ( [ 'join', 'renewal' ] as $kind ) {
+            $row = array_merge( $defaults[ $kind ], is_array( $saved[ $kind ] ?? null ) ? $saved[ $kind ] : [] );
+            foreach ( [ 'subject', 'body' ] as $part ) {
+                if ( trim( (string) $row[ $part ] ) === '' ) {
+                    $row[ $part ] = $defaults[ $kind ][ $part ];
+                }
+            }
+            $out[ $kind ] = $row;
+        }
         return $out;
     }
 
@@ -159,8 +211,8 @@ final class My_IAPSNJ_Notifications {
     }
 
     /**
-     * Posted staff settings → the saved shape (a group that was not posted keeps
-     * what it has).
+     * Posted staff settings → the saved shape (a group or message that was not
+     * posted keeps what it has).
      *
      * @param array<string,mixed> $raw
      * @return array<string,array>
@@ -175,10 +227,18 @@ final class My_IAPSNJ_Notifications {
                 $row['to']         = implode( ', ', self::emails( (string) ( $in['to'] ?? '' ) ) );
                 $row['on_join']    = ! empty( $in['on_join'] );
                 $row['on_renewal'] = ! empty( $in['on_renewal'] );
-                $row['detail']     = ( $in['detail'] ?? '' ) === 'summary' ? 'summary' : 'full';
             }
             $out[ $group ] = $row;
         }
+        $template = self::staff_template();
+        foreach ( [ 'join', 'renewal' ] as $kind ) {
+            $in = $raw['message'][ $kind ] ?? null;
+            if ( is_array( $in ) ) {
+                $template[ $kind ]['subject'] = trim( mb_substr( sanitize_text_field( (string) ( $in['subject'] ?? '' ) ), 0, self::SUBJECT_MAX ) );
+                $template[ $kind ]['body']    = trim( mb_substr( wp_kses_post( (string) ( $in['body'] ?? '' ) ), 0, self::BODY_MAX ) );
+            }
+        }
+        $out['message'] = $template;
         return $out;
     }
 
@@ -372,9 +432,10 @@ final class My_IAPSNJ_Notifications {
     }
 
     /**
-     * What an email may say about a payment, read once.
+     * What an email may say about a payment, read once. 'answers' is the
+     * application of the checkout form (My_IAPSNJ_Checkout_Fields::application_answers()).
      *
-     * @return array<string,string|int>
+     * @return array<string,mixed>
      */
     private static function facts( $subscriber, $order, array $applied ): array {
         $subscriber = Subscriber::where( 'id', $subscriber->id )->first() ?: $subscriber;
@@ -389,8 +450,11 @@ final class My_IAPSNJ_Notifications {
             (string) $subscriber->country,
         ] );
         $money      = My_IAPSNJ_Membership::format_money( (int) $order->total_amount, (string) $order->currency );
+        $kind       = (string) ( $applied['kind'] ?? 'join' ) === 'renewal' ? 'renewal' : 'join';
         return [
-            'kind'          => (string) ( $applied['kind'] ?? 'join' ) === 'renewal' ? 'renewal' : 'join',
+            'kind'          => $kind,
+            'kind_label'    => self::kind_label( $kind ),
+            'answers'       => My_IAPSNJ_Checkout_Fields::application_answers( $order, $subscriber, (string) $applied['member_type'] ),
             'order_id'      => (int) $order->id,
             'first_name'    => (string) $subscriber->first_name,
             'last_name'     => (string) $subscriber->last_name,
@@ -415,11 +479,14 @@ final class My_IAPSNJ_Notifications {
     /**
      * A made-up payment for Preview and Send test.
      *
-     * @return array<string,string|int>
+     * @return array<string,mixed>
      */
     public static function sample_facts( string $kind ): array {
+        $kind = $kind === 'renewal' ? 'renewal' : 'join';
         return [
-            'kind'          => $kind === 'renewal' ? 'renewal' : 'join',
+            'kind'          => $kind,
+            'kind_label'    => self::kind_label( $kind ),
+            'answers'       => My_IAPSNJ_Checkout_Fields::sample_application_answers( My_IAPSNJ_Schema::TYPE_REGULAR ),
             'order_id'      => 1234,
             'first_name'    => 'Sample',
             'last_name'     => 'Member',
@@ -464,14 +531,14 @@ final class My_IAPSNJ_Notifications {
             if ( ! $to ) {
                 continue;
             }
-            $mail = self::staff_message( $group, $facts, $to );
+            $mail = self::staff_message( $facts, $to );
 
             if ( $facts['kind'] === 'join' ) {
                 /**
                  * Filter a staff notice about a NEW member before it is sent
                  * (kept from ≤ 4.35, when there was one notice).
                  *
-                 * @param array $mail ['to' => string[], 'subject' => string, 'body' => string (HTML when the email design is on, else plain text), 'headers' => string[]]
+                 * @param array $mail ['to' => string[], 'subject' => string, 'body' => string (HTML), 'headers' => string[]]
                  */
                 $mail = apply_filters( 'my_iapsnj/new_member_notification', $mail, $subscriber, $order, $applied );
             }
@@ -510,97 +577,98 @@ final class My_IAPSNJ_Notifications {
     }
 
     /**
-     * The rows a staff notice lists: Summary (who, what, until when, the CRM
-     * link) or Full (adds email, phone, address, payment and order links).
+     * A staff notice ready to send: the staff message for a new member or a
+     * renewal, under its New member / Renewal label. The President and the
+     * Committee get the same email; only the recipients differ.
      *
-     * @param array<string,string|int> $facts
-     * @return array<string,string>
+     * @param string[]            $to
+     * @param array<string,mixed> $facts
+     * @return array{to:string[],subject:string,body:string,headers:string[]}
      */
-    public static function staff_rows( array $facts, string $detail ): array {
-        $rows = [
-            __( 'Name', 'my-iapsnj' )          => (string) $facts['name'],
-            __( 'Member type', 'my-iapsnj' )   => (string) $facts['member_type'],
-            __( 'Paid through', 'my-iapsnj' )  => (string) $facts['paid_through'] !== '' ? My_IAPSNJ_Dates::ymd_display( (string) $facts['paid_through'] ) : __( 'n/a (no expiration)', 'my-iapsnj' ),
+    public static function staff_message( array $facts, array $to ): array {
+        $kind    = $facts['kind'] === 'renewal' ? 'renewal' : 'join';
+        $cfg     = self::staff_template()[ $kind ];
+        $values  = self::token_values( $facts );
+        $subject = self::subject_text( (string) $cfg['subject'], $values, self::staff_message_defaults()[ $kind ]['subject'] );
+        // The application is always in a staff notice: put at the end when the message has no {application}.
+        $content = self::kind_badge( $kind ) . self::message_html( (string) $cfg['body'], $values, $facts, true, true );
+        return [
+            'to'      => array_values( $to ),
+            'subject' => $subject,
+            'body'    => self::html_email( $content, $subject ),
+            'headers' => [ 'Content-Type: text/html; charset=UTF-8' ],
         ];
-        if ( $detail === 'full' ) {
-            $rows += [
-                __( 'Product', 'my-iapsnj' )         => (string) $facts['product'],
-                __( 'Payment', 'my-iapsnj' )         => (string) $facts['payment'],
-                __( 'Order', 'my-iapsnj' )           => (string) $facts['order'],
-                __( 'Email', 'my-iapsnj' )           => (string) $facts['email'],
-                __( 'Cell phone', 'my-iapsnj' )      => (string) $facts['phone'],
-                __( 'Mailing address', 'my-iapsnj' ) => (string) $facts['address'],
-            ];
+    }
+
+    public static function kind_label( string $kind ): string {
+        return $kind === 'renewal' ? __( 'Renewal', 'my-iapsnj' ) : __( 'New member', 'my-iapsnj' );
+    }
+
+    /** The coloured label on top of a staff notice: New member (green) or Renewal (blue). */
+    private static function kind_badge( string $kind ): string {
+        return '<p style="margin:0 0 16px;"><span style="display:inline-block;padding:4px 14px;border-radius:999px;background:' . ( $kind === 'renewal' ? '#0b5cad' : '#1a7f37' ) . ';color:#ffffff;font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;">'
+            . esc_html( self::kind_label( $kind ) ) . '</span></p>';
+    }
+
+    /**
+     * The {application} table: what a person typed on the application and what
+     * we hold on them, in sections. Staff also get the payment, the order and
+     * the CRM / order links; a member's copy never carries those.
+     *
+     * @param array<string,mixed> $facts
+     * @return array<int,array<string,string>> items: ['heading' => …] or ['label' => …, 'value' => …]
+     */
+    public static function application_rows( array $facts, bool $staff ): array {
+        $paid_through = (string) $facts['paid_through'] !== '' ? My_IAPSNJ_Dates::ymd_display( (string) $facts['paid_through'] ) : __( 'n/a (no expiration)', 'my-iapsnj' );
+        $rows         = [
+            [ 'heading' => __( 'Membership', 'my-iapsnj' ) ],
+            [ 'label' => __( 'Application type', 'my-iapsnj' ), 'value' => (string) $facts['kind_label'] ],
+            [ 'label' => __( 'Member type', 'my-iapsnj' ), 'value' => (string) $facts['member_type'] ],
+            [ 'label' => __( 'Paid through', 'my-iapsnj' ), 'value' => $paid_through ],
+        ];
+        if ( (string) $facts['member_number'] !== '' ) {
+            $rows[] = [ 'label' => __( 'Member number', 'my-iapsnj' ), 'value' => (string) $facts['member_number'] ];
         }
-        $rows += [
-            __( 'Department', 'my-iapsnj' )    => (string) $facts['department'],
-            __( 'Rank', 'my-iapsnj' )          => (string) $facts['rank'],
-            __( 'Member number', 'my-iapsnj' ) => (string) $facts['member_number'],
-            __( 'CRM contact', 'my-iapsnj' )   => (string) $facts['crm_url'],
-        ];
-        if ( $detail === 'full' ) {
-            $rows[ __( 'FluentCart order', 'my-iapsnj' ) ] = (string) $facts['order_url'];
+        if ( $staff ) {
+            $rows[] = [ 'label' => __( 'Product', 'my-iapsnj' ), 'value' => (string) $facts['product'] ];
+            $rows[] = [ 'label' => __( 'Payment', 'my-iapsnj' ), 'value' => (string) $facts['payment'] ];
+            $rows[] = [ 'label' => __( 'Order', 'my-iapsnj' ), 'value' => (string) $facts['order'] ];
+        }
+        $rows[] = [ 'heading' => __( 'Contact', 'my-iapsnj' ) ];
+        $rows[] = [ 'label' => __( 'Name', 'my-iapsnj' ), 'value' => (string) $facts['name'] ];
+        $rows[] = [ 'label' => __( 'Email', 'my-iapsnj' ), 'value' => (string) $facts['email'] ];
+        $rows[] = [ 'label' => __( 'Cell phone', 'my-iapsnj' ), 'value' => (string) $facts['phone'] ];
+        $rows[] = [ 'label' => __( 'Mailing address', 'my-iapsnj' ), 'value' => (string) $facts['address'] ];
+        $answers = array_values( array_filter( (array) ( $facts['answers'] ?? [] ), 'is_array' ) );
+        if ( $answers && ! isset( $answers[0]['heading'] ) ) {
+            // A form with no section headings: its answers get one of their own, apart from the contact rows.
+            $rows[] = [ 'heading' => __( 'Application', 'my-iapsnj' ) ];
+        }
+        $rows = array_merge( $rows, $answers );
+        if ( $staff ) {
+            $rows[] = [ 'heading' => __( 'Links', 'my-iapsnj' ) ];
+            $rows[] = [ 'label' => __( 'CRM contact', 'my-iapsnj' ), 'value' => (string) $facts['crm_url'] ];
+            $rows[] = [ 'label' => __( 'FluentCart order', 'my-iapsnj' ), 'value' => (string) $facts['order_url'] ];
         }
         return $rows;
     }
 
     /**
-     * A staff notice ready to send.
+     * The rows as an email table: a heading bar per section, label / value
+     * rows (an unanswered row reads —, a bare http(s) address becomes an
+     * "Open" link, line breaks are kept). Inline styles only, as email programs
+     * need; every value is escaped.
      *
-     * @param string[]                 $to
-     * @param array<string,string|int> $facts
-     * @return array{to:string[],subject:string,body:string,headers:string[]}
+     * @param array<int,array<string,string>> $rows from application_rows()
      */
-    public static function staff_message( string $group, array $facts, array $to ): array {
-        $cfg    = self::staff( $group );
-        $rows   = self::staff_rows( $facts, (string) $cfg['detail'] );
-        $name   = (string) $facts['name'] !== '' ? (string) $facts['name'] : (string) $facts['email'];
-        $join   = $facts['kind'] === 'join';
-        $intro  = $join
-            /* translators: %d: order number */
-            ? sprintf( __( 'A new IAPSNJ member has PAID (order #%d). Details below are from the CRM after payment.', 'my-iapsnj' ), (int) $facts['order_id'] )
-            /* translators: %d: order number */
-            : sprintf( __( 'An IAPSNJ member has RENEWED (order #%d). Details below are from the CRM after payment.', 'my-iapsnj' ), (int) $facts['order_id'] );
-        $note   = __( 'This notification is sent only after payment is confirmed; it never fires for an unpaid application.', 'my-iapsnj' );
-        $subject = $join
-            ? sprintf( __( '[IAPSNJ] New member paid: %1$s (%2$s)', 'my-iapsnj' ), $name, (string) $facts['member_type'] )
-            : sprintf( __( '[IAPSNJ] Membership renewed: %1$s (%2$s)', 'my-iapsnj' ), $name, (string) $facts['member_type'] );
-
-        if ( My_IAPSNJ_Emails::enabled() ) {
-            // Same design as every other site email (Settings → Emails → Email design).
-            $body    = My_IAPSNJ_Emails::wrap( self::notification_html( $intro, $rows, $note ), $intro );
-            $headers = [ 'Content-Type: text/html; charset=UTF-8' ];
-        } else {
-            $body = $intro . "\n\n";
-            foreach ( $rows as $label => $value ) {
-                if ( strpos( $value, "\n" ) !== false ) {
-                    $body .= $label . ":\n    " . str_replace( "\n", "\n    ", $value ) . "\n";
-                } else {
-                    $body .= $label . ': ' . ( $value !== '' ? $value : '—' ) . "\n";
-                }
+    public static function application_html( array $rows ): string {
+        $html = '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin:0 0 16px;">';
+        foreach ( $rows as $row ) {
+            if ( isset( $row['heading'] ) ) {
+                $html .= '<tr><td colspan="2" style="padding:16px 0 6px;border-bottom:2px solid #0c3d54;font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#0c3d54;">' . esc_html( (string) $row['heading'] ) . '</td></tr>';
+                continue;
             }
-            $body   .= "\n" . $note . "\n";
-            $headers = [ 'Content-Type: text/plain; charset=UTF-8' ];
-        }
-        return [
-            'to'      => array_values( $to ),
-            'subject' => $subject,
-            'body'    => $body,
-            'headers' => $headers,
-        ];
-    }
-
-    /**
-     * Intro, a label / value table (admin URLs as links, line breaks kept),
-     * closing note.
-     *
-     * @param array<string,string> $rows
-     */
-    private static function notification_html( string $intro, array $rows, string $note ): string {
-        $html = '<p>' . esc_html( $intro ) . '</p>'
-            . '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin:0 0 16px;">';
-        foreach ( $rows as $label => $value ) {
-            $value = (string) $value;
+            $value = (string) ( $row['value'] ?? '' );
             if ( $value === '' ) {
                 $cell = '—';
             } elseif ( preg_match( '#^https?://\S+$#', $value ) ) {
@@ -608,10 +676,66 @@ final class My_IAPSNJ_Notifications {
             } else {
                 $cell = nl2br( esc_html( $value ) );
             }
-            $html .= '<tr><td style="padding:6px 12px 6px 0;border-bottom:1px solid #eeeeee;vertical-align:top;white-space:nowrap;font-weight:600;">' . esc_html( (string) $label ) . '</td>'
+            $html .= '<tr><td width="38%" style="padding:6px 12px 6px 0;border-bottom:1px solid #eeeeee;vertical-align:top;font-weight:600;">' . esc_html( (string) ( $row['label'] ?? '' ) ) . '</td>'
                 . '<td style="padding:6px 0;border-bottom:1px solid #eeeeee;vertical-align:top;">' . $cell . '</td></tr>';
         }
-        return $html . '</table><p style="font-size:13px;color:#666666;">' . esc_html( $note ) . '</p>';
+        return $html . '</table>';
+    }
+
+    /**
+     * A message (the editor's HTML, or plain text from before the editor) as
+     * email HTML: its {tokens} filled in and its {application} replaced by the
+     * application table. The message is cleaned (wp_kses_post) before anything
+     * is put into it; the table and the values are escaped as they are built.
+     *
+     * @param array<string,string> $values token values (token_values())
+     * @param array<string,mixed>  $facts
+     * @param bool                 $staff  the table carries the payment and the links
+     * @param bool                 $always put the table at the end when the message has no {application}
+     */
+    private static function message_html( string $raw, array $values, array $facts, bool $staff, bool $always ): string {
+        $raw  = trim( $raw );
+        $html = $raw !== wp_strip_all_tags( $raw ) ? wp_kses_post( $raw ) : My_IAPSNJ_Emails::text_to_html( $raw );
+        $html = self::fill( $html, $values, true );
+        $rows = null;
+        $block = static function () use ( &$rows, $facts, $staff ): string {
+            $rows = $rows ?? My_IAPSNJ_Notifications::application_html( My_IAPSNJ_Notifications::application_rows( $facts, $staff ) );
+            return $rows;
+        };
+        if ( preg_match( '#<p[^>]*>\s*\{application\}\s*</p>#i', $html ) ) {
+            // A table cannot sit inside a paragraph: the editor wraps a line of its own in one.
+            $html = (string) preg_replace_callback( '#<p[^>]*>\s*\{application\}\s*</p>#i', $block, $html );
+        } elseif ( strpos( $html, '{application}' ) !== false ) {
+            $html = str_replace( '{application}', $block(), $html );
+        } elseif ( $always ) {
+            $html .= $block();
+        }
+        return $html;
+    }
+
+    /**
+     * A subject: its {tokens} filled in, tags and line breaks removed
+     * ({application} makes no sense here and is dropped); $fallback when
+     * nothing is left.
+     *
+     * @param array<string,string> $values
+     */
+    private static function subject_text( string $template, array $values, string $fallback ): string {
+        $text = trim( (string) preg_replace( '/\s+/', ' ', wp_strip_all_tags( self::fill( str_replace( '{application}', '', $template ), $values, false ) ) ) );
+        return $text !== '' ? $text : trim( (string) preg_replace( '/\s+/', ' ', wp_strip_all_tags( self::fill( $fallback, $values, false ) ) ) );
+    }
+
+    /**
+     * The finished HTML email: in the FluentCRM design with the logo and
+     * footer when Settings → Emails → Email design is on, else the message
+     * alone in a plain container. Either way it is HTML: the messages are
+     * written in the editor.
+     */
+    private static function html_email( string $content, string $preheader ): string {
+        if ( My_IAPSNJ_Emails::enabled() ) {
+            return My_IAPSNJ_Emails::wrap( $content, $preheader );
+        }
+        return '<div style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#202020;max-width:700px;">' . $content . '</div>';
     }
 
     // -----------------------------------------------------------------------
@@ -629,19 +753,22 @@ final class My_IAPSNJ_Notifications {
             'last_name'     => __( 'Last name', 'my-iapsnj' ),
             'full_name'     => __( 'Full name', 'my-iapsnj' ),
             'email'         => __( 'Email address', 'my-iapsnj' ),
+            'phone'         => __( 'Cell phone', 'my-iapsnj' ),
             'member_type'   => __( 'Regular, Associate, Lifetime …', 'my-iapsnj' ),
+            'kind'          => __( 'New member or Renewal', 'my-iapsnj' ),
             'paid_through'  => __( 'The date the membership runs through (or "no expiration")', 'my-iapsnj' ),
             'member_number' => __( 'Member number', 'my-iapsnj' ),
             'order_number'  => __( 'Order number', 'my-iapsnj' ),
             'amount'        => __( 'Amount paid', 'my-iapsnj' ),
             'organization'  => __( 'The business name set in FluentCRM → Settings → Business Settings', 'my-iapsnj' ),
+            'application'   => __( 'The whole application as a styled table: membership, contact details and every answer on the application form (in a staff email also the payment, order and CRM links)', 'my-iapsnj' ),
         ];
     }
 
     /**
-     * Token => value for one payment.
+     * Token => value for one payment ({application} is built apart: message_html()).
      *
-     * @param array<string,string|int> $facts
+     * @param array<string,mixed> $facts
      * @return array<string,string>
      */
     private static function token_values( array $facts ): array {
@@ -650,7 +777,9 @@ final class My_IAPSNJ_Notifications {
             'last_name'     => (string) $facts['last_name'],
             'full_name'     => (string) $facts['name'],
             'email'         => (string) $facts['email'],
+            'phone'         => (string) $facts['phone'] !== '' ? (string) $facts['phone'] : '—',
             'member_type'   => (string) $facts['member_type'],
+            'kind'          => (string) $facts['kind_label'],
             'paid_through'  => (string) $facts['paid_through'] !== '' ? My_IAPSNJ_Dates::ymd_display( (string) $facts['paid_through'] ) : __( 'no expiration', 'my-iapsnj' ),
             'member_number' => (string) $facts['member_number'] !== '' ? (string) $facts['member_number'] : '—',
             'order_number'  => (string) $facts['order'],
@@ -674,39 +803,30 @@ final class My_IAPSNJ_Notifications {
     }
 
     /**
-     * The member's email for a payment, ready to send.
+     * The member's email for a payment, ready to send (HTML: the message is
+     * written in the editor). {application} here is the member's own copy:
+     * no payment, order or CRM rows.
      *
-     * @param array<string,string|int> $facts
+     * @param array<string,mixed> $facts
      * @return array{to:string,subject:string,body:string,headers:string[]}
      */
     public static function member_message( string $kind, array $facts ): array {
-        $cfg     = self::member()[ $kind === 'renewal' ? 'renewal' : 'join' ];
+        $kind    = $kind === 'renewal' ? 'renewal' : 'join';
+        $cfg     = self::member()[ $kind ];
         $values  = self::token_values( $facts );
-        $subject = trim( (string) preg_replace( '/\s+/', ' ', wp_strip_all_tags( self::fill( (string) $cfg['subject'], $values, false ) ) ) );
-        $raw     = trim( (string) $cfg['body'] );
-        $is_html = $raw !== wp_strip_all_tags( $raw );
-        $content = $is_html
-            ? wp_kses_post( self::fill( $raw, $values, true ) )
-            : My_IAPSNJ_Emails::text_to_html( self::fill( $raw, $values, false ) );
-
-        if ( My_IAPSNJ_Emails::enabled() ) {
-            $body    = My_IAPSNJ_Emails::wrap( $content, $subject );
-            $headers = [ 'Content-Type: text/html; charset=UTF-8' ];
-        } else {
-            $body    = trim( wp_strip_all_tags( $is_html ? $content : self::fill( $raw, $values, false ) ) );
-            $headers = [ 'Content-Type: text/plain; charset=UTF-8' ];
-        }
+        $subject = self::subject_text( (string) $cfg['subject'], $values, self::member_defaults()[ $kind ]['subject'] );
+        $content = self::message_html( (string) $cfg['body'], $values, $facts, false, false );
         return [
             'to'      => (string) $facts['email'],
             'subject' => $subject,
-            'body'    => $body,
-            'headers' => $headers,
+            'body'    => self::html_email( $content, $subject ),
+            'headers' => [ 'Content-Type: text/html; charset=UTF-8' ],
         ];
     }
 
     /**
-     * @param object                   $order
-     * @param array<string,string|int> $facts
+     * @param object              $order
+     * @param array<string,mixed> $facts
      */
     private static function send_member( $order, array $facts ): void {
         $kind = (string) $facts['kind'];
@@ -738,28 +858,95 @@ final class My_IAPSNJ_Notifications {
     // -----------------------------------------------------------------------
 
     /**
-     * kind: member:join | member:renewal | staff:president:join |
-     * staff:president:renewal | staff:committee:join | staff:committee:renewal
+     * WordPress's own editor (Visual and Text tabs) for an email message: HTML,
+     * no media button, a short toolbar. The editor keeps the paragraph tags
+     * (wpautop off) so what is saved is the HTML that is sent; a message saved
+     * as plain text (≤ 4.36) is shown as paragraphs.
+     */
+    public static function editor( string $id, string $name, string $content, int $rows = 9 ): void {
+        wp_editor( wpautop( $content ), $id, [
+            'textarea_name' => $name,
+            'textarea_rows' => $rows,
+            'media_buttons' => false,
+            'teeny'         => true,
+            'wpautop'       => false,
+            'quicktags'     => [ 'buttons' => 'strong,em,link,ul,ol,li' ],
+            'tinymce'       => [
+                'toolbar1' => 'bold,italic,underline,|,bullist,numlist,|,link,unlink,|,undo,redo',
+                'toolbar2' => '',
+            ],
+        ] );
+    }
+
+    /**
+     * kind: member:join | member:renewal | staff:join | staff:renewal
      *
      * @return array{to:string|string[],subject:string,body:string,headers:string[]}|null
      */
     public static function sample_message( string $kind ): ?array {
         $parts = explode( ':', $kind );
-        if ( $parts[0] === 'member' && in_array( $parts[1] ?? '', [ 'join', 'renewal' ], true ) ) {
-            return self::member_message( $parts[1], self::sample_facts( $parts[1] ) );
+        $last  = (string) end( $parts );
+        if ( ! in_array( $last, [ 'join', 'renewal' ], true ) ) {
+            return null;
         }
-        if ( $parts[0] === 'staff' && isset( self::staff_groups()[ $parts[1] ?? '' ] ) && in_array( $parts[2] ?? '', [ 'join', 'renewal' ], true ) ) {
-            return self::staff_message( $parts[1], self::sample_facts( $parts[2] ), [ 'sample@example.com' ] );
+        if ( $parts[0] === 'member' ) {
+            return self::member_message( $last, self::sample_facts( $last ) );
+        }
+        if ( $parts[0] === 'staff' ) {
+            return self::staff_message( self::sample_facts( $last ), [ 'sample@example.com' ] );
         }
         return null;
     }
 
     /**
-     * Send the sample for $kind to $to (never to the real recipients).
+     * Where this administrator's tests go: the addresses typed on Settings →
+     * Emails (remembered), else their own address. At most five.
+     *
+     * @return string[] empty when there is nothing valid
      */
-    public static function send_test( string $kind, string $to ): bool {
+    public static function test_recipients( ?string $typed = null ): array {
+        $user = wp_get_current_user();
+        if ( $typed === null ) {
+            $typed = (string) get_user_meta( $user->ID, self::META_TEST_TO, true );
+        }
+        $list = self::emails( $typed );
+        if ( $list ) {
+            return array_slice( $list, 0, 5 );
+        }
+        return is_email( (string) $user->user_email ) ? [ (string) $user->user_email ] : [];
+    }
+
+    /**
+     * The addresses typed in the test box, remembered for this administrator
+     * (blank forgets them: tests go to their own address again).
+     *
+     * @return string[]|null the addresses to use, or null when the text holds none that is valid
+     */
+    public static function remember_test_recipients( string $typed ): ?array {
+        $typed = trim( $typed );
+        $user  = wp_get_current_user();
+        if ( $typed === '' ) {
+            delete_user_meta( $user->ID, self::META_TEST_TO );
+            return self::test_recipients( '' );
+        }
+        $list = self::emails( $typed );
+        if ( ! $list ) {
+            return null;
+        }
+        $list = array_slice( $list, 0, 5 );
+        update_user_meta( $user->ID, self::META_TEST_TO, implode( ', ', $list ) );
+        return $list;
+    }
+
+    /**
+     * Send the sample for $kind to $to (never to the real recipients).
+     *
+     * @param string|string[] $to
+     */
+    public static function send_test( string $kind, $to ): bool {
         $mail = self::sample_message( $kind );
-        if ( ! $mail || ! is_email( $to ) ) {
+        $to   = array_values( array_filter( (array) $to, 'is_email' ) );
+        if ( ! $mail || ! $to ) {
             return false;
         }
         return (bool) wp_mail( $to, '[' . __( 'TEST', 'my-iapsnj' ) . '] ' . $mail['subject'], $mail['body'], $mail['headers'] );

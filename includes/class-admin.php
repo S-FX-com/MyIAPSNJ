@@ -841,8 +841,42 @@ class My_IAPSNJ_Admin {
         <p class="fcrm-subnav">
             <a href="#member-emails"><?php esc_html_e( 'To the member', 'my-iapsnj' ); ?></a> ·
             <a href="#staff-emails"><?php esc_html_e( 'To IAPSNJ staff', 'my-iapsnj' ); ?></a> ·
-            <a href="#email-design"><?php esc_html_e( 'Email design', 'my-iapsnj' ); ?></a>
+            <a href="#email-design"><?php esc_html_e( 'Email design', 'my-iapsnj' ); ?></a> ·
+            <a href="#test-emails"><?php esc_html_e( 'Test emails', 'my-iapsnj' ); ?></a>
         </p>
+
+        <?php
+        $test_typed = (string) get_user_meta( get_current_user_id(), My_IAPSNJ_Notifications::META_TEST_TO, true );
+        $test_self  = (string) wp_get_current_user()->user_email;
+        // A fill-in chip inserts its code into the message editor it belongs to.
+        $token_chips = function ( string $editor_id ): void {
+            foreach ( My_IAPSNJ_Notifications::placeholders() as $token => $what ) {
+                echo '<button type="button" class="fcrm-token" data-editor="' . esc_attr( $editor_id ) . '" data-token="{' . esc_attr( $token ) . '}" title="' . esc_attr( $what ) . '"><code>{' . esc_html( $token ) . '}</code></button> ';
+            }
+        };
+        // "Send test" and where it goes (kept in step with the box above by the script).
+        $test_buttons = function ( string $kind ) use ( $test_typed, $test_self ): void {
+            ?>
+            <button type="button" class="button fcrm-send-test-notification" data-kind="<?php echo esc_attr( $kind ); ?>"><?php esc_html_e( 'Send test', 'my-iapsnj' ); ?></button>
+            <span class="description"><?php esc_html_e( 'to', 'my-iapsnj' ); ?> <strong class="fcrm-test-to-label"><?php echo esc_html( $test_typed !== '' ? $test_typed : $test_self ); ?></strong></span>
+            <?php
+        };
+        ?>
+        <div class="fcrm-section" id="test-emails">
+            <h2><?php esc_html_e( 'Test emails', 'my-iapsnj' ); ?></h2>
+            <p class="description"><?php esc_html_e( 'Preview shows an email as its recipient sees it, with a made-up member. Send test mails a copy, marked [TEST], to the address below: never to the real recipients.', 'my-iapsnj' ); ?></p>
+            <p>
+                <label for="fcrm-test-to"><strong><?php esc_html_e( 'Send tests to', 'my-iapsnj' ); ?></strong></label>
+                <input type="text" id="fcrm-test-to" class="regular-text" value="<?php echo esc_attr( $test_typed ); ?>" placeholder="<?php echo esc_attr( $test_self ); ?>" data-default="<?php echo esc_attr( $test_self ); ?>" autocomplete="off">
+            </p>
+            <p class="description"><?php
+                echo esc_html( sprintf(
+                    /* translators: %s: the administrator's own email address */
+                    __( 'Leave it blank to send to your own address (%s). Separate several addresses with commas. It is remembered for you and used by every Send test on this page.', 'my-iapsnj' ),
+                    $test_self
+                ) );
+            ?></p>
+        </div>
 
         <form class="fcrm-settings-form" id="member-emails">
         <div class="fcrm-section">
@@ -870,13 +904,14 @@ class My_IAPSNJ_Admin {
                     <table class="form-table">
                         <tr><th><?php esc_html_e( 'Send', 'my-iapsnj' ); ?></th><td><label><input type="checkbox" name="member_mail[<?php echo esc_attr( $kind ); ?>][enabled]" value="1" <?php checked( ! empty( $member[ $kind ]['enabled'] ) ); ?>> <?php esc_html_e( 'Send this email', 'my-iapsnj' ); ?></label></td></tr>
                         <tr><th><?php esc_html_e( 'Subject', 'my-iapsnj' ); ?></th><td><input type="text" class="large-text" maxlength="<?php echo (int) My_IAPSNJ_Notifications::SUBJECT_MAX; ?>" name="member_mail[<?php echo esc_attr( $kind ); ?>][subject]" value="<?php echo esc_attr( (string) $member[ $kind ]['subject'] ); ?>"></td></tr>
-                        <tr><th><?php esc_html_e( 'Message', 'my-iapsnj' ); ?></th><td><textarea class="large-text" rows="8" name="member_mail[<?php echo esc_attr( $kind ); ?>][body]"><?php echo esc_textarea( (string) $member[ $kind ]['body'] ); ?></textarea>
-                            <p class="description"><?php esc_html_e( 'Plain text (blank lines start a new paragraph), or simple HTML. Fill-ins:', 'my-iapsnj' ); ?>
-                                <?php foreach ( My_IAPSNJ_Notifications::placeholders() as $token => $what ) : ?><code title="<?php echo esc_attr( $what ); ?>">{<?php echo esc_html( $token ); ?>}</code> <?php endforeach; ?></p></td></tr>
+                        <tr><th><?php esc_html_e( 'Message', 'my-iapsnj' ); ?></th><td>
+                            <?php My_IAPSNJ_Notifications::editor( 'my_iapsnj_member_' . $kind . '_body', 'member_mail[' . $kind . '][body]', (string) $member[ $kind ]['body'] ); ?>
+                            <p class="description"><?php esc_html_e( 'Click a code to put it in the message; each is replaced with the member\'s details when the email is sent (the subject takes them too). {application} adds a copy of their application.', 'my-iapsnj' ); ?></p>
+                            <p><?php $token_chips( 'my_iapsnj_member_' . $kind . '_body' ); ?></p></td></tr>
                     </table>
                     <p>
                         <a class="button" href="<?php echo esc_url( My_IAPSNJ_Notifications::preview_url( 'member:' . $kind ) ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'Preview', 'my-iapsnj' ); ?></a>
-                        <button type="button" class="button fcrm-send-test-notification" data-kind="member:<?php echo esc_attr( $kind ); ?>"><?php echo esc_html( sprintf( /* translators: %s: email address */ __( 'Send test to %s', 'my-iapsnj' ), wp_get_current_user()->user_email ) ); ?></button>
+                        <?php $test_buttons( 'member:' . $kind ); ?>
                     </p>
                 </div>
             <?php endforeach; ?>
@@ -900,7 +935,9 @@ class My_IAPSNJ_Admin {
         <div class="fcrm-section">
             <h2><?php esc_html_e( 'Emails to IAPSNJ staff', 'my-iapsnj' ); ?></h2>
             <div class="fcrm-notice fcrm-form-notice" style="display:none"></div>
-            <p class="description"><?php esc_html_e( 'Each notice goes to the addresses you list (separate several with commas) when a payment is confirmed, once per order. Summary = who, which membership and until when; Full adds email, phone, mailing address, payment and the order links. Save before using Preview or Send test; a test goes only to you.', 'my-iapsnj' ); ?></p>
+            <p class="description"><?php esc_html_e( 'When a payment is confirmed the President and the Membership Committee get the same email, once per order: one message for a new member and one for a renewal, each marked New member or Renewal at the top. Choose who receives it, then write the message. Save before using Preview or Send test.', 'my-iapsnj' ); ?></p>
+
+            <h3><?php esc_html_e( 'Who gets it', 'my-iapsnj' ); ?></h3>
             <?php foreach ( My_IAPSNJ_Notifications::staff_groups() as $group => $label ) : $cfg = My_IAPSNJ_Notifications::staff( $group ); ?>
                 <div class="fcrm-email-card" id="staff-<?php echo esc_attr( $group ); ?>">
                     <h4><?php echo esc_html( $label ); ?></h4>
@@ -911,18 +948,26 @@ class My_IAPSNJ_Admin {
                             <label><input type="checkbox" name="staff_mail[<?php echo esc_attr( $group ); ?>][on_join]" value="1" <?php checked( ! empty( $cfg['on_join'] ) ); ?>> <?php esc_html_e( 'A new member joins (first payment)', 'my-iapsnj' ); ?></label><br>
                             <label><input type="checkbox" name="staff_mail[<?php echo esc_attr( $group ); ?>][on_renewal]" value="1" <?php checked( ! empty( $cfg['on_renewal'] ) ); ?>> <?php esc_html_e( 'A member renews', 'my-iapsnj' ); ?></label>
                         </td></tr>
-                        <tr><th><?php esc_html_e( 'Details', 'my-iapsnj' ); ?></th><td>
-                            <select name="staff_mail[<?php echo esc_attr( $group ); ?>][detail]">
-                                <option value="summary" <?php selected( $cfg['detail'], 'summary' ); ?>><?php esc_html_e( 'Summary', 'my-iapsnj' ); ?></option>
-                                <option value="full" <?php selected( $cfg['detail'], 'full' ); ?>><?php esc_html_e( 'Full (with address, phone and order links)', 'my-iapsnj' ); ?></option>
-                            </select>
-                        </td></tr>
+                    </table>
+                </div>
+            <?php endforeach; ?>
+
+            <h3><?php esc_html_e( 'The email', 'my-iapsnj' ); ?></h3>
+            <p class="description"><?php esc_html_e( 'Type your own note above the application if you like. The code {application} inserts the member\'s entire application in one styled table: membership, contact details, every answer on the application form for their level, the payment and the CRM / order links. A new question added in the Checkout Builder appears by itself. Leave {application} out and it is added at the end.', 'my-iapsnj' ); ?></p>
+            <?php $staff_template = My_IAPSNJ_Notifications::staff_template(); ?>
+            <?php foreach ( [ 'join' => __( 'New member', 'my-iapsnj' ), 'renewal' => __( 'Renewal', 'my-iapsnj' ) ] as $kind => $kind_label ) : ?>
+                <div class="fcrm-email-card" id="staff-message-<?php echo esc_attr( $kind ); ?>">
+                    <h4><?php echo esc_html( $kind_label ); ?></h4>
+                    <table class="form-table">
+                        <tr><th><?php esc_html_e( 'Subject', 'my-iapsnj' ); ?></th><td><input type="text" class="large-text" maxlength="<?php echo (int) My_IAPSNJ_Notifications::SUBJECT_MAX; ?>" name="staff_mail[message][<?php echo esc_attr( $kind ); ?>][subject]" value="<?php echo esc_attr( (string) $staff_template[ $kind ]['subject'] ); ?>"></td></tr>
+                        <tr><th><?php esc_html_e( 'Message', 'my-iapsnj' ); ?></th><td>
+                            <?php My_IAPSNJ_Notifications::editor( 'my_iapsnj_staff_' . $kind . '_body', 'staff_mail[message][' . $kind . '][body]', (string) $staff_template[ $kind ]['body'] ); ?>
+                            <p class="description"><?php esc_html_e( 'Click a code to put it in the message (the subject takes the short ones too).', 'my-iapsnj' ); ?></p>
+                            <p><?php $token_chips( 'my_iapsnj_staff_' . $kind . '_body' ); ?></p></td></tr>
                     </table>
                     <p>
-                        <?php foreach ( [ 'join' => __( 'new member', 'my-iapsnj' ), 'renewal' => __( 'renewal', 'my-iapsnj' ) ] as $kind => $kind_label ) : ?>
-                            <a class="button" href="<?php echo esc_url( My_IAPSNJ_Notifications::preview_url( 'staff:' . $group . ':' . $kind ) ); ?>" target="_blank" rel="noopener"><?php echo esc_html( sprintf( /* translators: %s: new member / renewal */ __( 'Preview: %s', 'my-iapsnj' ), $kind_label ) ); ?></a>
-                            <button type="button" class="button fcrm-send-test-notification" data-kind="staff:<?php echo esc_attr( $group ); ?>:<?php echo esc_attr( $kind ); ?>"><?php echo esc_html( sprintf( /* translators: %s: new member / renewal */ __( 'Send me a test: %s', 'my-iapsnj' ), $kind_label ) ); ?></button>
-                        <?php endforeach; ?>
+                        <a class="button" href="<?php echo esc_url( My_IAPSNJ_Notifications::preview_url( 'staff:' . $kind ) ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'Preview', 'my-iapsnj' ); ?></a>
+                        <?php $test_buttons( 'staff:' . $kind ); ?>
                     </p>
                 </div>
             <?php endforeach; ?>
@@ -967,7 +1012,8 @@ class My_IAPSNJ_Admin {
             <p>
                 <button type="submit" class="button button-primary"><?php esc_html_e( 'Save', 'my-iapsnj' ); ?></button>
                 <a class="button" href="<?php echo esc_url( My_IAPSNJ_Emails::preview_url() ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'Preview', 'my-iapsnj' ); ?></a>
-                <button type="button" class="button fcrm-send-test-email"><?php echo esc_html( sprintf( /* translators: %s: email address */ __( 'Send test to %s', 'my-iapsnj' ), wp_get_current_user()->user_email ) ); ?></button>
+                <button type="button" class="button fcrm-send-test-email"><?php esc_html_e( 'Send test', 'my-iapsnj' ); ?></button>
+                <span class="description"><?php esc_html_e( 'to', 'my-iapsnj' ); ?> <strong class="fcrm-test-to-label"><?php echo esc_html( $test_typed !== '' ? $test_typed : $test_self ); ?></strong></span>
             </p>
             <p class="description"><?php esc_html_e( 'Preview and Send test show the saved design, logo and footer (save first), even while Apply is off. The sample is the "Login details" email a new member receives. On staging, sending is simulated: find the test in FluentSMTP → Email Logs.', 'my-iapsnj' ); ?></p>
             <?php if ( My_IAPSNJ_Membership::is_available() && ! My_IAPSNJ_Emails::fluentcart_supported() ) : ?>
@@ -1852,37 +1898,51 @@ class My_IAPSNJ_Admin {
     }
 
     /**
-     * Emails → Email design → Send test: the sample email to the
-     * current admin, with the saved settings.
+     * Emails → Email design → Send test: the sample email to the "Send tests
+     * to" addresses (the administrator's own by default), with the saved
+     * settings.
      */
     public function ajax_send_test_email(): void {
         $this->ajax_guard();
-        $to = (string) wp_get_current_user()->user_email;
-        if ( ! is_email( $to ) ) {
-            wp_send_json_error( [ 'message' => __( 'Your WordPress user has no valid email address.', 'my-iapsnj' ) ] );
-        }
+        $to = $this->test_recipients_from_post();
         if ( ! My_IAPSNJ_Emails::send_test( $to ) ) {
             wp_send_json_error( [ 'message' => __( 'WordPress could not send the email (see the mail log).', 'my-iapsnj' ) ] );
         }
-        /* translators: %s: email address */
-        wp_send_json_success( [ 'message' => sprintf( __( 'Test sent to %s. On staging, sending is simulated: open it in FluentSMTP → Email Logs.', 'my-iapsnj' ), $to ) ] );
+        /* translators: %s: email address(es) */
+        wp_send_json_success( [ 'message' => sprintf( __( 'Test sent to %s. On staging, sending is simulated: open it in FluentSMTP → Email Logs.', 'my-iapsnj' ), implode( ', ', $to ) ) ] );
+    }
+
+    /**
+     * Where a test email goes: the "Send tests to" box of Settings → Emails
+     * (remembered for this administrator), else their own address. Ends the
+     * request with an error when there is no valid address.
+     *
+     * @return string[]
+     */
+    private function test_recipients_from_post(): array {
+        $typed = isset( $_POST['to'] ) ? sanitize_text_field( wp_unslash( (string) $_POST['to'] ) ) : null; // phpcs:ignore WordPress.Security.NonceVerification.Missing -- ajax_guard()
+        $to    = $typed === null ? My_IAPSNJ_Notifications::test_recipients() : My_IAPSNJ_Notifications::remember_test_recipients( $typed );
+        if ( $to === null ) {
+            wp_send_json_error( [ 'message' => __( 'The "Send tests to" box has no valid email address.', 'my-iapsnj' ) ] );
+        }
+        if ( ! $to ) {
+            wp_send_json_error( [ 'message' => __( 'Enter an email address in "Send tests to": your WordPress user has none.', 'my-iapsnj' ) ] );
+        }
+        return $to;
     }
 
     public function ajax_send_test_notification(): void {
         $this->ajax_guard();
         $kind = sanitize_text_field( wp_unslash( $_POST['kind'] ?? '' ) ); // phpcs:ignore
-        $to   = (string) wp_get_current_user()->user_email;
-        if ( ! is_email( $to ) ) {
-            wp_send_json_error( [ 'message' => __( 'Your WordPress user has no valid email address.', 'my-iapsnj' ) ] );
-        }
         if ( ! My_IAPSNJ_Notifications::sample_message( $kind ) ) {
             wp_send_json_error( [ 'message' => __( 'Unknown email.', 'my-iapsnj' ) ] );
         }
+        $to = $this->test_recipients_from_post();
         if ( ! My_IAPSNJ_Notifications::send_test( $kind, $to ) ) {
             wp_send_json_error( [ 'message' => __( 'WordPress could not send the email (see the mail log).', 'my-iapsnj' ) ] );
         }
-        /* translators: %s: email address */
-        wp_send_json_success( [ 'message' => sprintf( __( 'Test sent to %s (not to the real recipients). On staging, sending is simulated: open it in FluentSMTP → Email Logs.', 'my-iapsnj' ), $to ) ] );
+        /* translators: %s: email address(es) */
+        wp_send_json_success( [ 'message' => sprintf( __( 'Test sent to %s (not to the real recipients). On staging, sending is simulated: open it in FluentSMTP → Email Logs.', 'my-iapsnj' ), implode( ', ', $to ) ) ] );
     }
 
     public function ajax_normalize_phones(): void {

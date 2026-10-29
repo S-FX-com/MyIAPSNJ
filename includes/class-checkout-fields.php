@@ -2182,15 +2182,155 @@ class My_IAPSNJ_Checkout_Fields {
             if ( $def['type'] === 'section' ) {
                 continue;
             }
-            if ( $def['type'] === 'checkbox' ) {
-                $out[ $def['label'] ] = __( 'Yes', 'my-iapsnj' );
-            } elseif ( $def['type'] === 'date' ) {
-                $out[ $def['label'] ] = My_IAPSNJ_Dates::ymd_display( $value );
-            } else {
-                $out[ $def['label'] ] = (string) $value;
-            }
+            $out[ $def['label'] ] = self::display_value( $def, (string) $value );
         }
         return $out;
+    }
+
+    /** A stored answer as a person reads it: a ticked box is Yes, a date is formatted. */
+    private static function display_value( array $def, string $value ): string {
+        if ( $def['type'] === 'checkbox' ) {
+            return __( 'Yes', 'my-iapsnj' );
+        }
+        if ( $def['type'] === 'date' ) {
+            return My_IAPSNJ_Dates::ymd_display( $value );
+        }
+        return $value;
+    }
+
+    /**
+     * The whole application as the staff read it, for the {application} code of
+     * the emails: every row of the form the order was placed with, in the form's
+     * order, with its section headings. Items are ['heading' => 'Personal'] or
+     * ['label' => 'Rank', 'value' => 'Sergeant'].
+     *
+     * A row nobody answered is listed with an empty value (a tick box reads
+     * No), except a follow-up row that only appears for a matching answer. An
+     * answer whose row has since left the form follows under "Other answers".
+     * An order with no stored application (a check marked paid by hand) falls
+     * back to what the CRM contact holds for those rows.
+     *
+     * @param object          $order       FluentCart Order
+     * @param Subscriber|null $subscriber
+     * @return array<int,array<string,string>>
+     */
+    public static function application_answers( $order, $subscriber, string $member_type ): array {
+        $form_id = self::form_for_order( $order );
+        $values  = My_IAPSNJ_Membership::meta_array( $order, self::META_FIELDS );
+        $values  = is_array( $values ) ? $values : [];
+        $defs    = self::enabled_fields( $form_id, $member_type );
+        if ( ! $values && $subscriber instanceof Subscriber ) {
+            $values = self::contact_values( $subscriber, $defs );
+        }
+        return self::answer_items( $defs, $values, self::field_defs( $form_id ) );
+    }
+
+    /**
+     * A made-up application of the form for $member_type, for the email
+     * previews: it lists the real rows, so a row added to the Checkout Builder
+     * shows up in the preview at once.
+     *
+     * @return array<int,array<string,string>>
+     */
+    public static function sample_application_answers( string $member_type ): array {
+        $defs   = self::enabled_fields( self::form_for_member_type( $member_type ), $member_type );
+        $values = [];
+        foreach ( $defs as $key => $def ) {
+            if ( $def['type'] === 'section' ) {
+                continue;
+            }
+            $options = array_values( array_filter( array_map( 'strval', (array) ( $def['options'] ?? [] ) ), 'strlen' ) );
+            switch ( $def['type'] ) {
+                case 'checkbox':
+                    $sample = '1';
+                    break;
+                case 'date':
+                    $sample = '2000-01-15';
+                    break;
+                case 'phone':
+                    $sample = '+1 908-555-0100';
+                    break;
+                case 'textarea':
+                    $sample = __( 'A sample answer that runs to a sentence.', 'my-iapsnj' );
+                    break;
+                case 'select':
+                case 'radio':
+                    $sample = $options ? $options[0] : __( 'Sample', 'my-iapsnj' );
+                    break;
+                default:
+                    $sample = __( 'Sample', 'my-iapsnj' );
+            }
+            $values[ $key ] = $sample;
+        }
+        return self::answer_items( $defs, $values, $defs );
+    }
+
+    /**
+     * @param array<string,array>  $defs   the shown rows, in order (section headings included)
+     * @param array<string,string> $values answers by row key
+     * @param array<string,array>  $all    every row any form defines (labels for answers whose row left the form)
+     * @return array<int,array<string,string>>
+     */
+    private static function answer_items( array $defs, array $values, array $all ): array {
+        $out     = [];
+        $heading = null;
+        $shown   = [];
+        foreach ( $defs as $key => $def ) {
+            if ( $def['type'] === 'section' ) {
+                $heading = (string) $def['label'];
+                continue;
+            }
+            $shown[ $key ] = true;
+            $has           = isset( $values[ $key ] ) && (string) $values[ $key ] !== '';
+            if ( ! $has && (string) ( $def['parent'] ?? '' ) !== '' ) {
+                continue; // a follow-up row that was not asked
+            }
+            if ( $heading !== null ) {
+                $out[]   = [ 'heading' => $heading ];
+                $heading = null;
+            }
+            $empty = $def['type'] === 'checkbox' ? __( 'No', 'my-iapsnj' ) : '';
+            $out[] = [ 'label' => (string) $def['label'], 'value' => $has ? self::display_value( $def, (string) $values[ $key ] ) : $empty ];
+        }
+        $other = [];
+        foreach ( $values as $key => $value ) {
+            if ( isset( $shown[ $key ] ) || (string) $value === '' || ! isset( $all[ $key ] ) || $all[ $key ]['type'] === 'section' ) {
+                continue;
+            }
+            $other[] = [ 'label' => (string) $all[ $key ]['label'], 'value' => self::display_value( $all[ $key ], (string) $value ) ];
+        }
+        if ( $other ) {
+            $out[] = [ 'heading' => __( 'Other answers', 'my-iapsnj' ) ];
+            $out   = array_merge( $out, $other );
+        }
+        return $out;
+    }
+
+    /**
+     * What the CRM contact holds for the rows of a form: row key => value.
+     * The department is the primary company; a custom field with several
+     * values gives the first.
+     *
+     * @param array<string,array> $defs
+     * @return array<string,string>
+     */
+    private static function contact_values( Subscriber $subscriber, array $defs ): array {
+        $values = [];
+        $custom = $subscriber->custom_fields();
+        foreach ( $defs as $key => $def ) {
+            if ( $def['type'] === 'section' ) {
+                continue;
+            }
+            if ( $def['crm_kind'] === 'custom' && $def['crm'] === My_IAPSNJ_Schema::FIELD_DEPARTMENT && My_IAPSNJ_Schema::department_of( $subscriber ) !== '' ) {
+                $values[ $key ] = My_IAPSNJ_Schema::department_of( $subscriber );
+            } elseif ( $def['crm_kind'] === 'custom' && ! empty( $custom[ $def['crm'] ] ) ) {
+                $v              = $custom[ $def['crm'] ];
+                $values[ $key ] = is_array( $v ) ? (string) reset( $v ) : (string) $v;
+            } elseif ( $def['crm_kind'] === 'default' && ! empty( $subscriber->{ $def['crm'] } ) ) {
+                $values[ $key ] = (string) $subscriber->{ $def['crm'] };
+            }
+        }
+        return $values;
     }
 
     // -----------------------------------------------------------------------
@@ -2671,17 +2811,7 @@ class My_IAPSNJ_Checkout_Fields {
         try {
             $subscriber = self::current_contact( $args['cart'] ?? null );
             if ( $subscriber instanceof Subscriber ) {
-                $custom = $subscriber->custom_fields();
-                foreach ( $config as $key => $def ) {
-                    if ( $def['crm_kind'] === 'custom' && $def['crm'] === My_IAPSNJ_Schema::FIELD_DEPARTMENT && My_IAPSNJ_Schema::department_of( $subscriber ) !== '' ) {
-                        $values[ $key ] = My_IAPSNJ_Schema::department_of( $subscriber ); // the primary company
-                    } elseif ( $def['crm_kind'] === 'custom' && ! empty( $custom[ $def['crm'] ] ) ) {
-                        $v = $custom[ $def['crm'] ];
-                        $values[ $key ] = is_array( $v ) ? (string) reset( $v ) : (string) $v;
-                    } elseif ( $def['crm_kind'] === 'default' && ! empty( $subscriber->{ $def['crm'] } ) ) {
-                        $values[ $key ] = (string) $subscriber->{ $def['crm'] };
-                    }
-                }
+                $values = self::contact_values( $subscriber, $config );
             }
         } catch ( \Throwable $e ) {
             // prefill is best effort

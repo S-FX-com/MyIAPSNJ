@@ -40,15 +40,20 @@ first step after the trigger, test with a Lifetime contact).
    password), link contact ↔ user ↔ FluentCart customer.
 6. Resolve and close the application row opened at checkout.
 7. **Payment emails** (Settings → Emails; once per order, only when the
-   payment is confirmed, never on checkout started), in the site's email design
-   (plain text when that is off):
-   * *President* and *Membership Committee* (staff): to the addresses set for
-     each, on join and / or renewal. Summary = name, member type, paid-through,
-     department, rank, member number, CRM link; Full adds product, payment
-     method + amount, order number, **email, phone, full mailing address** and
-     the FluentCart order link. The Committee's notice is the old "New member
-     admin notification" (Sebbie's request, Billy's certificate trigger): data
-     v19 moved its recipients and switch over, new members only.
+   payment is confirmed, never on checkout started), always HTML (in the
+   site's email design when that is on, else the message alone):
+   * *President* and *Membership Committee* (staff): the same email, to the
+     addresses set for each, on join and / or renewal. One message for a new
+     member and one for a renewal (subject + a message written in the editor),
+     topped by a New member / Renewal label. The code `{application}` prints
+     the entire application: membership (type, paid-through, member number,
+     product, payment, order), contact (name, **email, phone, full mailing
+     address**), **every row of the member's checkout form** in the form's
+     order, and the CRM contact / FluentCart order links. (4.36's Summary /
+     Full choice is gone: every notice is complete.) The Committee's notice
+     is the old "New member admin notification" (Sebbie's request, Billy's
+     certificate trigger): data v19 moved its recipients and switch over,
+     new members only.
    * the *member*: FluentCart's own receipt / renewal / check emails (switch
      per email for membership purchases only), and, when switched on, our
      Welcome (first payment) or Renewal email with an editable message.
