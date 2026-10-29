@@ -485,12 +485,11 @@ class My_IAPSNJ_Membership {
          */
         do_action( 'my_iapsnj/membership_paid', $subscriber, $order, $applied );
 
-        // ---- Mirror CRM → WordPress user (ACF-era profile meta) -----------
+        // ---- WordPress role ----------------------------------------------
         // FluentCRM fired contact_updated during the upsert above, before the
-        // membership fields were set; run the mirror again with the final
-        // values so member_status / expiration_date / join_date / department
-        // on the WP profile match the CRM.
-        self::mirror_to_wp( $subscriber );
+        // membership fields were set; apply the role again with the final
+        // member_type / paid_through.
+        self::apply_wp_role( $subscriber );
 
         if ( $is_new ) {
             $this->send_new_member_notification( $subscriber, $order, $applied );
@@ -803,17 +802,12 @@ class My_IAPSNJ_Membership {
     }
 
     /**
-     * Copy the contact onto its linked WordPress user through the Profile
-     * Mirror (no-op when the contact has no user yet). Best effort.
+     * Give the contact's linked WordPress user the role its membership calls
+     * for (Settings → Configurations → WordPress roles; no-op when the contact
+     * has no user yet). Best effort.
      */
-    public static function mirror_to_wp( Subscriber $subscriber ): void {
-        try {
-            if ( ! empty( My_IAPSNJ_Plugin::settings()['sync_on_fcrm_update'] ) ) {
-                My_IAPSNJ_Engine::get_instance()->sync_fcrm_to_wp( $subscriber );
-            }
-        } catch ( \Throwable $e ) {
-            error_log( 'My IAPSNJ: profile mirror failed for contact #' . (int) $subscriber->id . ': ' . $e->getMessage() );
-        }
+    public static function apply_wp_role( Subscriber $subscriber ): void {
+        My_IAPSNJ_Engine::get_instance()->sync_role( $subscriber );
     }
 
     // -----------------------------------------------------------------------
@@ -843,7 +837,7 @@ class My_IAPSNJ_Membership {
                 $subscriber->detachTags( [ $ids[ My_IAPSNJ_Schema::TAG_ABANDONED ] ] );
                 // Profile data from the application (department, rank …); not membership state.
                 My_IAPSNJ_Checkout_Fields::apply_to_contact( $order, $subscriber );
-                self::mirror_to_wp( $subscriber );
+                self::apply_wp_role( $subscriber );
             }
             $app = My_IAPSNJ_Applications::resolve_for_order( $order );
             if ( $app ) {
@@ -907,7 +901,7 @@ class My_IAPSNJ_Membership {
                     My_IAPSNJ_Schema::set_fields( $subscriber, $restore );
                 }
                 self::reconcile_contact( $subscriber );
-                self::mirror_to_wp( $subscriber );
+                self::apply_wp_role( $subscriber );
             }
             My_IAPSNJ_Applications::mark_refunded_for_order( (int) $order->id );
             $order->updateMeta( self::META_REFUNDED, My_IAPSNJ_Dates::now_utc() );

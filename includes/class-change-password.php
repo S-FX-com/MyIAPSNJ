@@ -10,7 +10,7 @@
  * "your password was changed" email (My_IAPSNJ_Emails styles it).
  *
  * This only touches the WordPress account. The CRM is not involved: the
- * password is not a contact field and nothing is mirrored.
+ * password is not a contact field and nothing is written to it.
  *
  * @package MyIAPSNJ
  */

@@ -15,9 +15,7 @@
  *    Notes Search         FluentCRM notes search with inline tagging
  *  Reports                open applications, orphan orders, aging checks, WP↔CRM orphans; report settings
  *  Settings
- *    Configurations       new-member notification, email design, CRM schema, phones, names & addresses (slug my-iapsnj-sync)
- *    Profile Mirror       CRM → WP field map
- *    Profile Sync         mirror triggers, mirror all now, WordPress role per member type
+ *    Configurations       new-member notification, email design, WordPress role per member type, CRM schema, phones, names & addresses (slug my-iapsnj-sync)
  *    Shortcodes           every shortcode the plugin provides, with options and copy-ready examples
  *    Migrate PMPro        PMPro → FluentCRM toolkit (only while PMPro tables exist)
  */
@@ -28,9 +26,6 @@ class My_IAPSNJ_Admin {
 
     /** @var self|null */
     private static ?self $instance = null;
-
-    /** @var My_IAPSNJ_Field_Mapper */
-    private My_IAPSNJ_Field_Mapper $mapper;
 
     const CAP        = 'manage_options';
     const MENU_GROUP = 'my-iapsnj-menu-group';
@@ -44,8 +39,6 @@ class My_IAPSNJ_Admin {
     }
 
     private function __construct() {
-        $this->mapper = new My_IAPSNJ_Field_Mapper();
-
         add_action( 'admin_menu',            [ $this, 'register_menu' ] );
         add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_assets' ] );
         add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_menu_assets' ] );
@@ -57,9 +50,8 @@ class My_IAPSNJ_Admin {
         add_filter( 'menu_order',        [ $this, 'reorder_admin_menu' ] );
 
         $ajax = [
-            'save_mappings', 'save_settings', 'save_checkout_fields', 'import_field_options', 'bulk_sync', 'search_users', 'sample_data',
+            'save_settings', 'save_checkout_fields', 'import_field_options',
             'checkout_form_create', 'checkout_form_duplicate', 'checkout_form_delete', 'checkout_forms_assign',
-            'refresh_field_list',
             'search_notes', 'get_tags', 'assign_tag',
             'checks_list', 'checks_mark_paid', 'search_members', 'record_check',
             'save_products', 'apply_offline_labels', 'ensure_schema', 'run_expiry', 'normalize_phones', 'normalize_names', 'send_test_email',
@@ -83,8 +75,6 @@ class My_IAPSNJ_Admin {
         // slugs of existing screens are unchanged, so bookmarks keep working.
         $settings = [
             [ 'my-iapsnj-sync',         esc_html__( 'Configurations', 'my-iapsnj' ), 'render_sync_page' ],
-            [ 'my-iapsnj-mapping',      esc_html__( 'Profile Mirror', 'my-iapsnj' ), 'render_field_mapping_page' ],
-            [ 'my-iapsnj-profile-sync', esc_html__( 'Profile Sync', 'my-iapsnj' ),   'render_profile_sync_page' ],
             [ 'my-iapsnj-shortcodes',   esc_html__( 'Shortcodes', 'my-iapsnj' ),     'render_shortcodes_page' ],
         ];
         if ( My_IAPSNJ_Migration::tables_exist() ) {
@@ -158,13 +148,16 @@ class My_IAPSNJ_Admin {
      * Slugs from the fcrm-wp-sync era and from the removed 3.x screens (audit P4-8).
      */
     private static array $legacy_slugs = [
-        'fcrm-wp-sync'              => 'my-iapsnj-mapping',
+        'fcrm-wp-sync'              => 'my-iapsnj-sync',
         'fcrm-wp-sync-sync'         => 'my-iapsnj-sync',
         'fcrm-wp-sync-mismatches'   => 'my-iapsnj-reports',
         'fcrm-wp-sync-pmp'          => 'my-iapsnj-migration',
         'fcrm-wp-sync-notes-search' => 'my-iapsnj-notes-search',
         'my-iapsnj-mismatches'      => 'my-iapsnj-reports',
         'my-iapsnj-pmp'             => 'my-iapsnj-migration',
+        // Retired in 4.35: the field mirror is gone; the roles moved to Configurations.
+        'my-iapsnj-mapping'         => 'my-iapsnj-sync',
+        'my-iapsnj-profile-sync'    => 'my-iapsnj-sync',
     ];
 
     public function redirect_legacy_slugs(): void {
@@ -189,7 +182,8 @@ class My_IAPSNJ_Admin {
             }
         }
         $args['page'] = $target;
-        wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ), 301 );
+        $anchor       = $page === 'my-iapsnj-profile-sync' ? '#roles' : ''; // the roles moved to Configurations
+        wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ) . $anchor, 301 );
         exit;
     }
 
@@ -275,9 +269,6 @@ class My_IAPSNJ_Admin {
                 'error'      => __( 'Error. Please try again.', 'my-iapsnj' ),
                 'loading'    => __( 'Loading…', 'my-iapsnj' ),
                 'copied'     => __( 'Copied!', 'my-iapsnj' ),
-                'syncing'    => __( 'Mirroring…', 'my-iapsnj' ),
-                'syncDone'   => __( 'Mirror complete.', 'my-iapsnj' ),
-                'confirmDelete' => __( 'Remove this mapping row?', 'my-iapsnj' ),
                 'noRows'     => __( 'Nothing to show.', 'my-iapsnj' ),
                 'confirmPaid' => __( 'Mark the selected orders as PAID? This applies Paid-YYYY tags and sends receipts. It cannot be undone from here (use a FluentCart refund).', 'my-iapsnj' ),
                 'confirmRecord' => __( 'Create and pay a FluentCart order for this member?', 'my-iapsnj' ),
@@ -310,100 +301,6 @@ class My_IAPSNJ_Admin {
         if ( ! current_user_can( self::CAP ) ) {
             wp_send_json_error( [ 'message' => 'Insufficient permissions' ], 403 );
         }
-    }
-
-    /**
-     * Normalise posted mapping rows (shared with the REST API).
-     */
-    public static function sanitize_mapping_rows( array $raw, My_IAPSNJ_Field_Mapper $mapper ): array {
-        $wp_fields   = $mapper->get_wp_fields();
-        $fcrm_fields = $mapper->get_fcrm_fields();
-        $allowed     = [ 'text', 'select', 'date', 'checkbox', 'number', 'email', 'textarea' ];
-        $clean       = [];
-        foreach ( $raw as $row_id => $row ) {
-            if ( ! is_array( $row ) ) {
-                continue;
-            }
-            $wp_uid   = sanitize_text_field( (string) ( $row['wp_uid'] ?? '' ) );
-            $fcrm_uid = sanitize_text_field( (string) ( $row['fcrm_uid'] ?? '' ) );
-            if ( $wp_uid === '' || $fcrm_uid === '' ) {
-                continue;
-            }
-            $wp_f   = $wp_fields[ $wp_uid ] ?? null;
-            $fcrm_f = $fcrm_fields[ $fcrm_uid ] ?? null;
-            if ( ! $wp_f || ! $fcrm_f ) {
-                continue;
-            }
-            $type      = in_array( $row['field_type'] ?? '', $allowed, true ) ? $row['field_type'] : 'text';
-            $value_map = [];
-            if ( $type === 'select' && ! empty( $row['value_map'] ) && is_array( $row['value_map'] ) ) {
-                foreach ( $row['value_map'] as $wp_val => $fcrm_val ) {
-                    $wp_val   = sanitize_text_field( (string) $wp_val );
-                    $fcrm_val = sanitize_text_field( (string) $fcrm_val );
-                    if ( $wp_val !== '' && $fcrm_val !== '' ) {
-                        $value_map[ $wp_val ] = $fcrm_val;
-                    }
-                }
-            }
-            $id = sanitize_text_field( (string) ( $row['id'] ?? $row_id ) );
-            $clean[] = [
-                'id'                => $id !== '' && ! is_numeric( $id ) ? $id : My_IAPSNJ_Field_Mapper::generate_id(),
-                'wp_field_key'      => $wp_f['key'],
-                'wp_field_source'   => $wp_f['source'],
-                'wp_field_label'    => $wp_f['label'],
-                'fcrm_field_key'    => $fcrm_f['key'],
-                'fcrm_field_source' => $fcrm_f['source'],
-                'fcrm_field_label'  => $fcrm_f['label'],
-                'field_type'        => $type,
-                'sync_direction'    => 'fcrm_to_wp',
-                'enabled'           => ! empty( $row['enabled'] ),
-                'date_format_wp'    => sanitize_text_field( (string) ( $row['date_format_wp'] ?? 'm/d/Y' ) ) ?: 'm/d/Y',
-                'date_format_fcrm'  => 'Y-m-d',
-                'acf_field_type'    => $wp_f['acf_field_type'] ?? '',
-                'value_map'         => $value_map,
-            ];
-        }
-        return $clean;
-    }
-
-    /**
-     * One page of the CRM → WP mirror (shared with the REST API).
-     */
-    public static function run_bulk_mirror( int $per_page, int $offset, array $user_ids = [], int $total = 0 ): array {
-        $engine  = My_IAPSNJ_Engine::get_instance();
-        $success = 0;
-        $errors  = [];
-        $query   = \FluentCrm\App\Models\Subscriber::whereNotNull( 'user_id' )->where( 'user_id', '>', 0 )->orderBy( 'id' );
-        if ( $user_ids ) {
-            $query = \FluentCrm\App\Models\Subscriber::whereIn( 'user_id', array_map( 'intval', $user_ids ) );
-        } else {
-            $query = $query->skip( $offset )->take( $per_page );
-        }
-        foreach ( $query->get() as $contact ) {
-            try {
-                $engine->sync_fcrm_to_wp( $contact );
-                $success++;
-            } catch ( \Throwable $e ) {
-                $errors[] = [ 'id' => (int) $contact->id, 'error' => $e->getMessage() ];
-            }
-        }
-        // Counted on the first page; later pages pass it back.
-        if ( $total <= 0 || $offset === 0 ) {
-            $total = (int) \FluentCrm\App\Models\Subscriber::whereNotNull( 'user_id' )->where( 'user_id', '>', 0 )->count();
-        }
-        $has_more = $user_ids ? false : ( ( $offset + $per_page ) < $total );
-        if ( ! $has_more ) {
-            update_option( 'my_iapsnj_last_bulk_sync', current_time( 'mysql' ) );
-        }
-        return [
-            'success'     => $success,
-            'errors'      => $errors,
-            'offset'      => $offset,
-            'per_page'    => $per_page,
-            'total'       => $total,
-            'has_more'    => $has_more,
-            'next_offset' => $offset + $per_page,
-        ];
     }
 
     private function page_header( string $title, string $description = '' ): void {
@@ -771,177 +668,7 @@ class My_IAPSNJ_Admin {
     }
 
     // -----------------------------------------------------------------------
-    // Page: Profile Mirror (field mapping)
-    // -----------------------------------------------------------------------
-
-    public function render_field_mapping_page(): void {
-        $this->guard();
-        $wp_fields   = $this->mapper->get_wp_fields();
-        $fcrm_fields = $this->mapper->get_fcrm_fields();
-        $mappings    = $this->mapper->get_saved_mappings();
-
-        uasort( $wp_fields, fn( $a, $b ) => strcmp( $a['label'], $b['label'] ) );
-        uasort( $fcrm_fields, function ( $a, $b ) {
-            $ga = $a['source'] === 'default' ? 0 : 1;
-            $gb = $b['source'] === 'default' ? 0 : 1;
-            return $ga !== $gb ? $ga - $gb : strcmp( $a['label'], $b['label'] );
-        } );
-
-        $saved_by_fcrm = [];
-        foreach ( $mappings as $m ) {
-            $saved_by_fcrm[ ( $m['fcrm_field_source'] ?? '' ) . '__' . ( $m['fcrm_field_key'] ?? '' ) ][] = $m;
-        }
-
-        $this->page_header( __( 'Profile Mirror (CRM → WordPress)', 'my-iapsnj' ), __( 'Which FluentCRM contact fields are copied onto the linked WordPress user. One direction only: the CRM is the source of truth and nothing is written back from WordPress.', 'my-iapsnj' ) );
-        ?>
-        <p><?php
-            printf(
-                /* translators: %s: link to Profile Sync */
-                esc_html__( 'When the mirror runs, "Mirror all contacts → users" and the WordPress role per member type are on %s.', 'my-iapsnj' ),
-                '<a href="' . esc_url( admin_url( 'admin.php?page=my-iapsnj-profile-sync' ) ) . '">' . esc_html__( 'Profile Sync', 'my-iapsnj' ) . '</a>'
-            );
-        ?></p>
-        <div id="fcrm-mapping-notice" class="fcrm-notice" style="display:none"></div>
-        <div class="fcrm-mapping-toolbar">
-            <button id="fcrm-add-row" class="button button-secondary">+ <?php esc_html_e( 'Add Row', 'my-iapsnj' ); ?></button>
-            <button id="fcrm-save-mappings" class="button button-primary"><?php esc_html_e( 'Save Mappings', 'my-iapsnj' ); ?></button>
-            <button id="fcrm-refresh-field-list" class="button" title="<?php esc_attr_e( 'The list of WordPress profile fields (user meta keys, ACF fields) is cached for 12 hours. Refresh it after adding a field.', 'my-iapsnj' ); ?>"><?php esc_html_e( 'Refresh field list', 'my-iapsnj' ); ?></button>
-        </div>
-        <div class="fcrm-mapping-table-wrap">
-            <table class="widefat fcrm-mapping-table" id="fcrm-mapping-table">
-                <thead><tr>
-                    <th><?php esc_html_e( 'FluentCRM Field (source)', 'my-iapsnj' ); ?></th>
-                    <th><?php esc_html_e( 'WordPress Field (target)', 'my-iapsnj' ); ?></th>
-                    <th><?php esc_html_e( 'Field Type', 'my-iapsnj' ); ?></th>
-                    <th><?php esc_html_e( 'Enabled', 'my-iapsnj' ); ?></th>
-                    <th><?php esc_html_e( 'Remove', 'my-iapsnj' ); ?></th>
-                </tr></thead>
-                <tbody id="fcrm-mapping-rows">
-                <?php
-                $rendered = [];
-                foreach ( $fcrm_fields as $uid => $fcrm_field ) {
-                    $rendered[] = $uid;
-                    if ( isset( $saved_by_fcrm[ $uid ] ) ) {
-                        foreach ( $saved_by_fcrm[ $uid ] as $m ) {
-                            $this->render_mapping_row( $m, $wp_fields, $fcrm_fields );
-                        }
-                    } else {
-                        $rec_uid = $this->mapper->get_recommended_wp_field( $fcrm_field['key'], $fcrm_field['type'], $wp_fields );
-                        $rec     = $rec_uid ? ( $wp_fields[ $rec_uid ] ?? null ) : null;
-                        $this->render_mapping_row( [
-                            'fcrm_field_key'    => $fcrm_field['key'],
-                            'fcrm_field_source' => $fcrm_field['source'],
-                            'fcrm_field_label'  => $fcrm_field['label'],
-                            'wp_field_key'      => $rec ? $rec['key'] : '',
-                            'wp_field_source'   => $rec ? $rec['source'] : '',
-                            'field_type'        => $fcrm_field['type'],
-                            'enabled'           => false,
-                            'is_recommendation' => ! empty( $rec_uid ),
-                        ], $wp_fields, $fcrm_fields );
-                    }
-                }
-                foreach ( $mappings as $m ) {
-                    $fcrm_uid = ( $m['fcrm_field_source'] ?? '' ) . '__' . ( $m['fcrm_field_key'] ?? '' );
-                    if ( ! in_array( $fcrm_uid, $rendered, true ) ) {
-                        $this->render_mapping_row( $m, $wp_fields, $fcrm_fields );
-                    }
-                }
-                ?>
-                </tbody>
-            </table>
-        </div>
-        <template id="fcrm-row-template"><?php $this->render_mapping_row( [], $wp_fields, $fcrm_fields, true ); ?></template>
-
-        <div class="fcrm-section" id="fcrm-preview-section" style="margin-top:28px">
-            <h2><?php esc_html_e( 'Sample Data Preview', 'my-iapsnj' ); ?></h2>
-            <p class="description"><?php esc_html_e( 'Pick a WordPress user to see the CRM value and the mirrored WordPress value side by side.', 'my-iapsnj' ); ?></p>
-            <div class="fcrm-preview-search">
-                <div class="fcrm-user-search-wrap">
-                    <input type="text" id="fcrm-preview-user-input" class="regular-text" placeholder="<?php esc_attr_e( 'Search by name, email or username…', 'my-iapsnj' ); ?>" autocomplete="off">
-                    <div id="fcrm-user-suggestions" class="fcrm-user-suggestions" style="display:none"></div>
-                </div>
-                <button id="fcrm-preview-load" class="button button-primary" disabled><?php esc_html_e( 'Preview Data', 'my-iapsnj' ); ?></button>
-            </div>
-            <div id="fcrm-preview-results" style="display:none; margin-top:16px"></div>
-        </div>
-        </div>
-        <?php
-    }
-
-    private function render_mapping_row( array $mapping, array $wp_fields, array $fcrm_fields, bool $is_template = false ): void {
-        $id          = $mapping['id'] ?? '';
-        $wp_key      = $mapping['wp_field_key'] ?? '';
-        $wp_src      = $mapping['wp_field_source'] ?? '';
-        $fcrm_key    = $mapping['fcrm_field_key'] ?? '';
-        $fcrm_src    = $mapping['fcrm_field_source'] ?? '';
-        $field_type  = $mapping['field_type'] ?? 'text';
-        $enabled     = ! empty( $mapping['enabled'] );
-        $date_fmt_wp = $mapping['date_format_wp'] ?? 'm/d/Y';
-        $value_map   = $mapping['value_map'] ?? [];
-        $is_rec      = ! empty( $mapping['is_recommendation'] );
-        $row_id      = $is_template ? '__TEMPLATE__' : ( $id ?: My_IAPSNJ_Field_Mapper::generate_id() );
-
-        $src_labels  = [ 'user' => 'WordPress User', 'meta' => 'User Meta', 'acf' => 'ACF (user meta)' ];
-        $type_labels = [ 'text' => 'Text', 'email' => 'Email', 'date' => 'Date', 'number' => 'Number', 'select' => 'Dropdown', 'checkbox' => 'Checkbox', 'textarea' => 'Textarea' ];
-
-        echo '<tr class="fcrm-mapping-row' . ( $is_rec ? ' fcrm-row-suggested' : '' ) . '" data-id="' . esc_attr( $row_id ) . '"' . ( $is_rec ? ' data-suggested="1"' : '' ) . '>';
-
-        // CRM field
-        echo '<td><select class="fcrm-fcrm-field" name="mappings[' . esc_attr( $row_id ) . '][fcrm_uid]">';
-        echo '<option value="">' . esc_html__( '— Select FluentCRM field —', 'my-iapsnj' ) . '</option>';
-        foreach ( $fcrm_fields as $uid => $f ) {
-            printf(
-                '<option value="%s" data-type="%s" data-options="%s" data-source-label="%s" data-type-label="%s"%s>%s</option>',
-                esc_attr( $uid ),
-                esc_attr( $f['type'] ),
-                esc_attr( wp_json_encode( $f['options'] ?? [] ) ),
-                esc_attr( $f['source'] === 'custom' ? 'FluentCRM Custom' : 'FluentCRM' ),
-                esc_attr( $type_labels[ $f['type'] ] ?? ucfirst( $f['type'] ) ),
-                selected( $f['key'] === $fcrm_key && $f['source'] === $fcrm_src, true, false ),
-                esc_html( $f['label'] )
-            );
-        }
-        echo '</select><p class="fcrm-field-hint fcrm-fcrm-hint"></p></td>';
-
-        // WP field
-        echo '<td>';
-        if ( $is_rec && $wp_key !== '' ) {
-            echo '<span class="fcrm-suggested-badge">' . esc_html__( 'Suggested', 'my-iapsnj' ) . '</span>';
-        }
-        echo '<select class="fcrm-wp-field" name="mappings[' . esc_attr( $row_id ) . '][wp_uid]">';
-        echo '<option value="">' . esc_html__( '— Don\'t mirror —', 'my-iapsnj' ) . '</option>';
-        foreach ( $wp_fields as $uid => $f ) {
-            printf(
-                '<option value="%s" data-type="%s" data-options="%s" data-date-format="%s" data-source-label="%s" data-type-label="%s"%s>%s</option>',
-                esc_attr( $uid ),
-                esc_attr( $f['type'] ),
-                esc_attr( wp_json_encode( $f['options'] ?? [] ) ),
-                esc_attr( $f['date_format_wp'] ?? '' ),
-                esc_attr( $src_labels[ $f['source'] ] ?? $f['source'] ),
-                esc_attr( $type_labels[ $f['type'] ] ?? ucfirst( $f['type'] ) ),
-                selected( $f['key'] === $wp_key && $f['source'] === $wp_src, true, false ),
-                esc_html( $f['label'] )
-            );
-        }
-        echo '</select><p class="fcrm-field-hint fcrm-wp-hint"></p></td>';
-
-        // Type
-        echo '<td><select class="fcrm-field-type" name="mappings[' . esc_attr( $row_id ) . '][field_type]">';
-        foreach ( $type_labels as $val => $label ) {
-            echo '<option value="' . esc_attr( $val ) . '"' . selected( $field_type, $val, false ) . '>' . esc_html( $label ) . '</option>';
-        }
-        echo '</select>';
-        echo '<div class="fcrm-date-format-wrap" style="margin-top:4px"><small>' . esc_html__( 'WP date format:', 'my-iapsnj' ) . ' </small>';
-        echo '<input type="text" class="fcrm-date-format-wp small-text" value="' . esc_attr( $date_fmt_wp ) . '" placeholder="m/d/Y" name="mappings[' . esc_attr( $row_id ) . '][date_format_wp]"></div>';
-        echo '<input type="hidden" class="fcrm-value-map-json" value="' . esc_attr( wp_json_encode( $value_map ) ) . '"></td>';
-
-        echo '<td style="text-align:center"><input type="checkbox" class="fcrm-enabled" name="mappings[' . esc_attr( $row_id ) . '][enabled]" value="1"' . checked( $enabled, true, false ) . '></td>';
-        echo '<td style="text-align:center"><button type="button" class="button fcrm-remove-row" title="' . esc_attr__( 'Remove', 'my-iapsnj' ) . '">&#10005;</button></td>';
-        echo '</tr>';
-    }
-
-    // -----------------------------------------------------------------------
-    // Pages: Settings → Configurations, Profile Sync; Members → Active, Lapsed
+    // Pages: Settings → Configurations; Members → Active, Lapsed
     // -----------------------------------------------------------------------
 
     /**
@@ -951,8 +678,9 @@ class My_IAPSNJ_Admin {
     public function render_sync_page(): void {
         $this->guard();
         $settings = My_IAPSNJ_Plugin::settings();
+        $roles    = My_IAPSNJ_Engine::assignable_roles();
+        $role_map = My_IAPSNJ_Engine::role_map();
         $moved    = [
-            'roles'       => [ admin_url( 'admin.php?page=my-iapsnj-profile-sync#roles' ), __( 'Profile Sync', 'my-iapsnj' ), __( 'Mirror now, mirror triggers, WordPress role per member type', 'my-iapsnj' ) ],
             'application' => [ admin_url( 'admin.php?page=my-iapsnj-products#join-renew' ), __( 'Membership Products', 'my-iapsnj' ), __( 'Renewal season, renewal products, Join page URL', 'my-iapsnj' ) ],
             'checkout'    => [ admin_url( 'admin.php?page=my-iapsnj-checkout#checkout-settings' ), __( 'Checkout Builder', 'my-iapsnj' ), __( 'Billing address → CRM, Pay by Check label & instructions', 'my-iapsnj' ) ],
             'expiry'      => [ admin_url( 'admin.php?page=' . My_IAPSNJ_Members::page_slug( My_IAPSNJ_Members::STATE_LAPSED ) . '#expiry' ), __( 'Lapsed Members', 'my-iapsnj' ), __( 'Expirations (Preview / Apply now), grace period', 'my-iapsnj' ) ],
@@ -1016,6 +744,42 @@ class My_IAPSNJ_Admin {
                     My_IAPSNJ_Emails::FLUENTCART_MIN
                 ) ); ?></p>
             <?php endif; ?>
+        </div>
+        </form>
+
+        <form class="fcrm-settings-form" id="roles">
+        <div class="fcrm-section">
+            <h2><?php esc_html_e( 'WordPress roles', 'my-iapsnj' ); ?></h2>
+            <p class="description"><?php esc_html_e( 'The WordPress role each member type gets, and the role a lapsed member drops to. Applied whenever a contact is saved, a payment is recorded, and by the daily expiry job (Members → Lapsed Members → Apply now brings every account up to date). Only users whose current role is one of the roles chosen here (or Subscriber) are changed; administrators, editors and any other staff role are never touched. Leave a type on "— leave unchanged —" to skip it. A new member\'s WordPress user is created as Subscriber and gets the mapped role in the same request; to create a dedicated role (e.g. "Member"), use any roles plugin, then pick it here. Member details are not copied onto WordPress users: they live in FluentCRM only.', 'my-iapsnj' ); ?></p>
+            <div class="fcrm-notice fcrm-form-notice" style="display:none"></div>
+            <table class="form-table">
+                <?php foreach ( My_IAPSNJ_Schema::member_types() as $type ) : ?>
+                <tr><th><?php echo esc_html( $type ); ?></th><td>
+                    <select name="role_map[<?php echo esc_attr( $type ); ?>]">
+                        <option value=""><?php esc_html_e( '— leave unchanged —', 'my-iapsnj' ); ?></option>
+                        <?php foreach ( $roles as $slug => $name ) : ?>
+                            <option value="<?php echo esc_attr( $slug ); ?>" <?php selected( $role_map[ $type ] ?? '', $slug ); ?>><?php echo esc_html( $name . ' (' . $slug . ')' ); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </td></tr>
+                <?php endforeach; ?>
+                <tr><th><?php esc_html_e( 'When expired', 'my-iapsnj' ); ?></th><td>
+                    <select name="role_expired">
+                        <option value=""><?php esc_html_e( '— leave the role —', 'my-iapsnj' ); ?></option>
+                        <?php foreach ( $roles as $slug => $name ) : ?>
+                            <option value="<?php echo esc_attr( $slug ); ?>" <?php selected( (string) ( $settings['role_expired'] ?? '' ), $slug ); ?>><?php echo esc_html( $name . ' (' . $slug . ')' ); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <p class="description"><?php
+                        printf(
+                            /* translators: %s: link to Lapsed Members */
+                            esc_html__( 'The role a member drops to when the membership lapses (the daily expiry job; grace period and Preview / Apply on %s). A payment puts the mapped role back.', 'my-iapsnj' ),
+                            '<a href="' . esc_url( admin_url( 'admin.php?page=' . My_IAPSNJ_Members::page_slug( My_IAPSNJ_Members::STATE_LAPSED ) . '#expiry' ) ) . '">' . esc_html__( 'Lapsed Members', 'my-iapsnj' ) . '</a>'
+                        );
+                    ?></p>
+                </td></tr>
+            </table>
+            <p><button type="submit" class="button button-primary"><?php esc_html_e( 'Save', 'my-iapsnj' ); ?></button></p>
         </div>
         </form>
 
@@ -1121,75 +885,6 @@ class My_IAPSNJ_Admin {
     }
 
     /**
-     * Settings → Profile Sync: when and how the CRM → WordPress mirror runs,
-     * and the WordPress role it gives each member type.
-     */
-    public function render_profile_sync_page(): void {
-        $this->guard();
-        $settings  = My_IAPSNJ_Plugin::settings();
-        $last_sync = get_option( 'my_iapsnj_last_bulk_sync', '' );
-        $roles     = My_IAPSNJ_Engine::assignable_roles();
-        $role_map  = My_IAPSNJ_Engine::role_map();
-        $this->page_header( __( 'Profile Sync', 'my-iapsnj' ), __( 'The one-way mirror from FluentCRM contacts to their WordPress users: which fields are copied is set in Profile Mirror; this screen sets when it runs and the WordPress role it applies.', 'my-iapsnj' ) );
-        ?>
-        <div class="fcrm-section" id="mirror-now">
-            <h2><?php esc_html_e( 'Mirror all contacts → users now', 'my-iapsnj' ); ?></h2>
-            <p><?php esc_html_e( 'Copies every enabled Profile Mirror field from each CRM contact onto its linked WordPress user and re-applies the role below. Takes a while on a large list; leave the page open until it finishes.', 'my-iapsnj' ); ?>
-               <?php if ( $last_sync ) : ?><span class="fcrm-muted"><?php echo esc_html( sprintf( __( 'Last complete run: %s', 'my-iapsnj' ), $last_sync ) ); ?></span><?php endif; ?></p>
-            <button id="fcrm-bulk-fcrm-to-wp" class="button button-primary"><?php esc_html_e( 'Mirror all contacts → users', 'my-iapsnj' ); ?></button>
-            <div id="fcrm-bulk-progress" style="display:none; margin-top:16px">
-                <div class="fcrm-progress-bar-wrap"><div id="fcrm-progress-bar" class="fcrm-progress-bar" style="width:0%"></div></div>
-                <p id="fcrm-bulk-status"></p>
-            </div>
-        </div>
-
-        <form class="fcrm-settings-form" id="roles">
-        <div class="fcrm-section">
-            <h2><?php esc_html_e( 'Mirror triggers', 'my-iapsnj' ); ?></h2>
-            <div class="fcrm-notice fcrm-form-notice" style="display:none"></div>
-            <table class="form-table">
-                <tr><th><?php esc_html_e( 'On CRM contact update', 'my-iapsnj' ); ?></th><td><label><input type="checkbox" name="sync_on_fcrm_update" value="1" <?php checked( ! empty( $settings['sync_on_fcrm_update'] ) ); ?>> <?php esc_html_e( 'Mirror the contact onto its WordPress user whenever it changes (also after a paid, check-placed or refunded order)', 'my-iapsnj' ); ?></label></td></tr>
-                <tr><th><?php esc_html_e( 'On user register', 'my-iapsnj' ); ?></th><td><label><input type="checkbox" name="link_on_user_register" value="1" <?php checked( ! empty( $settings['link_on_user_register'] ) ); ?>> <?php esc_html_e( 'Link a new WordPress user to the existing CRM contact with the same email (nothing is pushed to the CRM)', 'my-iapsnj' ); ?></label></td></tr>
-                <tr><th><?php esc_html_e( 'On user delete', 'my-iapsnj' ); ?></th><td><label><input type="checkbox" name="sync_on_user_delete" value="1" <?php checked( ! empty( $settings['sync_on_user_delete'] ) ); ?>> <?php esc_html_e( 'Unlink the CRM contact (never delete it)', 'my-iapsnj' ); ?></label></td></tr>
-            </table>
-
-            <h2><?php esc_html_e( 'WordPress role per member type', 'my-iapsnj' ); ?></h2>
-            <p class="description"><?php esc_html_e( 'Applied by every mirror. Only users whose current role is one of the roles chosen here (or Subscriber) are changed; administrators, editors and any other staff role are never touched. Leave a type on "— leave unchanged —" to skip it. A new member\'s WordPress user is created as Subscriber and gets the mapped role in the same request; to create a dedicated role (e.g. "Member"), use any roles plugin, then pick it here.', 'my-iapsnj' ); ?></p>
-            <table class="form-table">
-                <?php foreach ( My_IAPSNJ_Schema::member_types() as $type ) : ?>
-                <tr><th><?php echo esc_html( $type ); ?></th><td>
-                    <select name="role_map[<?php echo esc_attr( $type ); ?>]">
-                        <option value=""><?php esc_html_e( '— leave unchanged —', 'my-iapsnj' ); ?></option>
-                        <?php foreach ( $roles as $slug => $name ) : ?>
-                            <option value="<?php echo esc_attr( $slug ); ?>" <?php selected( $role_map[ $type ] ?? '', $slug ); ?>><?php echo esc_html( $name . ' (' . $slug . ')' ); ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </td></tr>
-                <?php endforeach; ?>
-                <tr><th><?php esc_html_e( 'When expired', 'my-iapsnj' ); ?></th><td>
-                    <select name="role_expired">
-                        <option value=""><?php esc_html_e( '— leave the role —', 'my-iapsnj' ); ?></option>
-                        <?php foreach ( $roles as $slug => $name ) : ?>
-                            <option value="<?php echo esc_attr( $slug ); ?>" <?php selected( (string) ( $settings['role_expired'] ?? '' ), $slug ); ?>><?php echo esc_html( $name . ' (' . $slug . ')' ); ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                    <p class="description"><?php
-                        printf(
-                            /* translators: %s: link to Lapsed Members */
-                            esc_html__( 'The role a member drops to when the membership lapses (the daily expiry job; grace period and Preview / Apply on %s). A payment puts the mapped role back.', 'my-iapsnj' ),
-                            '<a href="' . esc_url( admin_url( 'admin.php?page=' . My_IAPSNJ_Members::page_slug( My_IAPSNJ_Members::STATE_LAPSED ) . '#expiry' ) ) . '">' . esc_html__( 'Lapsed Members', 'my-iapsnj' ) . '</a>'
-                        );
-                    ?></p>
-                </td></tr>
-            </table>
-            <p><button type="submit" class="button button-primary"><?php esc_html_e( 'Save', 'my-iapsnj' ); ?></button></p>
-        </div>
-        </form>
-        </div>
-        <?php
-    }
-
-    /**
      * Members → Active Membership.
      */
     public function render_members_active_page(): void {
@@ -1214,9 +909,9 @@ class My_IAPSNJ_Admin {
             <h2><?php esc_html_e( 'Expirations (Member-Active tag + role)', 'my-iapsnj' ); ?></h2>
             <p class="description"><?php
                 printf(
-                    /* translators: %s: link to Profile Sync */
+                    /* translators: %s: link to the WordPress roles settings */
                     esc_html__( 'Runs every day at 00:30 site time: lapsed members lose the Member-Active tag and drop to the "when expired" role (%s); members in good standing without the tag (migrated members, manual CRM edits) get it and their role. Paid-YYYY tags are history and are never removed. Preview lists what would change; Apply does it now, in batches.', 'my-iapsnj' ),
-                    '<a href="' . esc_url( admin_url( 'admin.php?page=my-iapsnj-profile-sync#roles' ) ) . '">' . esc_html__( 'Profile Sync', 'my-iapsnj' ) . '</a>'
+                    '<a href="' . esc_url( admin_url( 'admin.php?page=my-iapsnj-sync#roles' ) ) . '">' . esc_html__( 'Configurations', 'my-iapsnj' ) . '</a>'
                 );
             ?>
                 <?php if ( is_array( $last_expiry ) && ! empty( $last_expiry['at'] ) ) : ?><br><span class="fcrm-muted"><?php echo esc_html( sprintf( __( 'Last run: %1$s UTC — %2$d expired, %3$d activated, %4$d roles changed.', 'my-iapsnj' ), $last_expiry['at'], (int) ( $last_expiry['report']['expired_now'] ?? 0 ), (int) ( $last_expiry['report']['activated'] ?? 0 ), (int) ( $last_expiry['report']['roles_changed'] ?? 0 ) ) ); ?></span><?php endif; ?>
@@ -1698,33 +1393,15 @@ class My_IAPSNJ_Admin {
     }
 
     // -----------------------------------------------------------------------
-    // AJAX: mapping / settings / mirror
+    // AJAX: settings
     // -----------------------------------------------------------------------
-
-    public function ajax_save_mappings(): void {
-        $this->ajax_guard();
-        $raw   = isset( $_POST['mappings'] ) && is_array( $_POST['mappings'] ) ? wp_unslash( $_POST['mappings'] ) : []; // phpcs:ignore
-        $clean = self::sanitize_mapping_rows( $raw, $this->mapper );
-        $this->mapper->save_mappings( $clean );
-        My_IAPSNJ_Field_Mapper::flush_field_cache();
-        wp_send_json_success( [ 'count' => count( $clean ) ] );
-    }
-
-    /**
-     * Profile Mirror: forget the cached list of WordPress profile fields.
-     */
-    public function ajax_refresh_field_list(): void {
-        $this->ajax_guard();
-        My_IAPSNJ_Field_Mapper::flush_field_cache();
-        wp_send_json_success();
-    }
 
     public function ajax_save_settings(): void {
         $this->ajax_guard();
         $settings = My_IAPSNJ_Plugin::settings();
         $post     = wp_unslash( $_POST ); // phpcs:ignore
 
-        foreach ( [ 'sync_on_fcrm_update', 'link_on_user_register', 'sync_on_user_delete', 'notify_new_member', 'email_branding' ] as $key ) {
+        foreach ( [ 'notify_new_member', 'email_branding' ] as $key ) {
             if ( array_key_exists( $key, $post ) ) {
                 $settings[ $key ] = ! empty( $post[ $key ] );
             }
@@ -1894,46 +1571,6 @@ class My_IAPSNJ_Admin {
             'message' => $lines
                 ? implode( ' · ', $lines )
                 : __( 'Nothing to fill: every dropdown already has options, or no source (ACF choices, CRM values, built-in list) has any.', 'my-iapsnj' ),
-        ] );
-    }
-
-    public function ajax_bulk_sync(): void {
-        $this->ajax_guard();
-        $per_page = min( 200, max( 1, (int) ( $_POST['per_page'] ?? 100 ) ) ); // phpcs:ignore
-        $offset   = max( 0, (int) ( $_POST['offset'] ?? 0 ) );                // phpcs:ignore
-        $total    = max( 0, (int) ( $_POST['total'] ?? 0 ) );                 // phpcs:ignore
-        wp_send_json_success( self::run_bulk_mirror( $per_page, $offset, [], $total ) );
-    }
-
-    public function ajax_search_users(): void {
-        $this->ajax_guard();
-        $query = sanitize_text_field( wp_unslash( $_POST['query'] ?? '' ) ); // phpcs:ignore
-        if ( strlen( $query ) < 2 ) {
-            wp_send_json_success( [] );
-        }
-        $users  = get_users( [
-            'search'         => '*' . $query . '*',
-            'search_columns' => [ 'user_login', 'user_email', 'display_name' ],
-            'number'         => 10,
-            'fields'         => [ 'ID', 'user_login', 'user_email', 'display_name' ],
-        ] );
-        $result = [];
-        foreach ( $users as $u ) {
-            $result[] = [ 'id' => (int) $u->ID, 'label' => $u->display_name . ' (' . $u->user_email . ')', 'email' => $u->user_email ];
-        }
-        wp_send_json_success( $result );
-    }
-
-    public function ajax_sample_data(): void {
-        $this->ajax_guard();
-        $user_id = (int) ( $_POST['user_id'] ?? 0 ); // phpcs:ignore
-        $user    = $user_id ? get_userdata( $user_id ) : false;
-        if ( ! $user ) {
-            wp_send_json_error( [ 'message' => __( 'User not found.', 'my-iapsnj' ) ] );
-        }
-        wp_send_json_success( [
-            'user' => [ 'id' => $user->ID, 'display_name' => $user->display_name, 'email' => $user->user_email ],
-            'rows' => My_IAPSNJ_Engine::get_instance()->get_field_values_for_user( $user_id ),
         ] );
     }
 

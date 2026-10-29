@@ -91,7 +91,7 @@ wp iapsnj migrate set_member_state --dry-run $LM --report=state-dry.json
 wp iapsnj migrate set_member_state $LM
 
 # 6b. Member-Active tag + WordPress role for everyone in good standing
-#     (pick the roles in Settings → Profile Sync first; dry-run lists who changes)
+#     (pick the roles in Settings → Configurations → WordPress roles first; dry-run lists who changes)
 wp iapsnj expire --dry-run
 wp iapsnj expire
 
@@ -135,7 +135,7 @@ Two options; **re-clone is simpler and safer**:
    `docs/not-in-git.md`): FluentCart products/settings, FluentCRM automations
    and custom fields, the Join page, My IAPSNJ options
    (`wp option get my_iapsnj_settings`, `my_iapsnj_products`,
-   `my_iapsnj_checkout_forms`, `my_iapsnj_field_mappings`).
+   `my_iapsnj_checkout_forms`).
 2. Re-clone production → staging (DB + uploads). Re-apply the email block.
 3. Re-import the configuration; re-run **all** Phase 3 steps (idempotent).
 4. Re-run UAT smoke (one join, one renewal, one check).
@@ -162,8 +162,8 @@ never run PMPro checkout and FluentCart checkout in parallel.**
    **live** mode; offline method enabled and labelled "Pay by Check".
 4. Update My IAPSNJ to 4.1.x (merge the PR to `main`; the release/updater
    picks it up, or upload the zip). Activation creates the applications
-   table and runs data-versions 5–6 (drops PMPro mappings, forces CRM → WP,
-   seeds the checkout application fields).
+   table and runs data-versions 5–6 (removes the PMPro options, seeds the
+   checkout application fields).
 5. **Deactivate PMPro** (Plugins → Deactivate). Do **not** delete. Tables stay.
 6. `wp iapsnj crm-schema --years=2024-2032`
 7. Run the Phase 3 sequence exactly as rehearsed (dry-run first, then apply),

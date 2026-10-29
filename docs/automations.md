@@ -48,8 +48,7 @@ first step after the trigger, test with a Lifetime contact).
    when the payment is confirmed and the contact is a new member (application
    kind *join*, or first payment on record). Never on checkout started.
 8. Add the status tag `Member-Active` and give the WordPress user the role
-   mapped to its member type (Settings → Profile Sync); mirror the contact onto the
-   WordPress profile (ACF meta).
+   mapped to its member type (Settings → Configurations → WordPress roles).
 9. Actions for extensions: `my_iapsnj/membership_paid`, `my_iapsnj/new_member`,
    `my_iapsnj/membership_refunded`, `my_iapsnj/membership_expired`; filter
    `my_iapsnj/new_member_notification`.

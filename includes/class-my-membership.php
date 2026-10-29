@@ -86,9 +86,10 @@ final class My_IAPSNJ_My_Membership {
 
     /**
      * Names of the user's WordPress roles that are not membership roles:
-     * Administrator, Editor, board roles … Subscriber and the roles the
-     * Profile Sync gives members (per type, and the expired role) are what
-     * the membership type already says, so they are left out.
+     * Administrator, Editor, board roles … Subscriber and the roles that
+     * Settings → Configurations → WordPress roles gives members (per type,
+     * and the expired role) are what the membership type already says, so
+     * they are left out.
      *
      * @return string[]
      */

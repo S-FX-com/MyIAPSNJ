@@ -5,16 +5,16 @@ Jersey (IAPSNJ) website — version 4.x, built for the FluentCRM / FluentCart
 stack that replaced Paid Memberships Pro.
 
 **FluentCRM is the single source of truth.** WordPress users are credentials
-plus a one-way mirror of a few profile fields; the membership application is
-collected on the FluentCart checkout page; FluentCart payments set membership
-state; this plugin runs the workflow around them and ships the PMPro →
+only (nothing about a member is copied onto them; they get the WordPress role
+of their membership); the membership application is collected on the
+FluentCart checkout page; FluentCart payments set membership state; this plugin runs the workflow around them and ships the PMPro →
 FluentCRM migration toolkit.
 
 | Layer | Plugin | Role |
 |---|---|---|
 | Data | FluentCRM | member records (`member_type`, `paid_through`, `Paid-YYYY` tags …) |
 | Application + payment | FluentCart | one checkout page: FluentCart's name / email / phone / address fields plus the application fields this plugin injects; orders, receipts, refunds; check payments as the offline method |
-| Login | WordPress users | credentials, mirrored one way from the CRM |
+| Login | WordPress users | credentials and a role, linked to the member's CRM contact |
 | Operations | **My IAPSNJ** | checkout application fields, membership automation, pending checks, reports, migration |
 
 Documentation: [`docs/phase1-findings.md`](docs/phase1-findings.md) ·
@@ -98,9 +98,11 @@ Documentation: [`docs/phase1-findings.md`](docs/phase1-findings.md) ·
   deposit slip. **Record a check** for a member who never used the website.
 * **Reports** — applications awaiting payment, paid orders without an
   application, checks pending 30+ days, WordPress ↔ CRM orphans.
-* **Profile Mirror** — CRM → WordPress user meta, configurable field map,
-  plus a WordPress role per member type (Settings → Profile Sync; staff accounts
-  are never touched).
+* **WordPress roles** — a role per member type and a "when expired" role
+  (Settings → Configurations → WordPress roles; staff accounts are never
+  touched), and each user linked to its CRM contact. Member details are not
+  copied onto WordPress users: the Profile Mirror / Profile Sync were retired
+  in 4.35 (see the upgrade notes).
 * **Expirations** — status tag `Member-Active` and the role are given on
   payment and taken away by a daily WP-Cron job once `paid_through` is past
   (grace period configurable); `wp iapsnj expire` and a Preview / Apply
@@ -142,8 +144,7 @@ migration if present.
 4. My IAPSNJ → Membership Products → map the FluentCart products, then build
    the Join page from the *Checkout links* it prints.
 
-Upgrading from 3.x: data-version 5 drops PMPro-sourced and `pmpro_b*`
-mappings, forces the mirror to CRM → WP, removes the PMPro options/cron and
+Upgrading from 3.x: data-version 5 removes the PMPro options/cron and
 creates the applications table. Data-version 6 (4.1) removes the Fluent Forms
 settings, adds `cart_hash` / `fields` to the applications table and seeds the
 default checkout fields. Data-version 7 (4.2) converts product rows to *years
@@ -151,10 +152,8 @@ covered* and the checkout fields to the builder format. Data-version 8 (4.3)
 adds the remaining onboarding-form fields to the checkout, shows the union
 fields, fills empty dropdown option lists (ACF choices → CRM values →
 built-in list) and creates the CRM custom fields those answers are written to
-(existing fields are never modified). Data-version 9 (4.4) points 3.x-era
-Profile Mirror rows at `member_type` / `paid_through` and adds the
-membership rows (member status, expiration date, join date, member number)
-if missing. Data-version 10 (4.7) moves the checkout field list and the
+(existing fields are never modified). Data-version 9 (4.4) pointed the
+Profile Mirror rows at the 4.x slugs (nothing to do since 4.35). Data-version 10 (4.7) moves the checkout field list and the
 application heading / intro into the Checkout Builder as the form
 "Membership application", used by both levels (the checkout looks the same
 until the forms are changed). Data-version 11 (4.16) shows and requires the
@@ -175,9 +174,7 @@ slugs of the screens that existed before 4.11 are unchanged.
 | Members | Lapsed Members | `my-iapsnj-lapsed` | lapsed members and data checks; grace period; expirations Preview / Apply now |
 | Members | Notes Search | `my-iapsnj-notes-search` | |
 | | Reports | `my-iapsnj-reports` | open applications, orphan orders, aging, WP↔CRM orphans; aging threshold, go-live date |
-| Settings | Configurations | `my-iapsnj-sync` | new-member notification, email design, CRM schema, phone number format, names & addresses capitalisation (formerly "Sync & Settings") |
-| Settings | Profile Mirror | `my-iapsnj-mapping` | CRM → WP field map with sample preview |
-| Settings | Profile Sync | `my-iapsnj-profile-sync` | mirror triggers, mirror all contacts now, WordPress role per member type |
+| Settings | Configurations | `my-iapsnj-sync` | new-member notification, email design, WordPress role per member type, CRM schema, phone number format, names & addresses capitalisation (formerly "Sync & Settings"). The old Profile Mirror and Profile Sync slugs (`my-iapsnj-mapping`, `my-iapsnj-profile-sync`) redirect here |
 | Settings | Migrate PMPro | `my-iapsnj-migration` | PMPro → CRM steps (shown while PMPro tables exist) |
 
 ### Member lists (4.12)
@@ -240,7 +237,7 @@ image URL or an attachment id), or the `my_iapsnj/directory_photo_url` filter.
 
 `[iapsnj_edit_profile button="Save Changes"]` — "Edit Profile" form for the
 logged-in member, written straight to their FluentCRM contact (the WordPress
-profile follows through the usual mirror). It shows name, cell phone, address
+account's role follows). It shows name, cell phone, address
 and the fields of the Checkout Builder form for the member's level (so the same
 labels, dropdown lists, "Other (not listed)", conditional fields and validation
 as the checkout), every one filled with what is on file. Dropdown lists are
@@ -312,8 +309,8 @@ Steps: `census`, `link_subscribers`, `consolidate_addresses`,
 
 | Method | Route |
 |---|---|
-| GET | `/status`, `/summary`, `/fields`, `/mappings`, `/pending-checks` |
-| POST | `/mappings`, `/bulk-sync`, `/checks/mark-paid`, `/checks/record` |
+| GET | `/status`, `/summary`, `/pending-checks` |
+| POST | `/checks/mark-paid`, `/checks/record` |
 | GET | `/reports/{open-applications|orders-without-application|aging|users-without-contact|contacts-missing-user}` |
 
 ## Hooks
@@ -343,7 +340,6 @@ OrderAddress); WordPress `the_title`, `document_title_parts`.
 
 Options: `my_iapsnj_settings`, `my_iapsnj_products`, `my_iapsnj_checkout_forms`
 (`my_iapsnj_checkout_fields` is the ≤ 4.6 list, kept for a rollback),
-`my_iapsnj_field_mappings`, `my_iapsnj_last_bulk_sync`,
 `my_iapsnj_data_version`. Table: `{prefix}my_iapsnj_applications`. User meta:
 `_my_iapsnj_subscriber_id`. FluentCart order meta: `_my_iapsnj_application`,
 `_my_iapsnj_application_applied`, `_my_iapsnj_checkout_form`, `_my_iapsnj_typed_name`, `_my_iapsnj_applied`, `_my_iapsnj_snapshot`,
@@ -367,8 +363,7 @@ includes/class-checks.php         Pending checks, batch mark paid, record a chec
 includes/class-reports.php        Orphans, aging, summary
 includes/class-migration.php      PMPro → CRM steps (dry-run, paged)
 includes/class-cli.php            wp iapsnj …
-includes/class-engine.php         CRM → WP mirror
-includes/class-field-mapper.php   Field discovery + mirror map
+includes/class-engine.php         User ↔ contact link, WordPress role from the membership
 includes/class-admin.php          Screens + AJAX
 includes/class-rest-api.php       REST routes
 includes/class-github-updater.php GitHub Releases updater
