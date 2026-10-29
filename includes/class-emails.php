@@ -18,7 +18,7 @@
  *   fluent_cart/email_notification/mailer  receipts, check instructions … (FluentCart)
  *   My_IAPSNJ_Membership                   new-member notice (calls wrap())
  *
- * Settings → Configurations → Email design: on / off, FluentCRM design,
+ * Settings → Emails → Email design: on / off, FluentCRM design,
  * logo, footer, Preview and Send test.
  */
 
@@ -364,7 +364,7 @@ final class My_IAPSNJ_Emails {
     }
 
     // -----------------------------------------------------------------------
-    // Preview / test (Settings → Configurations → Email design)
+    // Preview / test (Settings → Emails → Email design)
     // -----------------------------------------------------------------------
 
     /**

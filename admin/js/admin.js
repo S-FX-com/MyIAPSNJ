@@ -615,7 +615,17 @@
             .always(function () { resetBtn($btn); });
     });
 
-    // Configurations → Email design → Send test (saved settings).
+    // Emails → Send test of a member / staff email (to the current admin only).
+    $(document).on('click', '.fcrm-send-test-notification', function () {
+        var $btn = $(this), $notice = $btn.closest('form').find('.fcrm-form-notice').first();
+        setBtn($btn, i18n.loading, true);
+        post('send_test_notification', { kind: $btn.data('kind') })
+            .done(function (resp) { showNotice($notice, resp.success ? resp.data.message : errMsg(resp), resp.success ? 'success' : 'error'); })
+            .fail(function () { showNotice($notice, i18n.error, 'error'); })
+            .always(function () { resetBtn($btn); });
+    });
+
+    // Emails → Email design → Send test (saved settings).
     $('.fcrm-send-test-email').on('click', function () {
         var $btn = $(this), $notice = $btn.closest('form').find('.fcrm-form-notice').first();
         setBtn($btn, i18n.loading, true);

@@ -39,19 +39,25 @@ first step after the trigger, test with a Lifetime contact).
 5. Create the WordPress user if none exists (password-reset email, not a
    password), link contact ↔ user ↔ FluentCart customer.
 6. Resolve and close the application row opened at checkout.
-7. **New member admin notification** (Sebbie's request, Billy's certificate
-   trigger): email (in the site's email design, Configurations → Email design;
-   plain text when that is off) to *Settings → Configurations → Recipients* containing
-   name, member type, paid-through, product, payment method + amount, order
-   number, **email, phone, full mailing address, department**, rank, member
-   number, and links to the CRM contact and the FluentCart order. Sent only
-   when the payment is confirmed and the contact is a new member (application
-   kind *join*, or first payment on record). Never on checkout started.
+7. **Payment emails** (Settings → Emails; once per order, only when the
+   payment is confirmed, never on checkout started), in the site's email design
+   (plain text when that is off):
+   * *President* and *Membership Committee* (staff): to the addresses set for
+     each, on join and / or renewal. Summary = name, member type, paid-through,
+     department, rank, member number, CRM link; Full adds product, payment
+     method + amount, order number, **email, phone, full mailing address** and
+     the FluentCart order link. The Committee's notice is the old "New member
+     admin notification" (Sebbie's request, Billy's certificate trigger): data
+     v19 moved its recipients and switch over, new members only.
+   * the *member*: FluentCart's own receipt / renewal / check emails (switch
+     per email for membership purchases only), and, when switched on, our
+     Welcome (first payment) or Renewal email with an editable message.
 8. Add the status tag `Member-Active` and give the WordPress user the role
    mapped to its member type (Settings → Configurations → WordPress roles).
 9. Actions for extensions: `my_iapsnj/membership_paid`, `my_iapsnj/new_member`,
-   `my_iapsnj/membership_refunded`, `my_iapsnj/membership_expired`; filter
-   `my_iapsnj/new_member_notification`.
+   `my_iapsnj/membership_refunded`, `my_iapsnj/membership_expired`; filters
+   `my_iapsnj/staff_notification`, `my_iapsnj/new_member_notification`,
+   `my_iapsnj/member_notification`.
 
 **Daily expiry job** (WP-Cron `my_iapsnj_daily`, 00:30 site time; `wp iapsnj
 expire`; Members → Lapsed Members → Expirations): every contact whose `paid_through`

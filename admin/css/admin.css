@@ -524,3 +524,13 @@ tr.fcrm-sort-helper { background: #fff; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.1
 .my-iapsnj-sc-example { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 6px 0; }
 .my-iapsnj-sc-example code { padding: 6px 10px; word-break: break-all; }
 .my-iapsnj-sc-atts { margin-top: 8px; }
+
+/* Settings → Emails (4.36) */
+.fcrm-subnav { margin: 4px 0 12px; }
+.fcrm-email-card { border: 1px solid #dcdcde; border-radius: 4px; background: #fff; margin: 12px 0; padding: 2px 16px 6px; }
+.fcrm-email-card h4 { margin: 12px 0 0; font-size: 14px; }
+.fcrm-email-card .form-table th { width: 110px; padding: 12px 10px 12px 0; }
+.fcrm-email-card .form-table td { padding: 8px 10px; }
+.fcrm-email-table { margin: 8px 0 12px; }
+.fcrm-email-table td { vertical-align: top; }
+.fcrm-email-notes { list-style: disc; margin: 4px 0 12px 20px; line-height: 1.7; }

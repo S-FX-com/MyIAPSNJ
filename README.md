@@ -40,15 +40,23 @@ Documentation: [`docs/phase1-findings.md`](docs/phase1-findings.md) ·
   payment before the renewal-season cutover (default Oct 1, Dues → Membership
   Products) covers through Dec 31 of that year; on/after it, through Dec 31 of
   the next year. Checks count from the deposit date.
-* **New-member notification** — email on *payment* with name, full
-  mailing address, email, phone, department, rank, member number, product,
-  amount and links. Never on application submitted.
+* **Payment emails** (Settings → Emails) — what a membership payment sends,
+  once per order and only after payment (never on application submitted):
+  - *to the member*: FluentCart's receipt / renewal / Pay by Check emails are
+    listed and linked, with a switch to stop each one **for membership
+    purchases only**; plus an optional Welcome email (join) and Renewal email
+    (renewal) of our own, with editable subject and message, Preview and Send
+    test; FluentCRM automations are listed and linked;
+  - *to IAPSNJ staff*: a notice each for the **President** and the
+    **Membership Committee**: recipients, on join and / or renewal, Summary or
+    Full (name, type, paid-through, department, rank, member number … plus
+    email, phone, mailing address, payment and order links).
 * **Email design** — WordPress account emails (login details / set
   password, password reset, password or email changed, "New user
   registration"), FluentCart emails (receipts, check instructions) and the
-  new-member notification are sent in the same FluentCRM design as the
+  staff notices are sent in the same FluentCRM design as the
   automations and campaigns, with the IAPSNJ logo and the business name and
-  address as footer (Settings → Configurations → Email design: design, logo,
+  address as footer (Settings → Emails → Email design: design, logo,
   footer, Preview, Send test).
 * **Application inside the checkout** — the Join page is a set of buttons
   (one instant-checkout link per membership product). On the checkout page
@@ -174,7 +182,8 @@ slugs of the screens that existed before 4.11 are unchanged.
 | Members | Lapsed Members | `my-iapsnj-lapsed` | lapsed members and data checks; grace period; expirations Preview / Apply now |
 | Members | Notes Search | `my-iapsnj-notes-search` | |
 | | Reports | `my-iapsnj-reports` | open applications, orphan orders, aging, WP↔CRM orphans; aging threshold, go-live date |
-| Settings | Configurations | `my-iapsnj-sync` | new-member notification, email design, WordPress role per member type, CRM schema, phone number format, names & addresses capitalisation (formerly "Sync & Settings"). The old Profile Mirror and Profile Sync slugs (`my-iapsnj-mapping`, `my-iapsnj-profile-sync`) redirect here |
+| Settings | Emails | `my-iapsnj-emails` | emails to the member (FluentCart's, our Welcome / Renewal), to the President and the Membership Committee; email design. The old Configurations sections (`#notifications`, `#email-design`) redirect here |
+| Settings | Configurations | `my-iapsnj-sync` | WordPress role per member type, CRM schema, phone number format, names & addresses capitalisation (formerly "Sync & Settings"). The old Profile Mirror and Profile Sync slugs (`my-iapsnj-mapping`, `my-iapsnj-profile-sync`) redirect here |
 | Settings | Migrate PMPro | `my-iapsnj-migration` | PMPro → CRM steps (shown while PMPro tables exist) |
 
 ### Member lists (4.12)
@@ -229,8 +238,9 @@ or pass the URLs per site).
 **active** members (the Active Membership rule): cards with headshot (silhouette
 when missing), name, member type, member since, department, rank and email /
 phone icons (`mailto:` / `tel:`). Filters, as a plain GET form so a filtered page
-can be bookmarked: department, rank (the values present among active members),
-join date range, retired Yes / No (retired = a retirement date on the contact, or
+can be bookmarked: membership type (Regular, Associate, Lifetime, and Honorary
+while there is an active Honorary member), department, rank (the values present
+among active members), join date range, retired Yes / No (retired = a retirement date on the contact, or
 Lifetime). Visible to administrators and logged-in members whose own membership
 is active; nobody else. The headshot is the user meta named by `photo_meta` (an
 image URL or an attachment id), or the `my_iapsnj/directory_photo_url` filter.
@@ -318,7 +328,7 @@ Steps: `census`, `link_subscribers`, `consolidate_addresses`,
 Actions: `my_iapsnj/membership_paid($subscriber, $order, $applied)`,
 `my_iapsnj/new_member(...)`, `my_iapsnj/membership_refunded(...)`,
 `my_iapsnj/application_recorded($row, $cart)`.
-Filters: `my_iapsnj/new_member_notification($mail, …)`.
+Filters: `my_iapsnj/staff_notification($mail, $group, $facts, $order)` (every staff notice, `president` | `committee`), `my_iapsnj/new_member_notification($mail, $subscriber, $order, $applied)` (staff notices for a new member only, kept from ≤ 4.35), `my_iapsnj/member_notification($mail, $kind, $facts, $order)` (the member's Welcome / Renewal email).
 
 FluentCart hooks consumed: `fluent_cart/order_paid`, `fluent_cart/renewal_paid`,
 `fluent_cart/order_placed_offline`, `fluent_cart/order_fully_refunded`,

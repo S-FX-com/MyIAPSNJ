@@ -3,7 +3,7 @@
  * Plugin Name:       My IAPSNJ
  * Plugin URI:        https://github.com/S-FX-com/MyIAPSNJ
  * Description:       Membership operations for the IAPSNJ website. FluentCRM is the single source of truth: the membership application is collected on the FluentCart checkout page, FluentCart payments set membership state (Paid-YYYY tags, member_type, paid_through), applications are tracked until they are paid, mailed checks are reconciled in batch, and WordPress accounts get the role of their membership. Includes the PMPro → FluentCRM migration toolkit.
- * Version:           4.35.0
+ * Version:           4.36.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Requires Plugins:  fluent-crm
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'MY_IAPSNJ_VERSION', '4.35.0' );
+define( 'MY_IAPSNJ_VERSION', '4.36.0' );
 define( 'MY_IAPSNJ_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'MY_IAPSNJ_URL',     plugin_dir_url( __FILE__ ) );
 define( 'MY_IAPSNJ_FILE',    __FILE__ );
@@ -90,6 +90,8 @@ final class My_IAPSNJ_Plugin {
         // WordPress account emails, FluentCart emails and the new-member
         // notice in the FluentCRM email design.
         My_IAPSNJ_Emails::get_instance();
+        // Settings → Emails: the member's and staff's payment emails.
+        My_IAPSNJ_Notifications::register_hooks();
         // [iapsnj_change_password]: member-facing "Change My Password" form.
         My_IAPSNJ_Change_Password::get_instance();
         // [iapsnj_edit_profile]: the member edits their own CRM contact.
@@ -188,9 +190,12 @@ final class My_IAPSNJ_Plugin {
             'renewal_variation_associate' => 0,
             // Membership term rule: paid on/after this MM-DD buys the following year.
             'renewal_cutover'         => '10-01',
-            // Notifications.
-            'notify_new_member'       => true,
-            'notify_emails'           => get_option( 'admin_email' ),
+            // Payment emails (Settings → Emails): the President and the
+            // Membership Committee, and the member's Welcome / Renewal email.
+            // (Saved here only once changed; My_IAPSNJ_Notifications fills
+            // the defaults in when it reads them.)
+            'staff_mail'              => [],
+            'member_mail'             => [],
             // Email design (My_IAPSNJ_Emails): WordPress account emails,
             // FluentCart emails and the new-member notice in the FluentCRM
             // design. Logo / footer '' = FluentCRM's business logo / name +
@@ -231,7 +236,7 @@ final class My_IAPSNJ_Plugin {
      * below; it is independent of MY_IAPSNJ_VERSION so that ordinary releases
      * do not re-run migrations.
      */
-    const DATA_VERSION = 18;
+    const DATA_VERSION = 19;
 
     /**
      * Runs any migration steps this install has not seen yet.
@@ -545,6 +550,29 @@ final class My_IAPSNJ_Plugin {
                 $settings = get_option( 'my_iapsnj_settings', [] );
                 if ( is_array( $settings ) ) {
                     unset( $settings['sync_on_fcrm_update'], $settings['link_on_user_register'], $settings['sync_on_user_delete'] );
+                    update_option( 'my_iapsnj_settings', $settings );
+                }
+            }
+
+            // ---- v19: Settings → Emails (4.36) ---------------------------------
+            // The one "New-member notification" (a switch and a recipient
+            // list) becomes the Membership Committee's notice, with the same
+            // switch, recipients and wording (new members only); the President's
+            // is added off.
+            if ( $installed < 19 ) {
+                $settings = get_option( 'my_iapsnj_settings', [] );
+                if ( is_array( $settings ) ) {
+                    if ( ! isset( $settings['staff_mail'] ) ) {
+                        $staff = My_IAPSNJ_Notifications::staff_defaults();
+                        if ( array_key_exists( 'notify_new_member', $settings ) ) {
+                            $staff['committee']['enabled'] = ! empty( $settings['notify_new_member'] );
+                        }
+                        if ( isset( $settings['notify_emails'] ) ) {
+                            $staff['committee']['to'] = implode( ', ', My_IAPSNJ_Notifications::emails( (string) $settings['notify_emails'] ) );
+                        }
+                        $settings['staff_mail'] = $staff;
+                    }
+                    unset( $settings['notify_new_member'], $settings['notify_emails'] );
                     update_option( 'my_iapsnj_settings', $settings );
                 }
             }

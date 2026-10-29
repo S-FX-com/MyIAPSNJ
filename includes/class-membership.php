@@ -48,7 +48,6 @@ class My_IAPSNJ_Membership {
     const META_SOURCE       = '_my_iapsnj_source';       // 'checkout' | 'manual_check'
     const META_CHECK_NUMBER = '_my_iapsnj_check_number';
     const META_DEPOSIT_DATE = '_my_iapsnj_deposit_date';
-    const META_NOTIFIED     = '_my_iapsnj_notified';
 
     // FluentCart's built-in offline method (labelled "Cash" until renamed).
     const OFFLINE_METHOD = 'offline_payment';
@@ -491,8 +490,11 @@ class My_IAPSNJ_Membership {
         // member_type / paid_through.
         self::apply_wp_role( $subscriber );
 
+        // The member's own Welcome / Renewal email and the staff notices
+        // (Settings → Emails): once per order, only now that it is paid.
+        My_IAPSNJ_Notifications::after_payment( $subscriber, $order, $applied );
+
         if ( $is_new ) {
-            $this->send_new_member_notification( $subscriber, $order, $applied );
             do_action( 'my_iapsnj/new_member', $subscriber, $order, $applied );
         }
 
@@ -1346,120 +1348,6 @@ class My_IAPSNJ_Membership {
             }
         }
         return 'member' . wp_generate_password( 6, false );
-    }
-
-    // -----------------------------------------------------------------------
-    // New-member admin notification (the certificate trigger)
-    // -----------------------------------------------------------------------
-
-    private function send_new_member_notification( Subscriber $subscriber, $order, array $applied ): void {
-        $settings = My_IAPSNJ_Plugin::settings();
-        if ( empty( $settings['notify_new_member'] ) ) {
-            return;
-        }
-        if ( $order->getMeta( self::META_NOTIFIED ) ) {
-            return;
-        }
-        $recipients = array_filter( array_map( 'sanitize_email', preg_split( '/[\s,;]+/', (string) $settings['notify_emails'] ) ) );
-        if ( ! $recipients ) {
-            return;
-        }
-
-        $subscriber = Subscriber::where( 'id', $subscriber->id )->first() ?: $subscriber;
-        $custom     = $subscriber->custom_fields();
-        $name       = trim( (string) $subscriber->first_name . ' ' . (string) $subscriber->last_name );
-
-        $address_lines = array_filter( [
-            (string) $subscriber->address_line_1,
-            (string) $subscriber->address_line_2,
-            trim( implode( ' ', array_filter( [ (string) $subscriber->city . ( $subscriber->city ? ',' : '' ), (string) $subscriber->state, (string) $subscriber->postal_code ] ) ) ),
-            (string) $subscriber->country,
-        ] );
-
-        $items = array_map( function ( $i ) {
-            return $i['title'] . ( $i['quantity'] > 1 ? ' ×' . $i['quantity'] : '' );
-        }, $applied['items'] );
-
-        $rows = [
-            __( 'Name', 'my-iapsnj' )            => $name,
-            __( 'Member type', 'my-iapsnj' )     => $applied['member_type'],
-            __( 'Paid through', 'my-iapsnj' )    => $applied['paid_through'] !== '' ? My_IAPSNJ_Dates::ymd_display( $applied['paid_through'] ) : __( 'n/a (no expiration)', 'my-iapsnj' ),
-            __( 'Product', 'my-iapsnj' )         => implode( '; ', $items ),
-            __( 'Payment', 'my-iapsnj' )         => ( $applied['payment'] === 'check' ? __( 'Check', 'my-iapsnj' ) : __( 'Card', 'my-iapsnj' ) ) . ' — ' . self::format_money( (int) $order->total_amount, (string) $order->currency ),
-            __( 'Order', 'my-iapsnj' )           => '#' . (int) $order->id . ( $order->receipt_number ? ' (' . $order->receipt_number . ')' : '' ),
-            __( 'Email', 'my-iapsnj' )           => (string) $subscriber->email,
-            __( 'Cell phone', 'my-iapsnj' )      => My_IAPSNJ_Phone::display( (string) $subscriber->phone ),
-            __( 'Mailing address', 'my-iapsnj' ) => implode( "\n", $address_lines ),
-            __( 'Department', 'my-iapsnj' )      => (string) ( $custom[ My_IAPSNJ_Schema::FIELD_DEPARTMENT ] ?? '' ),
-            __( 'Rank', 'my-iapsnj' )            => (string) ( $custom[ My_IAPSNJ_Schema::FIELD_RANK ] ?? '' ),
-            __( 'Member number', 'my-iapsnj' )   => (string) ( $custom[ My_IAPSNJ_Schema::FIELD_MEMBER_NUMBER ] ?? '' ),
-            __( 'CRM contact', 'my-iapsnj' )     => admin_url( 'admin.php?page=fluentcrm-admin#/subscribers/' . (int) $subscriber->id ),
-            __( 'FluentCart order', 'my-iapsnj' ) => self::order_admin_url( $order ),
-        ];
-
-        $intro = sprintf( __( 'A new IAPSNJ member has PAID (order #%d). Details below are from the CRM after payment.', 'my-iapsnj' ), (int) $order->id );
-        $note  = __( 'This notification is sent only after payment is confirmed; it never fires for an unpaid application.', 'my-iapsnj' );
-
-        if ( My_IAPSNJ_Emails::enabled() ) {
-            // Same design as every other site email (Configurations → Email design).
-            $body    = My_IAPSNJ_Emails::wrap( self::notification_html( $intro, $rows, $note ), $intro );
-            $headers = [ 'Content-Type: text/html; charset=UTF-8' ];
-        } else {
-            $body = $intro . "\n\n";
-            foreach ( $rows as $label => $value ) {
-                $value = is_array( $value ) ? implode( ', ', $value ) : (string) $value;
-                if ( strpos( $value, "\n" ) !== false ) {
-                    $body .= $label . ":\n    " . str_replace( "\n", "\n    ", $value ) . "\n";
-                } else {
-                    $body .= $label . ': ' . ( $value !== '' ? $value : '—' ) . "\n";
-                }
-            }
-            $body   .= "\n" . $note . "\n";
-            $headers = [ 'Content-Type: text/plain; charset=UTF-8' ];
-        }
-
-        $subject = sprintf( __( '[IAPSNJ] New member paid: %s (%s)', 'my-iapsnj' ), $name !== '' ? $name : $subscriber->email, $applied['member_type'] );
-
-        /**
-         * Filter the new-member notification before it is sent.
-         *
-         * @param array $mail ['to' => string[], 'subject' => string, 'body' => string (HTML when the email design is on, else plain text), 'headers' => string[]]
-         */
-        $mail = apply_filters( 'my_iapsnj/new_member_notification', [
-            'to'      => array_values( $recipients ),
-            'subject' => $subject,
-            'body'    => $body,
-            'headers' => $headers,
-        ], $subscriber, $order, $applied );
-
-        if ( ! empty( $mail['to'] ) ) {
-            wp_mail( $mail['to'], $mail['subject'], $mail['body'], $mail['headers'] );
-        }
-        $order->updateMeta( self::META_NOTIFIED, My_IAPSNJ_Dates::now_utc() );
-    }
-
-    /**
-     * The new-member notice as HTML: intro, a label / value table (admin
-     * URLs as links, line breaks kept), closing note.
-     *
-     * @param array<string,string|string[]> $rows
-     */
-    private static function notification_html( string $intro, array $rows, string $note ): string {
-        $html = '<p>' . esc_html( $intro ) . '</p>'
-            . '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin:0 0 16px;">';
-        foreach ( $rows as $label => $value ) {
-            $value = is_array( $value ) ? implode( ', ', $value ) : (string) $value;
-            if ( $value === '' ) {
-                $cell = '—';
-            } elseif ( preg_match( '#^https?://\S+$#', $value ) ) {
-                $cell = '<a href="' . esc_url( $value ) . '">' . esc_html__( 'Open', 'my-iapsnj' ) . '</a>';
-            } else {
-                $cell = nl2br( esc_html( $value ) );
-            }
-            $html .= '<tr><td style="padding:6px 12px 6px 0;border-bottom:1px solid #eeeeee;vertical-align:top;white-space:nowrap;font-weight:600;">' . esc_html( (string) $label ) . '</td>'
-                . '<td style="padding:6px 0;border-bottom:1px solid #eeeeee;vertical-align:top;">' . $cell . '</td></tr>';
-        }
-        return $html . '</table><p style="font-size:13px;color:#666666;">' . esc_html( $note ) . '</p>';
     }
 
     // -----------------------------------------------------------------------
