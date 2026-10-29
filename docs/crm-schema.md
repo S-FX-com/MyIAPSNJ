@@ -28,7 +28,9 @@ Honorary is **never a product**: it is admin-assigned (tag + `member_type`).
 |---|---|---|---|
 | `member_type` | select-one | `Regular` / `Associate` / `Lifetime` / `Honorary` | **Mandatory.** The exclusion condition for dues campaigns is `member_type` is none of `Lifetime`, `Honorary`. A purchase never lowers the type. |
 | `paid_through` | date (Y-m-d) | e.g. `2027-12-31` | Set from the product (fixed calendar-year date), only ever extended (`max`). **Null for Lifetime and Honorary** — the plugin deletes the value; never a far-future date. |
-| `member_number` | number | | Migrated from ACF `MemberNum` (already synced pre-4.0). Printed on the memo line of checks; shown in Pending Checks. |
+| `member_number` | number | | Migrated from ACF `MemberNum` (already synced pre-4.0); it is simply the WordPress user id, so a join / renewal fills it with the linked user's id when it is empty (4.39) and never changes an existing number. Printed on the memo line of checks; shown in Pending Checks. |
+| `member_status` | select-one | e.g. `Regular` / `Associate` / `Lifetime` / `Honorary` | The CRM's own **Member Status** (ACF era), kept in step with `member_type` by `My_IAPSNJ_Member_Fields` (4.39): the option that names the member's type (`Regular`, `Regular Member` …); an `Expired` / `Lapsed` / `Inactive` option once the membership has run out, when the list has one; a list of standing (`Active` / `Expired`) is served too. No fitting option: the field is left alone (Configurations says so). Not created by the plugin. |
+| `expiration_date` | date (Y-m-d) | | The CRM's own **Expiration Date** (ACF era) = `paid_through`, kept in step (4.39); deleted for Lifetime and Honorary. Not created by the plugin. |
 | `department` | text (or select-one, see below) | | Required on the checkout application (dropdown options set in My IAPSNJ → Dues → Checkout Builder). |
 | `iapsnj_rank` | select-one | | The CRM's own Rank dropdown; its option list is what the checkout and profile offer (4.29). Earlier versions wrote a duplicate text field `rank_level`: the 4.29 upgrade copies its values here (see *Slugs the plugin once wrote*). |
 | `join_date` | date | `Y-m-d` | Migrated from ACF `join_date`; for new members set to the payment date of their first paid order (4.4.0), never overwritten. |
@@ -66,9 +68,9 @@ and populated it — the data is there; only the ACF side is dropped.
 |---|---|---|---|
 | first_name / last_name / user_email | ✔ | default fields | core identity |
 | MemberNum | ✔ | `member_number` | already in CRM; used on checks |
-| member_status | ✔ → replaced | `member_type` | the old free-form status becomes the controlled type |
+| member_status | ✔ → replaced | `member_type` | the old free-form status becomes the controlled type; the CRM field itself is kept in step with it (4.39) |
 | join_date | ✔ | `join_date` | already in CRM |
-| expiration_date | ✔ → replaced | `paid_through` | derived from PMPro end date / orders, then owned by FluentCart |
+| expiration_date | ✔ → replaced | `paid_through` | derived from PMPro end date / orders, then owned by FluentCart; the CRM field itself is kept equal to it (4.39) |
 | last_payment_date | 🏷 | `Paid-YYYY` | year granularity is what the client actually asks for |
 | primary_phone | ✔ | `phone` | |
 | alternate_phone | ✔ | pmpro_b* (7 keys) | ✔ merged then ✖ | address fields | consolidated by migration; PMPro meta is transaction history, never written |
@@ -90,6 +92,29 @@ Retire decision (2026-09-24): the client wants every field of the old
 onboarding form on the checkout, so only `admin_notes` is retired. `elo_title`
 is kept but hidden until its meaning is confirmed. Any field can still be
 hidden from My IAPSNJ → Checkout Builder.
+
+## The CRM's Membership group (4.39)
+
+FluentCRM's contact screen shows a *Membership* group: Member Number, Member
+Status, Join Date, Expiration Date. The plugin's own state is `member_type` and
+`paid_through`, so the ACF-era Member Status and Expiration Date were left
+empty (or stale) for anyone who joined or renewed after the migration.
+`My_IAPSNJ_Member_Fields` writes them whenever the membership state changes:
+
+* every write of `member_type` / `paid_through` (`My_IAPSNJ_Schema::set_fields`:
+  a payment, a refund, the migration steps);
+* after a payment links the member's WordPress user, and when a new WordPress
+  user is linked to a member contact (the Member Number = the user id);
+* when the expiry job takes `Member-Active` off or puts it back (Member Status);
+* in bulk: Settings → Configurations → *CRM Membership fields* (Preview / Apply
+  now: members who joined before this, and the migrated ones). The bulk run
+  writes straight to the FluentCRM tables like the phone and name tools, so no
+  contact-updated automation fires.
+
+A field the CRM does not have is skipped, never created. A contact with no
+`member_type` is left alone, except that a refund that returns a first-time
+member to no type also clears the Member Status and Expiration Date.
+`join_date` is set directly on the first payment, as before.
 
 ## WordPress user: link and role (4.35)
 

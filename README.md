@@ -68,6 +68,14 @@ Documentation: [`docs/phase1-findings.md`](docs/phase1-findings.md) ·
     (saved or not); each email has its own Save, Preview and Send test with
     its result shown under it. The President and the Committee are one table
     (Send, To, New member, Renewal).
+* **CRM Membership fields** — a join, renewal or refund also fills the CRM's
+  own *Membership* group (the contact screen in FluentCRM): Expiration Date =
+  paid through, Member Status = the member type (Expired / Lapsed once it has
+  run out, when the list has that option), Member Number = the WordPress user
+  id when empty; Join Date is set on the first payment. A field the CRM does
+  not have is skipped. Settings → Configurations → *CRM Membership fields*
+  shows what was found and how each type maps, and brings the members who
+  joined before (and the migrated ones) up to date (Preview / Apply now).
 * **Email design** — WordPress account emails (login details / set
   password, password reset, password or email changed, "New user
   registration"), FluentCart emails (receipts, check instructions) and the

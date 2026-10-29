@@ -15,7 +15,7 @@
  *    Notes Search         FluentCRM notes search with inline tagging
  *  Reports                open applications, orphan orders, aging checks, WP↔CRM orphans; report settings
  *  Settings
- *    Configurations       WordPress role per member type, CRM schema, phones, names & addresses (slug my-iapsnj-sync)
+ *    Configurations       WordPress role per member type, CRM schema, phones, names & addresses, CRM Membership fields (slug my-iapsnj-sync)
  *    Emails               emails to the member, to the President and the Membership Committee; email design
  *    Shortcodes           every shortcode the plugin provides, with options and copy-ready examples
  *    Migrate PMPro        PMPro → FluentCRM toolkit (only while PMPro tables exist)
@@ -55,7 +55,7 @@ class My_IAPSNJ_Admin {
             'checkout_form_create', 'checkout_form_duplicate', 'checkout_form_delete', 'checkout_forms_assign',
             'search_notes', 'get_tags', 'assign_tag',
             'checks_list', 'checks_mark_paid', 'search_members', 'record_check',
-            'save_products', 'apply_offline_labels', 'ensure_schema', 'run_expiry', 'normalize_phones', 'normalize_names', 'send_test_email', 'send_test_notification',
+            'save_products', 'apply_offline_labels', 'ensure_schema', 'run_expiry', 'normalize_phones', 'normalize_names', 'sync_member_fields', 'send_test_email', 'send_test_notification',
             'migration_run', 'export_orders', 'download_export', 'report',
         ];
         foreach ( $ajax as $action ) {
@@ -759,6 +759,47 @@ class My_IAPSNJ_Admin {
             <p><button class="button fcrm-normalize-names" data-dry="1"><?php esc_html_e( 'Preview', 'my-iapsnj' ); ?></button>
                <button class="button button-primary fcrm-normalize-names" data-dry="0"><?php esc_html_e( 'Apply now', 'my-iapsnj' ); ?></button></p>
             <div id="fcrm-names-result"></div>
+        </div>
+
+        <?php $member_fields = My_IAPSNJ_Member_Fields::overview(); ?>
+        <div class="fcrm-section" id="member-fields">
+            <h2><?php esc_html_e( 'CRM Membership fields', 'my-iapsnj' ); ?></h2>
+            <p class="description"><?php esc_html_e( 'The Membership group on a contact in FluentCRM (Member Number, Member Status, Join Date, Expiration Date) is filled in by every join, renewal and refund, from the membership rules in Dues → Membership Products. The plugin\'s own fields are member_type and paid_through; these are the CRM\'s older ones, kept in step with them. A field the CRM does not have is skipped, never created.', 'my-iapsnj' ); ?></p>
+            <table class="widefat striped fcrm-email-table">
+                <thead><tr>
+                    <th><?php esc_html_e( 'Field', 'my-iapsnj' ); ?></th>
+                    <th><?php esc_html_e( 'In the CRM', 'my-iapsnj' ); ?></th>
+                    <th><?php esc_html_e( 'Filled from', 'my-iapsnj' ); ?></th>
+                </tr></thead>
+                <tbody>
+                <?php foreach ( $member_fields['fields'] as $mf ) : ?>
+                    <tr>
+                        <td><strong><?php echo esc_html( $mf['label'] ); ?></strong> <code><?php echo esc_html( $mf['slug'] ); ?></code></td>
+                        <td><?php if ( $mf['exists'] ) : ?><span class="fcrm-badge"><?php esc_html_e( 'Found', 'my-iapsnj' ); ?></span><?php else : ?><span class="fcrm-badge fcrm-badge-warn"><?php esc_html_e( 'Not found: skipped', 'my-iapsnj' ); ?></span><?php endif; ?></td>
+                        <td><?php echo esc_html( $mf['source'] ); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+            <?php if ( $member_fields['status_map'] ) : ?>
+                <p class="description"><?php
+                    echo esc_html( sprintf(
+                        /* translators: %s: the options of the Member Status dropdown */
+                        __( 'Member Status offers: %s.', 'my-iapsnj' ),
+                        $member_fields['status_options'] ? implode( ', ', $member_fields['status_options'] ) : __( '(no options)', 'my-iapsnj' )
+                    ) );
+                ?></p>
+                <ul class="fcrm-email-notes">
+                    <?php foreach ( $member_fields['status_map'] as $type_label => $option ) : ?>
+                        <li><?php echo esc_html( $type_label ); ?> → <?php echo $option !== '' ? '<strong>' . esc_html( $option ) . '</strong>' : '<em>' . esc_html__( 'no matching option: the field is left as it is', 'my-iapsnj' ) . '</em>'; ?></li>
+                    <?php endforeach; ?>
+                </ul>
+                <p class="description"><?php esc_html_e( 'To have Member Status show something else, add the option to the Member Status field in FluentCRM → Settings → Custom Fields (named like the member type, or Expired / Lapsed / Inactive).', 'my-iapsnj' ); ?></p>
+            <?php endif; ?>
+            <p class="description"><?php esc_html_e( 'Members who joined or renewed before this was added, and the ones migrated from the old site, are brought up to date here. Nothing is overwritten except these fields; an existing Member Number stays.', 'my-iapsnj' ); ?></p>
+            <p><button class="button fcrm-sync-member-fields" data-dry="1"><?php esc_html_e( 'Preview', 'my-iapsnj' ); ?></button>
+               <button class="button button-primary fcrm-sync-member-fields" data-dry="0"><?php esc_html_e( 'Apply now', 'my-iapsnj' ); ?></button></p>
+            <div id="fcrm-member-fields-result"></div>
         </div>
 
         <div class="fcrm-section">
@@ -1978,6 +2019,17 @@ class My_IAPSNJ_Admin {
         $limit = min( 1000, max( 1, (int) ( $_POST['limit'] ?? 500 ) ) ); // phpcs:ignore
         try {
             wp_send_json_success( My_IAPSNJ_Capitalization::normalize_contacts( $dry, $limit ) + [ 'dry' => $dry ] );
+        } catch ( \Throwable $e ) {
+            wp_send_json_error( [ 'message' => $e->getMessage() ] );
+        }
+    }
+
+    public function ajax_sync_member_fields(): void {
+        $this->ajax_guard();
+        $dry   = ! empty( $_POST['dry'] ); // phpcs:ignore
+        $limit = min( 1000, max( 1, (int) ( $_POST['limit'] ?? 500 ) ) ); // phpcs:ignore
+        try {
+            wp_send_json_success( My_IAPSNJ_Member_Fields::sync_all( $dry, $limit ) + [ 'dry' => $dry ] );
         } catch ( \Throwable $e ) {
             wp_send_json_error( [ 'message' => $e->getMessage() ] );
         }

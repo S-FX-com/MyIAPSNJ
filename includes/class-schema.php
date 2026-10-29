@@ -30,6 +30,9 @@ final class My_IAPSNJ_Schema {
     const FIELD_MEMBER_TYPE    = 'member_type';
     const FIELD_PAID_THROUGH   = 'paid_through';
     const FIELD_MEMBER_NUMBER  = 'member_number';
+    /** The CRM's own Member Status and Expiration Date (ACF era); kept in step by My_IAPSNJ_Member_Fields. */
+    const FIELD_MEMBER_STATUS   = 'member_status';
+    const FIELD_EXPIRATION_DATE = 'expiration_date';
     const FIELD_DEPARTMENT     = 'department';
     // The CRM's own Rank dropdown (select-one); earlier plugin versions wrote a
     // duplicate text field, rank_level (see legacy_slugs()).
@@ -179,6 +182,8 @@ final class My_IAPSNJ_Schema {
             self::FIELD_MEMBER_TYPE,
             self::FIELD_PAID_THROUGH,
             self::FIELD_MEMBER_NUMBER,
+            self::FIELD_MEMBER_STATUS,
+            self::FIELD_EXPIRATION_DATE,
             self::FIELD_JOIN_DATE,
             self::FIELD_LEGACY_LEVEL,
         ];
@@ -567,7 +572,9 @@ final class My_IAPSNJ_Schema {
 
     /**
      * Write custom field values. Empty string deletes the value (this is how
-     * paid_through is set to null for Lifetime / Honorary members).
+     * paid_through is set to null for Lifetime / Honorary members). A change of
+     * member_type or paid_through also brings the CRM's Membership fields
+     * (Member Status, Expiration Date, Member Number) in step.
      *
      * @param array<string,string> $values
      */
@@ -576,6 +583,9 @@ final class My_IAPSNJ_Schema {
             return;
         }
         $subscriber->syncCustomFieldValues( $values, true );
+        if ( array_key_exists( self::FIELD_MEMBER_TYPE, $values ) || array_key_exists( self::FIELD_PAID_THROUGH, $values ) ) {
+            My_IAPSNJ_Member_Fields::sync( $subscriber, $values );
+        }
     }
 
     // -----------------------------------------------------------------------

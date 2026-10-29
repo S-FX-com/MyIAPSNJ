@@ -95,6 +95,9 @@ wp iapsnj migrate set_member_state $LM
 wp iapsnj expire --dry-run
 wp iapsnj expire
 
+# 6c. The CRM's Membership group (Member Number = WordPress id, Member Status, Expiration Date)
+#     Settings → Configurations → CRM Membership fields: Preview, then Apply now (no CLI)
+
 # 7. Logins intact
 wp iapsnj verify-logins --expected=<baseline WP users>
 

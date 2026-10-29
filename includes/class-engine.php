@@ -76,6 +76,7 @@ class My_IAPSNJ_Engine {
             if ( empty( $sub->user_id ) ) {
                 $sub->user_id = $user_id;
                 $sub->save();
+                My_IAPSNJ_Member_Fields::sync( $sub ); // a member without a number gets their user id
             }
             self::apply_role( $sub, $user_id );
         }

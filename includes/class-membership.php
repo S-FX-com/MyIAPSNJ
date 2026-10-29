@@ -410,6 +410,8 @@ class My_IAPSNJ_Membership {
 
         // ---- WordPress login -----------------------------------------------
         $user_id = $this->ensure_wp_user( $subscriber, $order );
+        // The WordPress user is linked now: the CRM's Member Number can take its id.
+        My_IAPSNJ_Member_Fields::sync( $subscriber );
 
         // ---- Member-Active tag + WordPress role ---------------------------
         self::reconcile_contact( $subscriber );
@@ -558,6 +560,10 @@ class My_IAPSNJ_Membership {
             } catch ( \Throwable $e ) {
                 error_log( 'My IAPSNJ: role update failed for contact #' . (int) $subscriber->id . ': ' . $e->getMessage() );
             }
+        }
+        if ( $out['tag'] !== '' ) {
+            // Active <-> expired: the CRM's Member Status follows (when its list has such an option).
+            My_IAPSNJ_Member_Fields::sync( $subscriber, [], $custom );
         }
         if ( $out['tag'] === 'removed' ) {
             /**

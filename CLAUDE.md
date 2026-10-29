@@ -25,6 +25,10 @@ schema, runbook, automations, forms, UAT matrix, what is not in git).
   and check payments; do not hook `payment_status_changed_to_paid` for that.
 - Tag slugs, custom-field slugs and member types live in `class-schema.php`;
   never repeat the string literals.
+- The CRM's Member Status, Expiration Date and Member Number are mirrors of
+  `member_type`, `paid_through` and the WordPress user id, written only by
+  `My_IAPSNJ_Member_Fields` (called from `Schema::set_fields()`); never write
+  them from anywhere else, and never create them (the CRM already has them).
 - `paid_through` is a calendar-date string: format with
   `My_IAPSNJ_Dates::ymd_display()`, never `wp_date()`/`date()`. Lifetime and
   Honorary have it **deleted**, never a far-future date.

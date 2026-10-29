@@ -725,6 +725,44 @@
         run();
     });
 
+    // Configurations → CRM Membership fields: same loop as the phone tool.
+    $('.fcrm-sync-member-fields').on('click', function () {
+        var $btn = $(this), dry = String($btn.data('dry')) === '1', $out = $('#fcrm-member-fields-result').html('<p>' + i18n.loading + '</p>');
+        if (!dry && !window.confirm('Fill in the Member Number, Member Status and Expiration Date of the members in the CRM now?')) { $out.empty(); return; }
+        setBtn($btn, i18n.loading, true);
+        var first = null, done = 0, rounds = 0;
+        function report() {
+            var by = Object.keys(first.by_field || {}).map(function (k) { return k + ': ' + first.by_field[k]; }).join(' · ');
+            var html = '<p>' + (dry ? 'Preview' : 'Applied') + ': ' + first.checked + ' members checked · to update: ' + first.to_change + (dry ? '' : ' · done: ' + done) + (by ? ' (' + escHtml(by) + ')' : '') + '</p>';
+            if ((first.missing_fields || []).length) { html += '<p class="fcrm-muted">Not in the CRM, skipped: ' + escHtml(first.missing_fields.join(', ')) + '</p>'; }
+            if (first.status_unmatched) { html += '<p class="fcrm-error">' + first.status_unmatched + ' member(s) have no matching Member Status option (' + escHtml((first.status_unmatched_types || []).join(', ')) + '): add one in FluentCRM → Custom Fields, then run this again.</p>'; }
+            if ((first.samples || []).length) { html += '<ul style="margin-left:18px">' + first.samples.map(function (s) { return '<li>' + escHtml(s) + '</li>'; }).join('') + '</ul>'; }
+            $out.html(html);
+        }
+        function run() {
+            post('sync_member_fields', { dry: dry ? 1 : 0, limit: 500 })
+                .done(function (resp) {
+                    if (!resp.success) { $out.html('<p class="fcrm-error">' + escHtml(errMsg(resp)) + '</p>'); resetBtn($btn); return; }
+                    var d = resp.data;
+                    if (!first) { first = d; }
+                    rounds++;
+                    if (!dry) {
+                        done += d.changed;
+                        // Each call re-reads the CRM; stop when a batch has nothing left or changes nothing.
+                        if (d.to_change > d.changed && d.changed > 0 && rounds < 200) {
+                            $out.html('<p>' + i18n.loading + ' ' + done + ' / ' + first.to_change + '</p>');
+                            run();
+                            return;
+                        }
+                    }
+                    report();
+                    resetBtn($btn);
+                })
+                .fail(function () { $out.html('<p class="fcrm-error">' + i18n.error + '</p>'); resetBtn($btn); });
+        }
+        run();
+    });
+
     // Configurations → Names & addresses: same loop as the phone tool.
     $('.fcrm-normalize-names').on('click', function () {
         var $btn = $(this), dry = String($btn.data('dry')) === '1', $out = $('#fcrm-names-result').html('<p>' + i18n.loading + '</p>');
