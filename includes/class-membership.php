@@ -20,8 +20,8 @@
  * paid_through (never shortened), removes the pending tags, copies the
  * application fields collected at checkout onto the contact, creates the
  * WordPress user if none exists, resolves the application, and sends the
- * new-member admin notification (name, full mailing address, email, phone,
- * department — the certificate trigger, and it fires on paid only).
+ * payment emails (My_IAPSNJ_Notifications: the President, the Membership
+ * Committee and, if switched on, the member; once per order, on paid only).
  *
  * fluent_cart/order_paid is dispatched synchronously by FluentCart's
  * StatusHelper::syncOrderStatuses() for every path above (verified against
