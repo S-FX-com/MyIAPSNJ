@@ -64,6 +64,10 @@ Documentation: [`docs/phase1-findings.md`](docs/phase1-findings.md) ·
   - *test emails*: **Send tests to** (Settings → Emails, remembered per
     administrator; blank = their own address; up to five, comma-separated)
     decides where every Send test goes, never to the real recipients.
+    Preview and Send test use the subject and message **as on the screen**
+    (saved or not); each email has its own Save, Preview and Send test with
+    its result shown under it. The President and the Committee are one table
+    (Send, To, New member, Renewal).
 * **Email design** — WordPress account emails (login details / set
   password, password reset, password or email changed, "New user
   registration"), FluentCart emails (receipts, check instructions) and the

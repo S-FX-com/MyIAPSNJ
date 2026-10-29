@@ -532,6 +532,12 @@ tr.fcrm-sort-helper { background: #fff; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.1
 .fcrm-email-card .form-table th { width: 110px; padding: 12px 10px 12px 0; }
 .fcrm-email-card .form-table td { padding: 8px 10px; }
 .fcrm-email-card .wp-editor-wrap { max-width: 760px; }
+.fcrm-card-notice { margin: 0 0 10px; }
+.fcrm-staff-recipients { margin: 8px 0 6px; }
+.fcrm-staff-recipients th, .fcrm-staff-recipients td { vertical-align: middle; }
+.fcrm-staff-recipients .fcrm-col-check { width: 90px; text-align: center; }
+.fcrm-staff-recipients input[type="text"] { width: 100%; min-width: 170px; }
+@media (max-width: 600px) { .fcrm-staff-recipients .fcrm-col-check { width: 56px; } }
 .fcrm-token { margin: 0 4px 6px 0; padding: 0; border: 0; background: none; cursor: pointer; }
 .fcrm-token code { display: inline-block; padding: 2px 8px; border: 1px solid #c3c4c7; border-radius: 3px; background: #f6f7f7; }
 .fcrm-token:hover code, .fcrm-token:focus code { border-color: #2271b1; background: #f0f6fc; color: #135e96; }
