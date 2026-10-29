@@ -5,8 +5,8 @@
  * Lists active members (the same rule as Members → Active Membership, through
  * My_IAPSNJ_Members' SQL) as cards: headshot (a placeholder when there is
  * none), name, member type, member since, department, rank, and email / phone
- * icons that open the mail or phone app. Filters: department, rank, join date
- * range, retired. Filters are a plain GET form (works without scripts, and a
+ * icons that open the mail or phone app. Filters: membership type (Regular,
+ * Associate, Lifetime …), department, rank, join date range, retired. Filters are a plain GET form (works without scripts, and a
  * filtered page can be bookmarked or shared); results are paged.
  *
  * - Retired = a retirement date on the contact, or a Lifetime membership
@@ -34,6 +34,7 @@ final class My_IAPSNJ_Directory {
     const HANDLE    = 'my-iapsnj-directory';
 
     /** Query-string keys (prefixed so they never meet WordPress's own). */
+    const Q_TYPE    = 'mdir_type';
     const Q_DEPT    = 'mdir_dept';
     const Q_RANK    = 'mdir_rank';
     const Q_FROM    = 'mdir_from';
@@ -113,12 +114,16 @@ final class My_IAPSNJ_Directory {
     /**
      * WHERE for the active members matching the filters.
      *
-     * @param array{dept:string,rank:string,from:string,to:string,retired:string} $f
+     * @param array{type:string,dept:string,rank:string,from:string,to:string,retired:string} $f
      */
     private static function where_sql( array $f ): string {
         global $wpdb;
         $t     = My_IAPSNJ_Members::tables();
         $where = [ My_IAPSNJ_Members::is_member_sql(), My_IAPSNJ_Members::active_sql() ];
+
+        if ( $f['type'] !== '' ) {
+            $where[] = $wpdb->prepare( 'BINARY m.member_type = %s', $f['type'] );
+        }
 
         if ( $f['dept'] !== '' ) {
             // The department is the primary company; the custom field is the fallback.
@@ -277,6 +282,20 @@ final class My_IAPSNJ_Directory {
         return $out;
     }
 
+    /**
+     * Membership types the filter offers: those of today's active members, in
+     * the order Regular, Associate, Lifetime, Honorary (so Honorary appears
+     * only while an active Honorary member exists, and no choice is empty).
+     *
+     * @return string[]
+     */
+    private static function type_options(): array {
+        $present = self::filter_options( My_IAPSNJ_Schema::FIELD_MEMBER_TYPE );
+        return array_values( array_filter( My_IAPSNJ_Schema::member_types(), function ( $type ) use ( $present ) {
+            return in_array( $type, $present, true );
+        } ) );
+    }
+
     // -----------------------------------------------------------------------
     // Headshot
     // -----------------------------------------------------------------------
@@ -324,7 +343,9 @@ final class My_IAPSNJ_Directory {
             [ $from, $to ] = [ $to, $from ];
         }
         $retired = strtolower( $get( self::Q_RETIRED ) );
+        $type    = $get( self::Q_TYPE );
         return [
+            'type'    => in_array( $type, My_IAPSNJ_Schema::member_types(), true ) ? $type : '',
             'dept'    => $get( self::Q_DEPT ),
             'rank'    => $get( self::Q_RANK ),
             'from'    => $from,
@@ -387,11 +408,12 @@ final class My_IAPSNJ_Directory {
         $paged    = min( $paged, $pages );
         $meta_key = sanitize_key( (string) $atts['photo_meta'] );
 
+        $types = self::type_options();
         $depts = self::filter_options( self::key_department() );
         $ranks = self::filter_options( self::key_rank() );
 
         // The page address without our own keys: the form and the paging add them back.
-        $base = remove_query_arg( [ self::Q_DEPT, self::Q_RANK, self::Q_FROM, self::Q_TO, self::Q_RETIRED, self::Q_PAGE ] );
+        $base = remove_query_arg( [ self::Q_TYPE, self::Q_DEPT, self::Q_RANK, self::Q_FROM, self::Q_TO, self::Q_RETIRED, self::Q_PAGE ] );
         $keep = [];
         // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only
         foreach ( (array) $_GET as $k => $v ) {
@@ -408,6 +430,15 @@ final class My_IAPSNJ_Directory {
                 <?php foreach ( $keep as $k => $v ) : ?>
                     <input type="hidden" name="<?php echo esc_attr( $k ); ?>" value="<?php echo esc_attr( $v ); ?>">
                 <?php endforeach; ?>
+                <div class="my-iapsnj-dir-field">
+                    <label for="mdir-type"><?php esc_html_e( 'Membership type', 'my-iapsnj' ); ?></label>
+                    <select id="mdir-type" name="<?php echo esc_attr( self::Q_TYPE ); ?>">
+                        <option value=""><?php esc_html_e( 'All types', 'my-iapsnj' ); ?></option>
+                        <?php foreach ( $types as $t ) : ?>
+                            <option value="<?php echo esc_attr( $t ); ?>"<?php selected( $filters['type'], $t ); ?>><?php echo esc_html( $t ); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
                 <div class="my-iapsnj-dir-field">
                     <label for="mdir-dept"><?php esc_html_e( 'Department', 'my-iapsnj' ); ?></label>
                     <select id="mdir-dept" name="<?php echo esc_attr( self::Q_DEPT ); ?>">
@@ -504,7 +535,7 @@ final class My_IAPSNJ_Directory {
                 <?php
                 if ( $pages > 1 ) {
                     $args = [];
-                    foreach ( [ self::Q_DEPT => 'dept', self::Q_RANK => 'rank', self::Q_FROM => 'from', self::Q_TO => 'to', self::Q_RETIRED => 'retired' ] as $q => $k ) {
+                    foreach ( [ self::Q_TYPE => 'type', self::Q_DEPT => 'dept', self::Q_RANK => 'rank', self::Q_FROM => 'from', self::Q_TO => 'to', self::Q_RETIRED => 'retired' ] as $q => $k ) {
                         if ( $filters[ $k ] !== '' ) {
                             $args[ $q ] = $filters[ $k ];
                         }

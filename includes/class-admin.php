@@ -15,9 +15,8 @@
  *    Notes Search         FluentCRM notes search with inline tagging
  *  Reports                open applications, orphan orders, aging checks, WP↔CRM orphans; report settings
  *  Settings
- *    Configurations       new-member notification, email design, CRM schema, phones, names & addresses (slug my-iapsnj-sync)
- *    Profile Mirror       CRM → WP field map
- *    Profile Sync         mirror triggers, mirror all now, WordPress role per member type
+ *    Configurations       WordPress role per member type, CRM schema, phones, names & addresses (slug my-iapsnj-sync)
+ *    Emails               emails to the member, to the President and the Membership Committee; email design
  *    Shortcodes           every shortcode the plugin provides, with options and copy-ready examples
  *    Migrate PMPro        PMPro → FluentCRM toolkit (only while PMPro tables exist)
  */
@@ -28,9 +27,6 @@ class My_IAPSNJ_Admin {
 
     /** @var self|null */
     private static ?self $instance = null;
-
-    /** @var My_IAPSNJ_Field_Mapper */
-    private My_IAPSNJ_Field_Mapper $mapper;
 
     const CAP        = 'manage_options';
     const MENU_GROUP = 'my-iapsnj-menu-group';
@@ -44,8 +40,6 @@ class My_IAPSNJ_Admin {
     }
 
     private function __construct() {
-        $this->mapper = new My_IAPSNJ_Field_Mapper();
-
         add_action( 'admin_menu',            [ $this, 'register_menu' ] );
         add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_assets' ] );
         add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_menu_assets' ] );
@@ -57,12 +51,11 @@ class My_IAPSNJ_Admin {
         add_filter( 'menu_order',        [ $this, 'reorder_admin_menu' ] );
 
         $ajax = [
-            'save_mappings', 'save_settings', 'save_checkout_fields', 'import_field_options', 'bulk_sync', 'search_users', 'sample_data',
+            'save_settings', 'save_checkout_fields', 'import_field_options',
             'checkout_form_create', 'checkout_form_duplicate', 'checkout_form_delete', 'checkout_forms_assign',
-            'refresh_field_list',
             'search_notes', 'get_tags', 'assign_tag',
             'checks_list', 'checks_mark_paid', 'search_members', 'record_check',
-            'save_products', 'apply_offline_labels', 'ensure_schema', 'run_expiry', 'normalize_phones', 'normalize_names', 'send_test_email',
+            'save_products', 'apply_offline_labels', 'ensure_schema', 'run_expiry', 'normalize_phones', 'normalize_names', 'send_test_email', 'send_test_notification',
             'migration_run', 'export_orders', 'download_export', 'report',
         ];
         foreach ( $ajax as $action ) {
@@ -83,8 +76,7 @@ class My_IAPSNJ_Admin {
         // slugs of existing screens are unchanged, so bookmarks keep working.
         $settings = [
             [ 'my-iapsnj-sync',         esc_html__( 'Configurations', 'my-iapsnj' ), 'render_sync_page' ],
-            [ 'my-iapsnj-mapping',      esc_html__( 'Profile Mirror', 'my-iapsnj' ), 'render_field_mapping_page' ],
-            [ 'my-iapsnj-profile-sync', esc_html__( 'Profile Sync', 'my-iapsnj' ),   'render_profile_sync_page' ],
+            [ 'my-iapsnj-emails',       esc_html__( 'Emails', 'my-iapsnj' ),         'render_emails_page' ],
             [ 'my-iapsnj-shortcodes',   esc_html__( 'Shortcodes', 'my-iapsnj' ),     'render_shortcodes_page' ],
         ];
         if ( My_IAPSNJ_Migration::tables_exist() ) {
@@ -158,13 +150,16 @@ class My_IAPSNJ_Admin {
      * Slugs from the fcrm-wp-sync era and from the removed 3.x screens (audit P4-8).
      */
     private static array $legacy_slugs = [
-        'fcrm-wp-sync'              => 'my-iapsnj-mapping',
+        'fcrm-wp-sync'              => 'my-iapsnj-sync',
         'fcrm-wp-sync-sync'         => 'my-iapsnj-sync',
         'fcrm-wp-sync-mismatches'   => 'my-iapsnj-reports',
         'fcrm-wp-sync-pmp'          => 'my-iapsnj-migration',
         'fcrm-wp-sync-notes-search' => 'my-iapsnj-notes-search',
         'my-iapsnj-mismatches'      => 'my-iapsnj-reports',
         'my-iapsnj-pmp'             => 'my-iapsnj-migration',
+        // Retired in 4.35: the field mirror is gone; the roles moved to Configurations.
+        'my-iapsnj-mapping'         => 'my-iapsnj-sync',
+        'my-iapsnj-profile-sync'    => 'my-iapsnj-sync',
     ];
 
     public function redirect_legacy_slugs(): void {
@@ -189,7 +184,8 @@ class My_IAPSNJ_Admin {
             }
         }
         $args['page'] = $target;
-        wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ), 301 );
+        $anchor       = $page === 'my-iapsnj-profile-sync' ? '#roles' : ''; // the roles moved to Configurations
+        wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ) . $anchor, 301 );
         exit;
     }
 
@@ -275,9 +271,6 @@ class My_IAPSNJ_Admin {
                 'error'      => __( 'Error. Please try again.', 'my-iapsnj' ),
                 'loading'    => __( 'Loading…', 'my-iapsnj' ),
                 'copied'     => __( 'Copied!', 'my-iapsnj' ),
-                'syncing'    => __( 'Mirroring…', 'my-iapsnj' ),
-                'syncDone'   => __( 'Mirror complete.', 'my-iapsnj' ),
-                'confirmDelete' => __( 'Remove this mapping row?', 'my-iapsnj' ),
                 'noRows'     => __( 'Nothing to show.', 'my-iapsnj' ),
                 'confirmPaid' => __( 'Mark the selected orders as PAID? This applies Paid-YYYY tags and sends receipts. It cannot be undone from here (use a FluentCart refund).', 'my-iapsnj' ),
                 'confirmRecord' => __( 'Create and pay a FluentCart order for this member?', 'my-iapsnj' ),
@@ -310,100 +303,6 @@ class My_IAPSNJ_Admin {
         if ( ! current_user_can( self::CAP ) ) {
             wp_send_json_error( [ 'message' => 'Insufficient permissions' ], 403 );
         }
-    }
-
-    /**
-     * Normalise posted mapping rows (shared with the REST API).
-     */
-    public static function sanitize_mapping_rows( array $raw, My_IAPSNJ_Field_Mapper $mapper ): array {
-        $wp_fields   = $mapper->get_wp_fields();
-        $fcrm_fields = $mapper->get_fcrm_fields();
-        $allowed     = [ 'text', 'select', 'date', 'checkbox', 'number', 'email', 'textarea' ];
-        $clean       = [];
-        foreach ( $raw as $row_id => $row ) {
-            if ( ! is_array( $row ) ) {
-                continue;
-            }
-            $wp_uid   = sanitize_text_field( (string) ( $row['wp_uid'] ?? '' ) );
-            $fcrm_uid = sanitize_text_field( (string) ( $row['fcrm_uid'] ?? '' ) );
-            if ( $wp_uid === '' || $fcrm_uid === '' ) {
-                continue;
-            }
-            $wp_f   = $wp_fields[ $wp_uid ] ?? null;
-            $fcrm_f = $fcrm_fields[ $fcrm_uid ] ?? null;
-            if ( ! $wp_f || ! $fcrm_f ) {
-                continue;
-            }
-            $type      = in_array( $row['field_type'] ?? '', $allowed, true ) ? $row['field_type'] : 'text';
-            $value_map = [];
-            if ( $type === 'select' && ! empty( $row['value_map'] ) && is_array( $row['value_map'] ) ) {
-                foreach ( $row['value_map'] as $wp_val => $fcrm_val ) {
-                    $wp_val   = sanitize_text_field( (string) $wp_val );
-                    $fcrm_val = sanitize_text_field( (string) $fcrm_val );
-                    if ( $wp_val !== '' && $fcrm_val !== '' ) {
-                        $value_map[ $wp_val ] = $fcrm_val;
-                    }
-                }
-            }
-            $id = sanitize_text_field( (string) ( $row['id'] ?? $row_id ) );
-            $clean[] = [
-                'id'                => $id !== '' && ! is_numeric( $id ) ? $id : My_IAPSNJ_Field_Mapper::generate_id(),
-                'wp_field_key'      => $wp_f['key'],
-                'wp_field_source'   => $wp_f['source'],
-                'wp_field_label'    => $wp_f['label'],
-                'fcrm_field_key'    => $fcrm_f['key'],
-                'fcrm_field_source' => $fcrm_f['source'],
-                'fcrm_field_label'  => $fcrm_f['label'],
-                'field_type'        => $type,
-                'sync_direction'    => 'fcrm_to_wp',
-                'enabled'           => ! empty( $row['enabled'] ),
-                'date_format_wp'    => sanitize_text_field( (string) ( $row['date_format_wp'] ?? 'm/d/Y' ) ) ?: 'm/d/Y',
-                'date_format_fcrm'  => 'Y-m-d',
-                'acf_field_type'    => $wp_f['acf_field_type'] ?? '',
-                'value_map'         => $value_map,
-            ];
-        }
-        return $clean;
-    }
-
-    /**
-     * One page of the CRM → WP mirror (shared with the REST API).
-     */
-    public static function run_bulk_mirror( int $per_page, int $offset, array $user_ids = [], int $total = 0 ): array {
-        $engine  = My_IAPSNJ_Engine::get_instance();
-        $success = 0;
-        $errors  = [];
-        $query   = \FluentCrm\App\Models\Subscriber::whereNotNull( 'user_id' )->where( 'user_id', '>', 0 )->orderBy( 'id' );
-        if ( $user_ids ) {
-            $query = \FluentCrm\App\Models\Subscriber::whereIn( 'user_id', array_map( 'intval', $user_ids ) );
-        } else {
-            $query = $query->skip( $offset )->take( $per_page );
-        }
-        foreach ( $query->get() as $contact ) {
-            try {
-                $engine->sync_fcrm_to_wp( $contact );
-                $success++;
-            } catch ( \Throwable $e ) {
-                $errors[] = [ 'id' => (int) $contact->id, 'error' => $e->getMessage() ];
-            }
-        }
-        // Counted on the first page; later pages pass it back.
-        if ( $total <= 0 || $offset === 0 ) {
-            $total = (int) \FluentCrm\App\Models\Subscriber::whereNotNull( 'user_id' )->where( 'user_id', '>', 0 )->count();
-        }
-        $has_more = $user_ids ? false : ( ( $offset + $per_page ) < $total );
-        if ( ! $has_more ) {
-            update_option( 'my_iapsnj_last_bulk_sync', current_time( 'mysql' ) );
-        }
-        return [
-            'success'     => $success,
-            'errors'      => $errors,
-            'offset'      => $offset,
-            'per_page'    => $per_page,
-            'total'       => $total,
-            'has_more'    => $has_more,
-            'next_offset' => $offset + $per_page,
-        ];
     }
 
     private function page_header( string $title, string $description = '' ): void {
@@ -473,6 +372,11 @@ class My_IAPSNJ_Admin {
         // Environment checklist.
         $form_names     = wp_list_pluck( My_IAPSNJ_Checkout_Fields::forms(), 'name' );
         $level_forms    = [];
+        $staff_mail_ok  = false;
+        foreach ( array_keys( My_IAPSNJ_Notifications::staff_groups() ) as $staff_group ) {
+            $staff_cfg     = My_IAPSNJ_Notifications::staff( $staff_group );
+            $staff_mail_ok = $staff_mail_ok || ( ! empty( $staff_cfg['enabled'] ) && My_IAPSNJ_Notifications::emails( (string) $staff_cfg['to'] ) );
+        }
         $levels_ok      = true;
         foreach ( My_IAPSNJ_Checkout_Fields::assignments() as $level => $form_id ) {
             $n             = count( My_IAPSNJ_Checkout_Fields::input_fields( $form_id ) );
@@ -491,7 +395,7 @@ class My_IAPSNJ_Admin {
             [ $offline['configured'] && $offline['active'] && stripos( $offline['label'], 'check' ) !== false, sprintf( __( 'Offline payment method active and labelled "%s"', 'my-iapsnj' ), $offline['label'] !== '' ? $offline['label'] : 'Cash' ), admin_url( 'admin.php?page=my-iapsnj-checkout#pay-by-check' ) ],
             [ My_IAPSNJ_Membership::check_offered_on_subscriptions() !== false, __( 'Pay by Check offered on yearly memberships (FluentCart → Settings → Subscriptions: Manual Fallback on; the plugin switches it on at upgrade)', 'my-iapsnj' ), admin_url( 'admin.php?page=my-iapsnj-checkout#pay-by-check' ) ],
             [ My_IAPSNJ_Membership::checkout_phone_enabled() !== false, __( 'Phone field on every FluentCart checkout (FluentCart → Settings → Checkout Fields → Billing → Phone on; a membership checkout labels it "Cell phone"; the plugin switches it on at upgrade)', 'my-iapsnj' ), '' ],
-            [ ! empty( $settings['notify_new_member'] ) && ! empty( $settings['notify_emails'] ), __( 'New-member notification recipients set', 'my-iapsnj' ), admin_url( 'admin.php?page=my-iapsnj-sync#notifications' ) ],
+            [ $staff_mail_ok, __( 'Staff payment notice switched on with a recipient (President or Membership Committee)', 'my-iapsnj' ), admin_url( 'admin.php?page=my-iapsnj-emails#staff-emails' ) ],
             [ My_IAPSNJ_Applications::table_exists(), __( 'Applications table present', 'my-iapsnj' ), '' ],
             [ ! My_IAPSNJ_Migration::tables_exist() || ! function_exists( 'pmpro_getMembershipLevelForUser' ), __( 'Paid Memberships Pro deactivated (tables may remain)', 'my-iapsnj' ), '' ],
         ];
@@ -672,7 +576,7 @@ class My_IAPSNJ_Admin {
                     <input type="text" name="renewal_cutover" value="<?php echo esc_attr( $cutover ); ?>" class="small-text" style="width:80px" placeholder="10-01" pattern="\d{2}-\d{2}"> <span class="fcrm-muted">MM-DD</span>
                     <p class="description"><?php echo esc_html( sprintf(
                         /* translators: 1: cutover MM-DD, 2: today, 3: paid_through of a payment today, 4: cutover date this year */
-                        __( 'Each payment covers one year and the expiration date comes from the payment date, not the product: paid before %1$s → through Dec 31 of that year, on or after it → through Dec 31 of the next year (card payments, subscription renewals and checks by deposit date). A payment today (%2$s) covers through %3$s; from %4$s it covers the following year. The Paid-YYYY tag follows the same year. Lifetime → member_type Lifetime, paid_through deleted, Lifetime tag.', 'my-iapsnj' ),
+                        __( 'Each payment covers one year and the expiration date comes from the payment date, not the product: paid before %1$s → through Dec 31 of that year, on or after it → through Dec 31 of the next year (card payments, subscription renewals and checks by deposit date). A payment today (%2$s) covers through %3$s; from %4$s it covers the following year. The Paid-YYYY tag follows the same year. Lifetime → member_type Lifetime, paid_through deleted, Lifetime tag. The Renew Now button of [iapsnj_my_membership] appears for an active member from this date (a member who already renewed after it waits for next year\'s), and always for a lapsed one.', 'my-iapsnj' ),
                         $cutover,
                         My_IAPSNJ_Dates::ymd_display( $today ),
                         My_IAPSNJ_Dates::ymd_display( $example['paid_through'] ),
@@ -771,177 +675,7 @@ class My_IAPSNJ_Admin {
     }
 
     // -----------------------------------------------------------------------
-    // Page: Profile Mirror (field mapping)
-    // -----------------------------------------------------------------------
-
-    public function render_field_mapping_page(): void {
-        $this->guard();
-        $wp_fields   = $this->mapper->get_wp_fields();
-        $fcrm_fields = $this->mapper->get_fcrm_fields();
-        $mappings    = $this->mapper->get_saved_mappings();
-
-        uasort( $wp_fields, fn( $a, $b ) => strcmp( $a['label'], $b['label'] ) );
-        uasort( $fcrm_fields, function ( $a, $b ) {
-            $ga = $a['source'] === 'default' ? 0 : 1;
-            $gb = $b['source'] === 'default' ? 0 : 1;
-            return $ga !== $gb ? $ga - $gb : strcmp( $a['label'], $b['label'] );
-        } );
-
-        $saved_by_fcrm = [];
-        foreach ( $mappings as $m ) {
-            $saved_by_fcrm[ ( $m['fcrm_field_source'] ?? '' ) . '__' . ( $m['fcrm_field_key'] ?? '' ) ][] = $m;
-        }
-
-        $this->page_header( __( 'Profile Mirror (CRM → WordPress)', 'my-iapsnj' ), __( 'Which FluentCRM contact fields are copied onto the linked WordPress user. One direction only: the CRM is the source of truth and nothing is written back from WordPress.', 'my-iapsnj' ) );
-        ?>
-        <p><?php
-            printf(
-                /* translators: %s: link to Profile Sync */
-                esc_html__( 'When the mirror runs, "Mirror all contacts → users" and the WordPress role per member type are on %s.', 'my-iapsnj' ),
-                '<a href="' . esc_url( admin_url( 'admin.php?page=my-iapsnj-profile-sync' ) ) . '">' . esc_html__( 'Profile Sync', 'my-iapsnj' ) . '</a>'
-            );
-        ?></p>
-        <div id="fcrm-mapping-notice" class="fcrm-notice" style="display:none"></div>
-        <div class="fcrm-mapping-toolbar">
-            <button id="fcrm-add-row" class="button button-secondary">+ <?php esc_html_e( 'Add Row', 'my-iapsnj' ); ?></button>
-            <button id="fcrm-save-mappings" class="button button-primary"><?php esc_html_e( 'Save Mappings', 'my-iapsnj' ); ?></button>
-            <button id="fcrm-refresh-field-list" class="button" title="<?php esc_attr_e( 'The list of WordPress profile fields (user meta keys, ACF fields) is cached for 12 hours. Refresh it after adding a field.', 'my-iapsnj' ); ?>"><?php esc_html_e( 'Refresh field list', 'my-iapsnj' ); ?></button>
-        </div>
-        <div class="fcrm-mapping-table-wrap">
-            <table class="widefat fcrm-mapping-table" id="fcrm-mapping-table">
-                <thead><tr>
-                    <th><?php esc_html_e( 'FluentCRM Field (source)', 'my-iapsnj' ); ?></th>
-                    <th><?php esc_html_e( 'WordPress Field (target)', 'my-iapsnj' ); ?></th>
-                    <th><?php esc_html_e( 'Field Type', 'my-iapsnj' ); ?></th>
-                    <th><?php esc_html_e( 'Enabled', 'my-iapsnj' ); ?></th>
-                    <th><?php esc_html_e( 'Remove', 'my-iapsnj' ); ?></th>
-                </tr></thead>
-                <tbody id="fcrm-mapping-rows">
-                <?php
-                $rendered = [];
-                foreach ( $fcrm_fields as $uid => $fcrm_field ) {
-                    $rendered[] = $uid;
-                    if ( isset( $saved_by_fcrm[ $uid ] ) ) {
-                        foreach ( $saved_by_fcrm[ $uid ] as $m ) {
-                            $this->render_mapping_row( $m, $wp_fields, $fcrm_fields );
-                        }
-                    } else {
-                        $rec_uid = $this->mapper->get_recommended_wp_field( $fcrm_field['key'], $fcrm_field['type'], $wp_fields );
-                        $rec     = $rec_uid ? ( $wp_fields[ $rec_uid ] ?? null ) : null;
-                        $this->render_mapping_row( [
-                            'fcrm_field_key'    => $fcrm_field['key'],
-                            'fcrm_field_source' => $fcrm_field['source'],
-                            'fcrm_field_label'  => $fcrm_field['label'],
-                            'wp_field_key'      => $rec ? $rec['key'] : '',
-                            'wp_field_source'   => $rec ? $rec['source'] : '',
-                            'field_type'        => $fcrm_field['type'],
-                            'enabled'           => false,
-                            'is_recommendation' => ! empty( $rec_uid ),
-                        ], $wp_fields, $fcrm_fields );
-                    }
-                }
-                foreach ( $mappings as $m ) {
-                    $fcrm_uid = ( $m['fcrm_field_source'] ?? '' ) . '__' . ( $m['fcrm_field_key'] ?? '' );
-                    if ( ! in_array( $fcrm_uid, $rendered, true ) ) {
-                        $this->render_mapping_row( $m, $wp_fields, $fcrm_fields );
-                    }
-                }
-                ?>
-                </tbody>
-            </table>
-        </div>
-        <template id="fcrm-row-template"><?php $this->render_mapping_row( [], $wp_fields, $fcrm_fields, true ); ?></template>
-
-        <div class="fcrm-section" id="fcrm-preview-section" style="margin-top:28px">
-            <h2><?php esc_html_e( 'Sample Data Preview', 'my-iapsnj' ); ?></h2>
-            <p class="description"><?php esc_html_e( 'Pick a WordPress user to see the CRM value and the mirrored WordPress value side by side.', 'my-iapsnj' ); ?></p>
-            <div class="fcrm-preview-search">
-                <div class="fcrm-user-search-wrap">
-                    <input type="text" id="fcrm-preview-user-input" class="regular-text" placeholder="<?php esc_attr_e( 'Search by name, email or username…', 'my-iapsnj' ); ?>" autocomplete="off">
-                    <div id="fcrm-user-suggestions" class="fcrm-user-suggestions" style="display:none"></div>
-                </div>
-                <button id="fcrm-preview-load" class="button button-primary" disabled><?php esc_html_e( 'Preview Data', 'my-iapsnj' ); ?></button>
-            </div>
-            <div id="fcrm-preview-results" style="display:none; margin-top:16px"></div>
-        </div>
-        </div>
-        <?php
-    }
-
-    private function render_mapping_row( array $mapping, array $wp_fields, array $fcrm_fields, bool $is_template = false ): void {
-        $id          = $mapping['id'] ?? '';
-        $wp_key      = $mapping['wp_field_key'] ?? '';
-        $wp_src      = $mapping['wp_field_source'] ?? '';
-        $fcrm_key    = $mapping['fcrm_field_key'] ?? '';
-        $fcrm_src    = $mapping['fcrm_field_source'] ?? '';
-        $field_type  = $mapping['field_type'] ?? 'text';
-        $enabled     = ! empty( $mapping['enabled'] );
-        $date_fmt_wp = $mapping['date_format_wp'] ?? 'm/d/Y';
-        $value_map   = $mapping['value_map'] ?? [];
-        $is_rec      = ! empty( $mapping['is_recommendation'] );
-        $row_id      = $is_template ? '__TEMPLATE__' : ( $id ?: My_IAPSNJ_Field_Mapper::generate_id() );
-
-        $src_labels  = [ 'user' => 'WordPress User', 'meta' => 'User Meta', 'acf' => 'ACF (user meta)' ];
-        $type_labels = [ 'text' => 'Text', 'email' => 'Email', 'date' => 'Date', 'number' => 'Number', 'select' => 'Dropdown', 'checkbox' => 'Checkbox', 'textarea' => 'Textarea' ];
-
-        echo '<tr class="fcrm-mapping-row' . ( $is_rec ? ' fcrm-row-suggested' : '' ) . '" data-id="' . esc_attr( $row_id ) . '"' . ( $is_rec ? ' data-suggested="1"' : '' ) . '>';
-
-        // CRM field
-        echo '<td><select class="fcrm-fcrm-field" name="mappings[' . esc_attr( $row_id ) . '][fcrm_uid]">';
-        echo '<option value="">' . esc_html__( '— Select FluentCRM field —', 'my-iapsnj' ) . '</option>';
-        foreach ( $fcrm_fields as $uid => $f ) {
-            printf(
-                '<option value="%s" data-type="%s" data-options="%s" data-source-label="%s" data-type-label="%s"%s>%s</option>',
-                esc_attr( $uid ),
-                esc_attr( $f['type'] ),
-                esc_attr( wp_json_encode( $f['options'] ?? [] ) ),
-                esc_attr( $f['source'] === 'custom' ? 'FluentCRM Custom' : 'FluentCRM' ),
-                esc_attr( $type_labels[ $f['type'] ] ?? ucfirst( $f['type'] ) ),
-                selected( $f['key'] === $fcrm_key && $f['source'] === $fcrm_src, true, false ),
-                esc_html( $f['label'] )
-            );
-        }
-        echo '</select><p class="fcrm-field-hint fcrm-fcrm-hint"></p></td>';
-
-        // WP field
-        echo '<td>';
-        if ( $is_rec && $wp_key !== '' ) {
-            echo '<span class="fcrm-suggested-badge">' . esc_html__( 'Suggested', 'my-iapsnj' ) . '</span>';
-        }
-        echo '<select class="fcrm-wp-field" name="mappings[' . esc_attr( $row_id ) . '][wp_uid]">';
-        echo '<option value="">' . esc_html__( '— Don\'t mirror —', 'my-iapsnj' ) . '</option>';
-        foreach ( $wp_fields as $uid => $f ) {
-            printf(
-                '<option value="%s" data-type="%s" data-options="%s" data-date-format="%s" data-source-label="%s" data-type-label="%s"%s>%s</option>',
-                esc_attr( $uid ),
-                esc_attr( $f['type'] ),
-                esc_attr( wp_json_encode( $f['options'] ?? [] ) ),
-                esc_attr( $f['date_format_wp'] ?? '' ),
-                esc_attr( $src_labels[ $f['source'] ] ?? $f['source'] ),
-                esc_attr( $type_labels[ $f['type'] ] ?? ucfirst( $f['type'] ) ),
-                selected( $f['key'] === $wp_key && $f['source'] === $wp_src, true, false ),
-                esc_html( $f['label'] )
-            );
-        }
-        echo '</select><p class="fcrm-field-hint fcrm-wp-hint"></p></td>';
-
-        // Type
-        echo '<td><select class="fcrm-field-type" name="mappings[' . esc_attr( $row_id ) . '][field_type]">';
-        foreach ( $type_labels as $val => $label ) {
-            echo '<option value="' . esc_attr( $val ) . '"' . selected( $field_type, $val, false ) . '>' . esc_html( $label ) . '</option>';
-        }
-        echo '</select>';
-        echo '<div class="fcrm-date-format-wrap" style="margin-top:4px"><small>' . esc_html__( 'WP date format:', 'my-iapsnj' ) . ' </small>';
-        echo '<input type="text" class="fcrm-date-format-wp small-text" value="' . esc_attr( $date_fmt_wp ) . '" placeholder="m/d/Y" name="mappings[' . esc_attr( $row_id ) . '][date_format_wp]"></div>';
-        echo '<input type="hidden" class="fcrm-value-map-json" value="' . esc_attr( wp_json_encode( $value_map ) ) . '"></td>';
-
-        echo '<td style="text-align:center"><input type="checkbox" class="fcrm-enabled" name="mappings[' . esc_attr( $row_id ) . '][enabled]" value="1"' . checked( $enabled, true, false ) . '></td>';
-        echo '<td style="text-align:center"><button type="button" class="button fcrm-remove-row" title="' . esc_attr__( 'Remove', 'my-iapsnj' ) . '">&#10005;</button></td>';
-        echo '</tr>';
-    }
-
-    // -----------------------------------------------------------------------
-    // Pages: Settings → Configurations, Profile Sync; Members → Active, Lapsed
+    // Pages: Settings → Configurations; Members → Active, Lapsed
     // -----------------------------------------------------------------------
 
     /**
@@ -951,8 +685,11 @@ class My_IAPSNJ_Admin {
     public function render_sync_page(): void {
         $this->guard();
         $settings = My_IAPSNJ_Plugin::settings();
+        $roles    = My_IAPSNJ_Engine::assignable_roles();
+        $role_map = My_IAPSNJ_Engine::role_map();
         $moved    = [
-            'roles'       => [ admin_url( 'admin.php?page=my-iapsnj-profile-sync#roles' ), __( 'Profile Sync', 'my-iapsnj' ), __( 'Mirror now, mirror triggers, WordPress role per member type', 'my-iapsnj' ) ],
+            'notifications' => [ admin_url( 'admin.php?page=my-iapsnj-emails#staff-emails' ), __( 'Emails', 'my-iapsnj' ), __( 'Emails to the member, the President and the Membership Committee', 'my-iapsnj' ) ],
+            'email-design'  => [ admin_url( 'admin.php?page=my-iapsnj-emails#email-design' ), __( 'Emails', 'my-iapsnj' ), __( 'Email design: logo, footer, FluentCRM look, Preview and Send test', 'my-iapsnj' ) ],
             'application' => [ admin_url( 'admin.php?page=my-iapsnj-products#join-renew' ), __( 'Membership Products', 'my-iapsnj' ), __( 'Renewal season, renewal products, Join page URL', 'my-iapsnj' ) ],
             'checkout'    => [ admin_url( 'admin.php?page=my-iapsnj-checkout#checkout-settings' ), __( 'Checkout Builder', 'my-iapsnj' ), __( 'Billing address → CRM, Pay by Check label & instructions', 'my-iapsnj' ) ],
             'expiry'      => [ admin_url( 'admin.php?page=' . My_IAPSNJ_Members::page_slug( My_IAPSNJ_Members::STATE_LAPSED ) . '#expiry' ), __( 'Lapsed Members', 'my-iapsnj' ), __( 'Expirations (Preview / Apply now), grace period', 'my-iapsnj' ) ],
@@ -960,62 +697,39 @@ class My_IAPSNJ_Admin {
         ];
         $this->page_header( __( 'Configurations', 'my-iapsnj' ) );
         ?>
-        <form class="fcrm-settings-form" id="notifications">
+        <form class="fcrm-settings-form" id="roles">
         <div class="fcrm-section">
-            <h2><?php esc_html_e( 'New-member notification (certificate trigger)', 'my-iapsnj' ); ?></h2>
+            <h2><?php esc_html_e( 'WordPress roles', 'my-iapsnj' ); ?></h2>
+            <p class="description"><?php esc_html_e( 'The WordPress role each member type gets, and the role a lapsed member drops to. Applied whenever a contact is saved, a payment is recorded, and by the daily expiry job (Members → Lapsed Members → Apply now brings every account up to date). Only users whose current role is one of the roles chosen here (or Subscriber) are changed; administrators, editors and any other staff role are never touched. Leave a type on "— leave unchanged —" to skip it. A new member\'s WordPress user is created as Subscriber and gets the mapped role in the same request; to create a dedicated role (e.g. "Member"), use any roles plugin, then pick it here. Member details are not copied onto WordPress users: they live in FluentCRM only.', 'my-iapsnj' ); ?></p>
             <div class="fcrm-notice fcrm-form-notice" style="display:none"></div>
             <table class="form-table">
-                <tr><th><?php esc_html_e( 'Send', 'my-iapsnj' ); ?></th><td><label><input type="checkbox" name="notify_new_member" value="1" <?php checked( ! empty( $settings['notify_new_member'] ) ); ?>> <?php esc_html_e( 'Email the admins when a NEW member\'s payment is confirmed (never on application submitted)', 'my-iapsnj' ); ?></label></td></tr>
-                <tr><th><?php esc_html_e( 'Recipients', 'my-iapsnj' ); ?></th><td><input type="text" name="notify_emails" value="<?php echo esc_attr( (string) $settings['notify_emails'] ); ?>" class="large-text"> <p class="description"><?php esc_html_e( 'Comma-separated. Includes name, full mailing address, email, phone, department, rank, member number, product, payment method and order links. FluentCart\'s own "order paid" admin email is separate.', 'my-iapsnj' ); ?></p></td></tr>
-            </table>
-            <p><button type="submit" class="button button-primary"><?php esc_html_e( 'Save', 'my-iapsnj' ); ?></button></p>
-        </div>
-        </form>
-
-        <?php
-        $logo_default   = My_IAPSNJ_Emails::default_logo_url();
-        $footer_default = My_IAPSNJ_Emails::default_footer();
-        $logo_now       = My_IAPSNJ_Emails::logo_url();
-        ?>
-        <form class="fcrm-settings-form" id="email-design">
-        <div class="fcrm-section">
-            <h2><?php esc_html_e( 'Email design', 'my-iapsnj' ); ?></h2>
-            <p class="description"><?php esc_html_e( 'FluentCRM emails (automations, campaigns) use the design in FluentCRM → Settings → Email Styling. With this on, the other site emails get the same design, the logo on top and the footer below: WordPress account emails (login details / set password, password reset, password or email changed, "New user registration" to the admin), FluentCart emails (receipts, Pay by Check instructions, admin order emails) and the new-member notification. FluentCart\'s own email preview still shows FluentCart\'s layout; use Preview / Send test here.', 'my-iapsnj' ); ?></p>
-            <div class="fcrm-notice fcrm-form-notice" style="display:none"></div>
-            <table class="form-table">
-                <tr><th><?php esc_html_e( 'Apply', 'my-iapsnj' ); ?></th><td><label><input type="checkbox" name="email_branding" value="1" <?php checked( ! empty( $settings['email_branding'] ) ); ?>> <?php esc_html_e( 'Send these emails in the FluentCRM design', 'my-iapsnj' ); ?></label></td></tr>
-                <tr><th><?php esc_html_e( 'FluentCRM design', 'my-iapsnj' ); ?></th><td>
-                    <select name="email_design">
-                        <?php foreach ( My_IAPSNJ_Emails::designs() as $design => $label ) : ?>
-                            <option value="<?php echo esc_attr( $design ); ?>" <?php selected( My_IAPSNJ_Emails::design(), $design ); ?>><?php echo esc_html( $label ); ?></option>
+                <?php foreach ( My_IAPSNJ_Schema::member_types() as $type ) : ?>
+                <tr><th><?php echo esc_html( $type ); ?></th><td>
+                    <select name="role_map[<?php echo esc_attr( $type ); ?>]">
+                        <option value=""><?php esc_html_e( '— leave unchanged —', 'my-iapsnj' ); ?></option>
+                        <?php foreach ( $roles as $slug => $name ) : ?>
+                            <option value="<?php echo esc_attr( $slug ); ?>" <?php selected( $role_map[ $type ] ?? '', $slug ); ?>><?php echo esc_html( $name . ' (' . $slug . ')' ); ?></option>
                         <?php endforeach; ?>
                     </select>
-                    <p class="description"><?php esc_html_e( 'Pick the design your FluentCRM emails use (Simple Boxed = grey page, white box).', 'my-iapsnj' ); ?></p>
                 </td></tr>
-                <tr><th><?php esc_html_e( 'Logo URL', 'my-iapsnj' ); ?></th><td>
-                    <input type="url" name="email_logo_url" value="<?php echo esc_attr( (string) $settings['email_logo_url'] ); ?>" class="large-text" placeholder="<?php echo esc_attr( $logo_default ); ?>">
-                    <?php if ( $logo_now !== '' ) : ?><p><img src="<?php echo esc_url( $logo_now ); ?>" alt="" style="max-width:80px;height:auto;border:1px solid #dcdcde;background:#fff;padding:4px"></p><?php endif; ?>
-                    <p class="description"><?php esc_html_e( 'Empty = the business logo in FluentCRM → Settings → Business Settings, else the site logo. Use a PNG or JPG; many email programs do not show SVG or WebP.', 'my-iapsnj' ); ?></p>
-                </td></tr>
-                <tr><th><?php esc_html_e( 'Footer', 'my-iapsnj' ); ?></th><td>
-                    <textarea name="email_footer" rows="2" class="large-text" placeholder="<?php echo esc_attr( $footer_default ); ?>"><?php echo esc_textarea( (string) $settings['email_footer'] ); ?></textarea>
-                    <p class="description"><?php esc_html_e( 'Plain text. Empty = the business name and address from FluentCRM → Settings → Business Settings. No unsubscribe link: these are account and payment emails.', 'my-iapsnj' ); ?></p>
+                <?php endforeach; ?>
+                <tr><th><?php esc_html_e( 'When expired', 'my-iapsnj' ); ?></th><td>
+                    <select name="role_expired">
+                        <option value=""><?php esc_html_e( '— leave the role —', 'my-iapsnj' ); ?></option>
+                        <?php foreach ( $roles as $slug => $name ) : ?>
+                            <option value="<?php echo esc_attr( $slug ); ?>" <?php selected( (string) ( $settings['role_expired'] ?? '' ), $slug ); ?>><?php echo esc_html( $name . ' (' . $slug . ')' ); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <p class="description"><?php
+                        printf(
+                            /* translators: %s: link to Lapsed Members */
+                            esc_html__( 'The role a member drops to when the membership lapses (the daily expiry job; grace period and Preview / Apply on %s). A payment puts the mapped role back.', 'my-iapsnj' ),
+                            '<a href="' . esc_url( admin_url( 'admin.php?page=' . My_IAPSNJ_Members::page_slug( My_IAPSNJ_Members::STATE_LAPSED ) . '#expiry' ) ) . '">' . esc_html__( 'Lapsed Members', 'my-iapsnj' ) . '</a>'
+                        );
+                    ?></p>
                 </td></tr>
             </table>
-            <p>
-                <button type="submit" class="button button-primary"><?php esc_html_e( 'Save', 'my-iapsnj' ); ?></button>
-                <a class="button" href="<?php echo esc_url( My_IAPSNJ_Emails::preview_url() ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'Preview', 'my-iapsnj' ); ?></a>
-                <button type="button" class="button fcrm-send-test-email"><?php echo esc_html( sprintf( /* translators: %s: email address */ __( 'Send test to %s', 'my-iapsnj' ), wp_get_current_user()->user_email ) ); ?></button>
-            </p>
-            <p class="description"><?php esc_html_e( 'Preview and Send test show the saved design, logo and footer (save first), even while Apply is off. The sample is the "Login details" email a new member receives. On staging, sending is simulated: find the test in FluentSMTP → Email Logs.', 'my-iapsnj' ); ?></p>
-            <?php if ( My_IAPSNJ_Membership::is_available() && ! My_IAPSNJ_Emails::fluentcart_supported() ) : ?>
-                <p class="description" style="color:#b32d2e"><?php echo esc_html( sprintf(
-                    /* translators: 1: installed FluentCart version, 2: required version */
-                    __( 'FluentCart %1$s is installed: its emails keep FluentCart\'s own layout until FluentCart is updated to %2$s or later. WordPress emails and the new-member notification already use this design.', 'my-iapsnj' ),
-                    defined( 'FLUENTCART_VERSION' ) ? (string) FLUENTCART_VERSION : '?',
-                    My_IAPSNJ_Emails::FLUENTCART_MIN
-                ) ); ?></p>
-            <?php endif; ?>
+            <p><button type="submit" class="button button-primary"><?php esc_html_e( 'Save', 'my-iapsnj' ); ?></button></p>
         </div>
         </form>
 
@@ -1065,6 +779,210 @@ class My_IAPSNJ_Admin {
         }
         $redirects['expiry-grace'] = $redirects['expiry'];
         echo '<script>(function(){var m=' . wp_json_encode( $redirects ) . ',h=(location.hash||"").replace("#","");if(h&&m[h]){location.replace(m[h]);}}());</script>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- JSON-encoded admin URLs
+    }
+
+    /**
+     * Settings → Emails: every email a membership payment sets off (to the
+     * member, to the President and the Membership Committee) and the design
+     * they share.
+     */
+    public function render_emails_page(): void {
+        $this->guard();
+        $settings = My_IAPSNJ_Plugin::settings();
+        $member   = My_IAPSNJ_Notifications::member();
+        $fc_all   = My_IAPSNJ_Notifications::fluentcart_emails();
+        $can_veto = My_IAPSNJ_Notifications::can_veto_fluentcart();
+        $fc_url   = My_IAPSNJ_Notifications::fluentcart_settings_url();
+        $this->page_header( __( 'Emails', 'my-iapsnj' ), __( 'What a membership payment emails: the member who joins or renews, the President and the Membership Committee, and the design they all share. Sent once per order, only after the payment is confirmed.', 'my-iapsnj' ) );
+
+        $fluentcart_table = function ( string $to ) use ( $fc_all, $member, $can_veto, $fc_url ): void {
+            ?>
+            <table class="widefat striped fcrm-email-table">
+                <thead><tr>
+                    <th><?php esc_html_e( 'Email', 'my-iapsnj' ); ?></th>
+                    <th><?php esc_html_e( 'Sent when', 'my-iapsnj' ); ?></th>
+                    <th><?php esc_html_e( 'In FluentCart', 'my-iapsnj' ); ?></th>
+                    <th><?php esc_html_e( 'Send for membership purchases', 'my-iapsnj' ); ?></th>
+                </tr></thead>
+                <tbody>
+                <?php foreach ( $fc_all as $key => $row ) : ?>
+                    <?php
+                    if ( $row['to'] !== $to ) {
+                        continue;
+                    }
+                    $state = My_IAPSNJ_Notifications::fluentcart_state( $key );
+                    ?>
+                    <tr>
+                        <td><strong><?php echo esc_html( $row['title'] ); ?></strong>
+                            <?php if ( $state['subject'] !== '' ) : ?><br><small class="fcrm-muted"><?php echo esc_html( sprintf( /* translators: %s: email subject */ __( 'Subject: %s', 'my-iapsnj' ), $state['subject'] ) ); ?></small><?php endif; ?></td>
+                        <td><?php echo esc_html( $row['when'] ); ?></td>
+                        <td>
+                            <?php if ( ! $state['known'] ) : ?>
+                                <span class="fcrm-badge fcrm-badge-warn"><?php esc_html_e( 'Not found', 'my-iapsnj' ); ?></span>
+                            <?php elseif ( $row['always'] ) : ?>
+                                <span class="fcrm-badge"><?php esc_html_e( 'Always sent', 'my-iapsnj' ); ?></span>
+                            <?php elseif ( $state['active'] ) : ?>
+                                <span class="fcrm-badge"><?php esc_html_e( 'On', 'my-iapsnj' ); ?></span>
+                            <?php else : ?>
+                                <span class="fcrm-badge fcrm-badge-warn"><?php esc_html_e( 'Off', 'my-iapsnj' ); ?></span>
+                            <?php endif; ?>
+                            <a href="<?php echo esc_url( $fc_url ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'Edit', 'my-iapsnj' ); ?></a>
+                        </td>
+                        <td>
+                            <label><input type="checkbox" name="member_mail[fluentcart][<?php echo esc_attr( $key ); ?>]" value="1" <?php checked( ! empty( $member['fluentcart'][ $key ] ) ); ?> <?php disabled( ! $can_veto ); ?>> <?php esc_html_e( 'Send', 'my-iapsnj' ); ?></label>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+            <?php
+        };
+        ?>
+        <p class="fcrm-subnav">
+            <a href="#member-emails"><?php esc_html_e( 'To the member', 'my-iapsnj' ); ?></a> ·
+            <a href="#staff-emails"><?php esc_html_e( 'To IAPSNJ staff', 'my-iapsnj' ); ?></a> ·
+            <a href="#email-design"><?php esc_html_e( 'Email design', 'my-iapsnj' ); ?></a>
+        </p>
+
+        <form class="fcrm-settings-form" id="member-emails">
+        <div class="fcrm-section">
+            <h2><?php esc_html_e( 'Emails to the member who joins or renews', 'my-iapsnj' ); ?></h2>
+            <div class="fcrm-notice fcrm-form-notice" style="display:none"></div>
+
+            <h3><?php esc_html_e( 'FluentCart\'s emails', 'my-iapsnj' ); ?></h3>
+            <p class="description"><?php
+                printf(
+                    /* translators: %s: link to FluentCart's email settings */
+                    esc_html__( 'FluentCart sends these; change their wording, sender and on / off for the whole store in %s. The "Send" switch below is only for membership purchases, so the receipts for events and merchandise are not affected.', 'my-iapsnj' ),
+                    '<a href="' . esc_url( $fc_url ) . '" target="_blank" rel="noopener">' . esc_html__( 'FluentCart → Settings → Email Notifications', 'my-iapsnj' ) . '</a>'
+                );
+            ?></p>
+            <?php if ( ! $can_veto ) : ?>
+                <p class="description" style="color:#b32d2e"><?php esc_html_e( 'This FluentCart cannot stop a single email for one order, so the "Send" switches are locked on: turn an email off for the whole store in FluentCart, or update FluentCart.', 'my-iapsnj' ); ?></p>
+            <?php endif; ?>
+            <?php $fluentcart_table( 'member' ); ?>
+
+            <h3><?php esc_html_e( 'Our own Welcome and Renewal emails', 'my-iapsnj' ); ?></h3>
+            <p class="description"><?php esc_html_e( 'Off until switched on. To replace FluentCart\'s receipt with your own wording, turn its "Send" off above and switch the matching email on here. Each is sent to the member once the payment is confirmed. Save before using Preview or Send test.', 'my-iapsnj' ); ?></p>
+            <?php foreach ( [ 'join' => __( 'Welcome email (a new member\'s first payment)', 'my-iapsnj' ), 'renewal' => __( 'Renewal email (a returning member\'s payment)', 'my-iapsnj' ) ] as $kind => $label ) : ?>
+                <div class="fcrm-email-card">
+                    <h4><?php echo esc_html( $label ); ?></h4>
+                    <table class="form-table">
+                        <tr><th><?php esc_html_e( 'Send', 'my-iapsnj' ); ?></th><td><label><input type="checkbox" name="member_mail[<?php echo esc_attr( $kind ); ?>][enabled]" value="1" <?php checked( ! empty( $member[ $kind ]['enabled'] ) ); ?>> <?php esc_html_e( 'Send this email', 'my-iapsnj' ); ?></label></td></tr>
+                        <tr><th><?php esc_html_e( 'Subject', 'my-iapsnj' ); ?></th><td><input type="text" class="large-text" maxlength="<?php echo (int) My_IAPSNJ_Notifications::SUBJECT_MAX; ?>" name="member_mail[<?php echo esc_attr( $kind ); ?>][subject]" value="<?php echo esc_attr( (string) $member[ $kind ]['subject'] ); ?>"></td></tr>
+                        <tr><th><?php esc_html_e( 'Message', 'my-iapsnj' ); ?></th><td><textarea class="large-text" rows="8" name="member_mail[<?php echo esc_attr( $kind ); ?>][body]"><?php echo esc_textarea( (string) $member[ $kind ]['body'] ); ?></textarea>
+                            <p class="description"><?php esc_html_e( 'Plain text (blank lines start a new paragraph), or simple HTML. Fill-ins:', 'my-iapsnj' ); ?>
+                                <?php foreach ( My_IAPSNJ_Notifications::placeholders() as $token => $what ) : ?><code title="<?php echo esc_attr( $what ); ?>">{<?php echo esc_html( $token ); ?>}</code> <?php endforeach; ?></p></td></tr>
+                    </table>
+                    <p>
+                        <a class="button" href="<?php echo esc_url( My_IAPSNJ_Notifications::preview_url( 'member:' . $kind ) ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'Preview', 'my-iapsnj' ); ?></a>
+                        <button type="button" class="button fcrm-send-test-notification" data-kind="member:<?php echo esc_attr( $kind ); ?>"><?php echo esc_html( sprintf( /* translators: %s: email address */ __( 'Send test to %s', 'my-iapsnj' ), wp_get_current_user()->user_email ) ); ?></button>
+                    </p>
+                </div>
+            <?php endforeach; ?>
+
+            <h3><?php esc_html_e( 'Other emails the member gets', 'my-iapsnj' ); ?></h3>
+            <?php $automations = My_IAPSNJ_Notifications::automations(); ?>
+            <ul class="fcrm-email-notes">
+                <li><strong><?php esc_html_e( 'Login details / set your password', 'my-iapsnj' ); ?></strong> — <?php esc_html_e( 'WordPress sends it when a member\'s account is created at checkout. It uses the email design below; WordPress has no switch for it.', 'my-iapsnj' ); ?></li>
+                <li><strong><?php esc_html_e( 'FluentCRM automations', 'my-iapsnj' ); ?></strong> — <?php esc_html_e( 'Welcome, renewal reminders and the like, keyed on the Paid-YYYY / Member-Active tags.', 'my-iapsnj' ); ?>
+                    <a href="<?php echo esc_url( My_IAPSNJ_Notifications::fluentcrm_automations_url() ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'Open FluentCRM → Automations', 'my-iapsnj' ); ?></a>
+                    <?php if ( $automations['titles'] ) : ?>
+                        <br><span class="fcrm-muted"><?php echo esc_html( sprintf( /* translators: %s: automation titles */ __( 'Running now: %s', 'my-iapsnj' ), implode( ' · ', $automations['titles'] ) ) ); ?></span>
+                    <?php endif; ?>
+                </li>
+            </ul>
+            <p><button type="submit" class="button button-primary"><?php esc_html_e( 'Save', 'my-iapsnj' ); ?></button></p>
+        </div>
+        </form>
+
+        <form class="fcrm-settings-form" id="staff-emails">
+        <div class="fcrm-section">
+            <h2><?php esc_html_e( 'Emails to IAPSNJ staff', 'my-iapsnj' ); ?></h2>
+            <div class="fcrm-notice fcrm-form-notice" style="display:none"></div>
+            <p class="description"><?php esc_html_e( 'Each notice goes to the addresses you list (separate several with commas) when a payment is confirmed, once per order. Summary = who, which membership and until when; Full adds email, phone, mailing address, payment and the order links. Save before using Preview or Send test; a test goes only to you.', 'my-iapsnj' ); ?></p>
+            <?php foreach ( My_IAPSNJ_Notifications::staff_groups() as $group => $label ) : $cfg = My_IAPSNJ_Notifications::staff( $group ); ?>
+                <div class="fcrm-email-card" id="staff-<?php echo esc_attr( $group ); ?>">
+                    <h4><?php echo esc_html( $label ); ?></h4>
+                    <table class="form-table">
+                        <tr><th><?php esc_html_e( 'Send', 'my-iapsnj' ); ?></th><td><label><input type="checkbox" name="staff_mail[<?php echo esc_attr( $group ); ?>][enabled]" value="1" <?php checked( ! empty( $cfg['enabled'] ) ); ?>> <?php echo esc_html( sprintf( /* translators: %s: President / Membership Committee */ __( 'Email the %s about payments', 'my-iapsnj' ), $label ) ); ?></label></td></tr>
+                        <tr><th><?php esc_html_e( 'To', 'my-iapsnj' ); ?></th><td><input type="text" class="large-text" name="staff_mail[<?php echo esc_attr( $group ); ?>][to]" value="<?php echo esc_attr( (string) $cfg['to'] ); ?>" placeholder="name@example.org, other@example.org"></td></tr>
+                        <tr><th><?php esc_html_e( 'When', 'my-iapsnj' ); ?></th><td>
+                            <label><input type="checkbox" name="staff_mail[<?php echo esc_attr( $group ); ?>][on_join]" value="1" <?php checked( ! empty( $cfg['on_join'] ) ); ?>> <?php esc_html_e( 'A new member joins (first payment)', 'my-iapsnj' ); ?></label><br>
+                            <label><input type="checkbox" name="staff_mail[<?php echo esc_attr( $group ); ?>][on_renewal]" value="1" <?php checked( ! empty( $cfg['on_renewal'] ) ); ?>> <?php esc_html_e( 'A member renews', 'my-iapsnj' ); ?></label>
+                        </td></tr>
+                        <tr><th><?php esc_html_e( 'Details', 'my-iapsnj' ); ?></th><td>
+                            <select name="staff_mail[<?php echo esc_attr( $group ); ?>][detail]">
+                                <option value="summary" <?php selected( $cfg['detail'], 'summary' ); ?>><?php esc_html_e( 'Summary', 'my-iapsnj' ); ?></option>
+                                <option value="full" <?php selected( $cfg['detail'], 'full' ); ?>><?php esc_html_e( 'Full (with address, phone and order links)', 'my-iapsnj' ); ?></option>
+                            </select>
+                        </td></tr>
+                    </table>
+                    <p>
+                        <?php foreach ( [ 'join' => __( 'new member', 'my-iapsnj' ), 'renewal' => __( 'renewal', 'my-iapsnj' ) ] as $kind => $kind_label ) : ?>
+                            <a class="button" href="<?php echo esc_url( My_IAPSNJ_Notifications::preview_url( 'staff:' . $group . ':' . $kind ) ); ?>" target="_blank" rel="noopener"><?php echo esc_html( sprintf( /* translators: %s: new member / renewal */ __( 'Preview: %s', 'my-iapsnj' ), $kind_label ) ); ?></a>
+                            <button type="button" class="button fcrm-send-test-notification" data-kind="staff:<?php echo esc_attr( $group ); ?>:<?php echo esc_attr( $kind ); ?>"><?php echo esc_html( sprintf( /* translators: %s: new member / renewal */ __( 'Send me a test: %s', 'my-iapsnj' ), $kind_label ) ); ?></button>
+                        <?php endforeach; ?>
+                    </p>
+                </div>
+            <?php endforeach; ?>
+
+            <h3><?php esc_html_e( 'FluentCart\'s own emails to the store admin', 'my-iapsnj' ); ?></h3>
+            <p class="description"><?php esc_html_e( 'FluentCart also emails the store admin address (FluentCart → Settings → Email Notifications) about every order. Switch these off for membership purchases if the notices above are enough.', 'my-iapsnj' ); ?></p>
+            <?php $fluentcart_table( 'admin' ); ?>
+            <p><button type="submit" class="button button-primary"><?php esc_html_e( 'Save', 'my-iapsnj' ); ?></button></p>
+        </div>
+        </form>
+
+        <?php
+        $logo_default   = My_IAPSNJ_Emails::default_logo_url();
+        $footer_default = My_IAPSNJ_Emails::default_footer();
+        $logo_now       = My_IAPSNJ_Emails::logo_url();
+        ?>
+        <form class="fcrm-settings-form" id="email-design">
+        <div class="fcrm-section">
+            <h2><?php esc_html_e( 'Email design', 'my-iapsnj' ); ?></h2>
+            <p class="description"><?php esc_html_e( 'FluentCRM emails (automations, campaigns) use the design in FluentCRM → Settings → Email Styling. With this on, the other site emails get the same design, the logo on top and the footer below: WordPress account emails (login details / set password, password reset, password or email changed, "New user registration" to the admin), FluentCart emails (receipts, Pay by Check instructions, admin order emails) and the new-member notification. FluentCart\'s own email preview still shows FluentCart\'s layout; use Preview / Send test here.', 'my-iapsnj' ); ?></p>
+            <div class="fcrm-notice fcrm-form-notice" style="display:none"></div>
+            <table class="form-table">
+                <tr><th><?php esc_html_e( 'Apply', 'my-iapsnj' ); ?></th><td><label><input type="checkbox" name="email_branding" value="1" <?php checked( ! empty( $settings['email_branding'] ) ); ?>> <?php esc_html_e( 'Send these emails in the FluentCRM design', 'my-iapsnj' ); ?></label></td></tr>
+                <tr><th><?php esc_html_e( 'FluentCRM design', 'my-iapsnj' ); ?></th><td>
+                    <select name="email_design">
+                        <?php foreach ( My_IAPSNJ_Emails::designs() as $design => $label ) : ?>
+                            <option value="<?php echo esc_attr( $design ); ?>" <?php selected( My_IAPSNJ_Emails::design(), $design ); ?>><?php echo esc_html( $label ); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <p class="description"><?php esc_html_e( 'Pick the design your FluentCRM emails use (Simple Boxed = grey page, white box).', 'my-iapsnj' ); ?></p>
+                </td></tr>
+                <tr><th><?php esc_html_e( 'Logo URL', 'my-iapsnj' ); ?></th><td>
+                    <input type="url" name="email_logo_url" value="<?php echo esc_attr( (string) $settings['email_logo_url'] ); ?>" class="large-text" placeholder="<?php echo esc_attr( $logo_default ); ?>">
+                    <?php if ( $logo_now !== '' ) : ?><p><img src="<?php echo esc_url( $logo_now ); ?>" alt="" style="max-width:80px;height:auto;border:1px solid #dcdcde;background:#fff;padding:4px"></p><?php endif; ?>
+                    <p class="description"><?php esc_html_e( 'Empty = the business logo in FluentCRM → Settings → Business Settings, else the site logo. Use a PNG or JPG; many email programs do not show SVG or WebP.', 'my-iapsnj' ); ?></p>
+                </td></tr>
+                <tr><th><?php esc_html_e( 'Footer', 'my-iapsnj' ); ?></th><td>
+                    <textarea name="email_footer" rows="2" class="large-text" placeholder="<?php echo esc_attr( $footer_default ); ?>"><?php echo esc_textarea( (string) $settings['email_footer'] ); ?></textarea>
+                    <p class="description"><?php esc_html_e( 'Plain text. Empty = the business name and address from FluentCRM → Settings → Business Settings. No unsubscribe link: these are account and payment emails.', 'my-iapsnj' ); ?></p>
+                </td></tr>
+            </table>
+            <p>
+                <button type="submit" class="button button-primary"><?php esc_html_e( 'Save', 'my-iapsnj' ); ?></button>
+                <a class="button" href="<?php echo esc_url( My_IAPSNJ_Emails::preview_url() ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'Preview', 'my-iapsnj' ); ?></a>
+                <button type="button" class="button fcrm-send-test-email"><?php echo esc_html( sprintf( /* translators: %s: email address */ __( 'Send test to %s', 'my-iapsnj' ), wp_get_current_user()->user_email ) ); ?></button>
+            </p>
+            <p class="description"><?php esc_html_e( 'Preview and Send test show the saved design, logo and footer (save first), even while Apply is off. The sample is the "Login details" email a new member receives. On staging, sending is simulated: find the test in FluentSMTP → Email Logs.', 'my-iapsnj' ); ?></p>
+            <?php if ( My_IAPSNJ_Membership::is_available() && ! My_IAPSNJ_Emails::fluentcart_supported() ) : ?>
+                <p class="description" style="color:#b32d2e"><?php echo esc_html( sprintf(
+                    /* translators: 1: installed FluentCart version, 2: required version */
+                    __( 'FluentCart %1$s is installed: its emails keep FluentCart\'s own layout until FluentCart is updated to %2$s or later. WordPress emails and the staff notices already use this design.', 'my-iapsnj' ),
+                    defined( 'FLUENTCART_VERSION' ) ? (string) FLUENTCART_VERSION : '?',
+                    My_IAPSNJ_Emails::FLUENTCART_MIN
+                ) ); ?></p>
+            <?php endif; ?>
+        </div>
+        </form>
+
+        </div>
+        <?php
     }
 
     /**
@@ -1121,75 +1039,6 @@ class My_IAPSNJ_Admin {
     }
 
     /**
-     * Settings → Profile Sync: when and how the CRM → WordPress mirror runs,
-     * and the WordPress role it gives each member type.
-     */
-    public function render_profile_sync_page(): void {
-        $this->guard();
-        $settings  = My_IAPSNJ_Plugin::settings();
-        $last_sync = get_option( 'my_iapsnj_last_bulk_sync', '' );
-        $roles     = My_IAPSNJ_Engine::assignable_roles();
-        $role_map  = My_IAPSNJ_Engine::role_map();
-        $this->page_header( __( 'Profile Sync', 'my-iapsnj' ), __( 'The one-way mirror from FluentCRM contacts to their WordPress users: which fields are copied is set in Profile Mirror; this screen sets when it runs and the WordPress role it applies.', 'my-iapsnj' ) );
-        ?>
-        <div class="fcrm-section" id="mirror-now">
-            <h2><?php esc_html_e( 'Mirror all contacts → users now', 'my-iapsnj' ); ?></h2>
-            <p><?php esc_html_e( 'Copies every enabled Profile Mirror field from each CRM contact onto its linked WordPress user and re-applies the role below. Takes a while on a large list; leave the page open until it finishes.', 'my-iapsnj' ); ?>
-               <?php if ( $last_sync ) : ?><span class="fcrm-muted"><?php echo esc_html( sprintf( __( 'Last complete run: %s', 'my-iapsnj' ), $last_sync ) ); ?></span><?php endif; ?></p>
-            <button id="fcrm-bulk-fcrm-to-wp" class="button button-primary"><?php esc_html_e( 'Mirror all contacts → users', 'my-iapsnj' ); ?></button>
-            <div id="fcrm-bulk-progress" style="display:none; margin-top:16px">
-                <div class="fcrm-progress-bar-wrap"><div id="fcrm-progress-bar" class="fcrm-progress-bar" style="width:0%"></div></div>
-                <p id="fcrm-bulk-status"></p>
-            </div>
-        </div>
-
-        <form class="fcrm-settings-form" id="roles">
-        <div class="fcrm-section">
-            <h2><?php esc_html_e( 'Mirror triggers', 'my-iapsnj' ); ?></h2>
-            <div class="fcrm-notice fcrm-form-notice" style="display:none"></div>
-            <table class="form-table">
-                <tr><th><?php esc_html_e( 'On CRM contact update', 'my-iapsnj' ); ?></th><td><label><input type="checkbox" name="sync_on_fcrm_update" value="1" <?php checked( ! empty( $settings['sync_on_fcrm_update'] ) ); ?>> <?php esc_html_e( 'Mirror the contact onto its WordPress user whenever it changes (also after a paid, check-placed or refunded order)', 'my-iapsnj' ); ?></label></td></tr>
-                <tr><th><?php esc_html_e( 'On user register', 'my-iapsnj' ); ?></th><td><label><input type="checkbox" name="link_on_user_register" value="1" <?php checked( ! empty( $settings['link_on_user_register'] ) ); ?>> <?php esc_html_e( 'Link a new WordPress user to the existing CRM contact with the same email (nothing is pushed to the CRM)', 'my-iapsnj' ); ?></label></td></tr>
-                <tr><th><?php esc_html_e( 'On user delete', 'my-iapsnj' ); ?></th><td><label><input type="checkbox" name="sync_on_user_delete" value="1" <?php checked( ! empty( $settings['sync_on_user_delete'] ) ); ?>> <?php esc_html_e( 'Unlink the CRM contact (never delete it)', 'my-iapsnj' ); ?></label></td></tr>
-            </table>
-
-            <h2><?php esc_html_e( 'WordPress role per member type', 'my-iapsnj' ); ?></h2>
-            <p class="description"><?php esc_html_e( 'Applied by every mirror. Only users whose current role is one of the roles chosen here (or Subscriber) are changed; administrators, editors and any other staff role are never touched. Leave a type on "— leave unchanged —" to skip it. A new member\'s WordPress user is created as Subscriber and gets the mapped role in the same request; to create a dedicated role (e.g. "Member"), use any roles plugin, then pick it here.', 'my-iapsnj' ); ?></p>
-            <table class="form-table">
-                <?php foreach ( My_IAPSNJ_Schema::member_types() as $type ) : ?>
-                <tr><th><?php echo esc_html( $type ); ?></th><td>
-                    <select name="role_map[<?php echo esc_attr( $type ); ?>]">
-                        <option value=""><?php esc_html_e( '— leave unchanged —', 'my-iapsnj' ); ?></option>
-                        <?php foreach ( $roles as $slug => $name ) : ?>
-                            <option value="<?php echo esc_attr( $slug ); ?>" <?php selected( $role_map[ $type ] ?? '', $slug ); ?>><?php echo esc_html( $name . ' (' . $slug . ')' ); ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </td></tr>
-                <?php endforeach; ?>
-                <tr><th><?php esc_html_e( 'When expired', 'my-iapsnj' ); ?></th><td>
-                    <select name="role_expired">
-                        <option value=""><?php esc_html_e( '— leave the role —', 'my-iapsnj' ); ?></option>
-                        <?php foreach ( $roles as $slug => $name ) : ?>
-                            <option value="<?php echo esc_attr( $slug ); ?>" <?php selected( (string) ( $settings['role_expired'] ?? '' ), $slug ); ?>><?php echo esc_html( $name . ' (' . $slug . ')' ); ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                    <p class="description"><?php
-                        printf(
-                            /* translators: %s: link to Lapsed Members */
-                            esc_html__( 'The role a member drops to when the membership lapses (the daily expiry job; grace period and Preview / Apply on %s). A payment puts the mapped role back.', 'my-iapsnj' ),
-                            '<a href="' . esc_url( admin_url( 'admin.php?page=' . My_IAPSNJ_Members::page_slug( My_IAPSNJ_Members::STATE_LAPSED ) . '#expiry' ) ) . '">' . esc_html__( 'Lapsed Members', 'my-iapsnj' ) . '</a>'
-                        );
-                    ?></p>
-                </td></tr>
-            </table>
-            <p><button type="submit" class="button button-primary"><?php esc_html_e( 'Save', 'my-iapsnj' ); ?></button></p>
-        </div>
-        </form>
-        </div>
-        <?php
-    }
-
-    /**
      * Members → Active Membership.
      */
     public function render_members_active_page(): void {
@@ -1214,9 +1063,9 @@ class My_IAPSNJ_Admin {
             <h2><?php esc_html_e( 'Expirations (Member-Active tag + role)', 'my-iapsnj' ); ?></h2>
             <p class="description"><?php
                 printf(
-                    /* translators: %s: link to Profile Sync */
+                    /* translators: %s: link to the WordPress roles settings */
                     esc_html__( 'Runs every day at 00:30 site time: lapsed members lose the Member-Active tag and drop to the "when expired" role (%s); members in good standing without the tag (migrated members, manual CRM edits) get it and their role. Paid-YYYY tags are history and are never removed. Preview lists what would change; Apply does it now, in batches.', 'my-iapsnj' ),
-                    '<a href="' . esc_url( admin_url( 'admin.php?page=my-iapsnj-profile-sync#roles' ) ) . '">' . esc_html__( 'Profile Sync', 'my-iapsnj' ) . '</a>'
+                    '<a href="' . esc_url( admin_url( 'admin.php?page=my-iapsnj-sync#roles' ) ) . '">' . esc_html__( 'Configurations', 'my-iapsnj' ) . '</a>'
                 );
             ?>
                 <?php if ( is_array( $last_expiry ) && ! empty( $last_expiry['at'] ) ) : ?><br><span class="fcrm-muted"><?php echo esc_html( sprintf( __( 'Last run: %1$s UTC — %2$d expired, %3$d activated, %4$d roles changed.', 'my-iapsnj' ), $last_expiry['at'], (int) ( $last_expiry['report']['expired_now'] ?? 0 ), (int) ( $last_expiry['report']['activated'] ?? 0 ), (int) ( $last_expiry['report']['roles_changed'] ?? 0 ) ) ); ?></span><?php endif; ?>
@@ -1698,33 +1547,15 @@ class My_IAPSNJ_Admin {
     }
 
     // -----------------------------------------------------------------------
-    // AJAX: mapping / settings / mirror
+    // AJAX: settings
     // -----------------------------------------------------------------------
-
-    public function ajax_save_mappings(): void {
-        $this->ajax_guard();
-        $raw   = isset( $_POST['mappings'] ) && is_array( $_POST['mappings'] ) ? wp_unslash( $_POST['mappings'] ) : []; // phpcs:ignore
-        $clean = self::sanitize_mapping_rows( $raw, $this->mapper );
-        $this->mapper->save_mappings( $clean );
-        My_IAPSNJ_Field_Mapper::flush_field_cache();
-        wp_send_json_success( [ 'count' => count( $clean ) ] );
-    }
-
-    /**
-     * Profile Mirror: forget the cached list of WordPress profile fields.
-     */
-    public function ajax_refresh_field_list(): void {
-        $this->ajax_guard();
-        My_IAPSNJ_Field_Mapper::flush_field_cache();
-        wp_send_json_success();
-    }
 
     public function ajax_save_settings(): void {
         $this->ajax_guard();
         $settings = My_IAPSNJ_Plugin::settings();
         $post     = wp_unslash( $_POST ); // phpcs:ignore
 
-        foreach ( [ 'sync_on_fcrm_update', 'link_on_user_register', 'sync_on_user_delete', 'notify_new_member', 'email_branding' ] as $key ) {
+        foreach ( [ 'email_branding' ] as $key ) {
             if ( array_key_exists( $key, $post ) ) {
                 $settings[ $key ] = ! empty( $post[ $key ] );
             }
@@ -1765,9 +1596,11 @@ class My_IAPSNJ_Admin {
         if ( array_key_exists( 'renewal_cutover', $post ) ) {
             $settings['renewal_cutover'] = My_IAPSNJ_Dates::month_day( (string) $post['renewal_cutover'] );
         }
-        if ( array_key_exists( 'notify_emails', $post ) ) {
-            $emails = array_filter( array_map( 'sanitize_email', preg_split( '/[\s,;]+/', (string) $post['notify_emails'] ) ) );
-            $settings['notify_emails'] = implode( ', ', $emails );
+        if ( isset( $post['staff_mail'] ) && is_array( $post['staff_mail'] ) ) {
+            $settings['staff_mail'] = My_IAPSNJ_Notifications::sanitize_staff( $post['staff_mail'] );
+        }
+        if ( isset( $post['member_mail'] ) && is_array( $post['member_mail'] ) ) {
+            $settings['member_mail'] = My_IAPSNJ_Notifications::sanitize_member( $post['member_mail'] );
         }
         if ( array_key_exists( 'email_design', $post ) ) {
             $design                   = sanitize_key( (string) $post['email_design'] );
@@ -1897,46 +1730,6 @@ class My_IAPSNJ_Admin {
         ] );
     }
 
-    public function ajax_bulk_sync(): void {
-        $this->ajax_guard();
-        $per_page = min( 200, max( 1, (int) ( $_POST['per_page'] ?? 100 ) ) ); // phpcs:ignore
-        $offset   = max( 0, (int) ( $_POST['offset'] ?? 0 ) );                // phpcs:ignore
-        $total    = max( 0, (int) ( $_POST['total'] ?? 0 ) );                 // phpcs:ignore
-        wp_send_json_success( self::run_bulk_mirror( $per_page, $offset, [], $total ) );
-    }
-
-    public function ajax_search_users(): void {
-        $this->ajax_guard();
-        $query = sanitize_text_field( wp_unslash( $_POST['query'] ?? '' ) ); // phpcs:ignore
-        if ( strlen( $query ) < 2 ) {
-            wp_send_json_success( [] );
-        }
-        $users  = get_users( [
-            'search'         => '*' . $query . '*',
-            'search_columns' => [ 'user_login', 'user_email', 'display_name' ],
-            'number'         => 10,
-            'fields'         => [ 'ID', 'user_login', 'user_email', 'display_name' ],
-        ] );
-        $result = [];
-        foreach ( $users as $u ) {
-            $result[] = [ 'id' => (int) $u->ID, 'label' => $u->display_name . ' (' . $u->user_email . ')', 'email' => $u->user_email ];
-        }
-        wp_send_json_success( $result );
-    }
-
-    public function ajax_sample_data(): void {
-        $this->ajax_guard();
-        $user_id = (int) ( $_POST['user_id'] ?? 0 ); // phpcs:ignore
-        $user    = $user_id ? get_userdata( $user_id ) : false;
-        if ( ! $user ) {
-            wp_send_json_error( [ 'message' => __( 'User not found.', 'my-iapsnj' ) ] );
-        }
-        wp_send_json_success( [
-            'user' => [ 'id' => $user->ID, 'display_name' => $user->display_name, 'email' => $user->user_email ],
-            'rows' => My_IAPSNJ_Engine::get_instance()->get_field_values_for_user( $user_id ),
-        ] );
-    }
-
     // -----------------------------------------------------------------------
     // AJAX: checks
     // -----------------------------------------------------------------------
@@ -2059,7 +1852,7 @@ class My_IAPSNJ_Admin {
     }
 
     /**
-     * Configurations → Email design → Send test: the sample email to the
+     * Emails → Email design → Send test: the sample email to the
      * current admin, with the saved settings.
      */
     public function ajax_send_test_email(): void {
@@ -2073,6 +1866,23 @@ class My_IAPSNJ_Admin {
         }
         /* translators: %s: email address */
         wp_send_json_success( [ 'message' => sprintf( __( 'Test sent to %s. On staging, sending is simulated: open it in FluentSMTP → Email Logs.', 'my-iapsnj' ), $to ) ] );
+    }
+
+    public function ajax_send_test_notification(): void {
+        $this->ajax_guard();
+        $kind = sanitize_text_field( wp_unslash( $_POST['kind'] ?? '' ) ); // phpcs:ignore
+        $to   = (string) wp_get_current_user()->user_email;
+        if ( ! is_email( $to ) ) {
+            wp_send_json_error( [ 'message' => __( 'Your WordPress user has no valid email address.', 'my-iapsnj' ) ] );
+        }
+        if ( ! My_IAPSNJ_Notifications::sample_message( $kind ) ) {
+            wp_send_json_error( [ 'message' => __( 'Unknown email.', 'my-iapsnj' ) ] );
+        }
+        if ( ! My_IAPSNJ_Notifications::send_test( $kind, $to ) ) {
+            wp_send_json_error( [ 'message' => __( 'WordPress could not send the email (see the mail log).', 'my-iapsnj' ) ] );
+        }
+        /* translators: %s: email address */
+        wp_send_json_success( [ 'message' => sprintf( __( 'Test sent to %s (not to the real recipients). On staging, sending is simulated: open it in FluentSMTP → Email Logs.', 'my-iapsnj' ), $to ) ] );
     }
 
     public function ajax_normalize_phones(): void {

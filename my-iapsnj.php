@@ -2,8 +2,8 @@
 /**
  * Plugin Name:       My IAPSNJ
  * Plugin URI:        https://github.com/S-FX-com/MyIAPSNJ
- * Description:       Membership operations for the IAPSNJ website. FluentCRM is the single source of truth: the membership application is collected on the FluentCart checkout page, FluentCart payments set membership state (Paid-YYYY tags, member_type, paid_through), applications are tracked until they are paid, mailed checks are reconciled in batch, and WordPress user profiles are mirrored one way from the CRM. Includes the PMPro → FluentCRM migration toolkit.
- * Version:           4.33.1
+ * Description:       Membership operations for the IAPSNJ website. FluentCRM is the single source of truth: the membership application is collected on the FluentCart checkout page, FluentCart payments set membership state (Paid-YYYY tags, member_type, paid_through), applications are tracked until they are paid, mailed checks are reconciled in batch, and WordPress accounts get the role of their membership. Includes the PMPro → FluentCRM migration toolkit.
+ * Version:           4.36.1
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Requires Plugins:  fluent-crm
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'MY_IAPSNJ_VERSION', '4.33.1' );
+define( 'MY_IAPSNJ_VERSION', '4.36.1' );
 define( 'MY_IAPSNJ_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'MY_IAPSNJ_URL',     plugin_dir_url( __FILE__ ) );
 define( 'MY_IAPSNJ_FILE',    __FILE__ );
@@ -29,7 +29,7 @@ spl_autoload_register( function ( $class ) {
     if ( strpos( $class, $prefix ) !== 0 ) {
         return;
     }
-    $short = substr( $class, strlen( $prefix ) ); // e.g. "Field_Mapper"
+    $short = substr( $class, strlen( $prefix ) ); // e.g. "Checkout_Fields"
     $file  = MY_IAPSNJ_DIR . 'includes/class-' . strtolower( str_replace( '_', '-', $short ) ) . '.php';
     if ( file_exists( $file ) ) {
         require_once $file;
@@ -87,10 +87,11 @@ final class My_IAPSNJ_Plugin {
         My_IAPSNJ_REST_API::get_instance();
         My_IAPSNJ_Reports::register_hooks();
         My_IAPSNJ_Members::register_hooks();
-        My_IAPSNJ_Field_Mapper::register_hooks();
         // WordPress account emails, FluentCart emails and the new-member
         // notice in the FluentCRM email design.
         My_IAPSNJ_Emails::get_instance();
+        // Settings → Emails: the member's and staff's payment emails.
+        My_IAPSNJ_Notifications::register_hooks();
         // [iapsnj_change_password]: member-facing "Change My Password" form.
         My_IAPSNJ_Change_Password::get_instance();
         // [iapsnj_edit_profile]: the member edits their own CRM contact.
@@ -135,9 +136,7 @@ final class My_IAPSNJ_Plugin {
     public static function activate(): void {
         // Migrate from old fcrm_wp_sync_* option keys if they exist.
         $migrations = [
-            'fcrm_wp_sync_field_mappings' => 'my_iapsnj_field_mappings',
             'fcrm_wp_sync_settings'       => 'my_iapsnj_settings',
-            'fcrm_wp_sync_last_bulk_sync' => 'my_iapsnj_last_bulk_sync',
         ];
         foreach ( $migrations as $old => $new ) {
             if ( get_option( $new ) === false ) {
@@ -149,20 +148,11 @@ final class My_IAPSNJ_Plugin {
         }
 
         // Seed default options for new installations.
-        if ( get_option( 'my_iapsnj_field_mappings' ) === false ) {
-            add_option( 'my_iapsnj_field_mappings', [] );
-        }
         if ( get_option( 'my_iapsnj_settings' ) === false ) {
             add_option( 'my_iapsnj_settings', self::default_settings() );
         }
         if ( get_option( My_IAPSNJ_Membership::OPTION_PRODUCTS ) === false ) {
             add_option( My_IAPSNJ_Membership::OPTION_PRODUCTS, [] );
-        }
-
-        // Seed IAPSNJ default field mappings when no mappings are configured yet.
-        $existing_mappings = get_option( 'my_iapsnj_field_mappings', [] );
-        if ( empty( $existing_mappings ) ) {
-            My_IAPSNJ_Field_Mapper::seed_default_mappings();
         }
 
         // Applications table (checkouts awaiting payment) and the default
@@ -185,10 +175,6 @@ final class My_IAPSNJ_Plugin {
      */
     public static function default_settings(): array {
         return [
-            // CRM → WP mirror triggers.
-            'sync_on_fcrm_update'     => true,
-            'link_on_user_register'   => true,
-            'sync_on_user_delete'     => true,
             // WordPress role per member_type (Regular => 'member' …); '' or
             // missing = leave the user's role alone. Administrators and any
             // role not in this map are never changed.
@@ -204,9 +190,12 @@ final class My_IAPSNJ_Plugin {
             'renewal_variation_associate' => 0,
             // Membership term rule: paid on/after this MM-DD buys the following year.
             'renewal_cutover'         => '10-01',
-            // Notifications.
-            'notify_new_member'       => true,
-            'notify_emails'           => get_option( 'admin_email' ),
+            // Payment emails (Settings → Emails): the President and the
+            // Membership Committee, and the member's Welcome / Renewal email.
+            // (Saved here only once changed; My_IAPSNJ_Notifications fills
+            // the defaults in when it reads them.)
+            'staff_mail'              => [],
+            'member_mail'             => [],
             // Email design (My_IAPSNJ_Emails): WordPress account emails,
             // FluentCart emails and the new-member notice in the FluentCRM
             // design. Logo / footer '' = FluentCRM's business logo / name +
@@ -247,7 +236,7 @@ final class My_IAPSNJ_Plugin {
      * below; it is independent of MY_IAPSNJ_VERSION so that ordinary releases
      * do not re-run migrations.
      */
-    const DATA_VERSION = 17;
+    const DATA_VERSION = 19;
 
     /**
      * Runs any migration steps this install has not seen yet.
@@ -293,34 +282,12 @@ final class My_IAPSNJ_Plugin {
             }
 
             // ---- v5: PMPro retired, sync becomes CRM → WP only -------------
-            // * Drop PMPro-sourced and pmpro_b* billing mappings.
-            // * Force every surviving mapping to fcrm_to_wp.
+            // * (Dropped the PMPro-sourced mirror mappings: the mirror itself
+            //   is gone since 4.35.)
             // * Remove PMPro options and the expiry cron.
             // * Rename sync_on_user_register → link_on_user_register.
             // * Create the applications table.
             if ( $installed < 5 ) {
-                $mappings = get_option( 'my_iapsnj_field_mappings', [] );
-                if ( is_array( $mappings ) ) {
-                    $kept = [];
-                    foreach ( $mappings as $m ) {
-                        $src = $m['wp_field_source'] ?? '';
-                        $key = (string) ( $m['wp_field_key'] ?? '' );
-                        if ( $src === 'pmp' ) {
-                            continue;
-                        }
-                        if ( $src === 'meta' && strpos( $key, 'pmpro_' ) === 0 ) {
-                            continue;
-                        }
-                        // ID / username can never be written from the CRM.
-                        if ( $src === 'user' && in_array( $key, [ 'ID', 'user_login' ], true ) ) {
-                            continue;
-                        }
-                        $m['sync_direction'] = 'fcrm_to_wp';
-                        $kept[] = $m;
-                    }
-                    update_option( 'my_iapsnj_field_mappings', array_values( $kept ) );
-                }
-
                 $settings = get_option( 'my_iapsnj_settings', [] );
                 if ( ! is_array( $settings ) ) {
                     $settings = [];
@@ -422,51 +389,8 @@ final class My_IAPSNJ_Plugin {
                 }
             }
 
-            // ---- v9: Profile Mirror follows the 4.x CRM slugs ---------------
-            // Installs upgraded from 3.x still map the ACF profile fields to
-            // the retired CRM fields member_status / expiration_date. Point
-            // them at member_type / paid_through and make sure the membership
-            // rows (member_status, expiration_date, join_date, MemberNum)
-            // exist, so a payment updates the WordPress profile too.
-            if ( $installed < 9 ) {
-                $mappings = get_option( 'my_iapsnj_field_mappings', [] );
-                if ( is_array( $mappings ) && $mappings ) {
-                    $retarget = [
-                        'member_status'   => [ My_IAPSNJ_Schema::FIELD_MEMBER_TYPE, 'Member Type (custom)' ],
-                        'expiration_date' => [ My_IAPSNJ_Schema::FIELD_PAID_THROUGH, 'Paid Through (custom)' ],
-                    ];
-                    foreach ( $mappings as $i => $m ) {
-                        if ( ! is_array( $m ) || ( $m['fcrm_field_source'] ?? '' ) !== 'custom' ) {
-                            continue;
-                        }
-                        $key = (string) ( $m['fcrm_field_key'] ?? '' );
-                        if ( isset( $retarget[ $key ] ) ) {
-                            $mappings[ $i ]['fcrm_field_key']   = $retarget[ $key ][0];
-                            $mappings[ $i ]['fcrm_field_label'] = $retarget[ $key ][1];
-                        }
-                    }
-                    // [ wp_key, wp_source, wp_label, fcrm_key, fcrm_source, fcrm_label, type ]
-                    $wanted = [
-                        [ 'member_status',   'acf', 'Member Type',                My_IAPSNJ_Schema::FIELD_MEMBER_TYPE,   'custom', 'Member Type (custom)',   'select' ],
-                        [ 'expiration_date', 'acf', 'Membership Expiration Date', My_IAPSNJ_Schema::FIELD_PAID_THROUGH,  'custom', 'Paid Through (custom)',  'date' ],
-                        [ 'join_date',       'acf', 'Join Date',                  My_IAPSNJ_Schema::FIELD_JOIN_DATE,     'custom', 'Join Date (custom)',     'date' ],
-                        [ 'MemberNum',       'acf', 'Member Number',              My_IAPSNJ_Schema::FIELD_MEMBER_NUMBER, 'custom', 'Member Number (custom)', 'number' ],
-                    ];
-                    foreach ( $wanted as $row ) {
-                        $present = false;
-                        foreach ( $mappings as $m ) {
-                            if ( is_array( $m ) && ( $m['wp_field_key'] ?? '' ) === $row[0] && ( $m['fcrm_field_key'] ?? '' ) === $row[3] ) {
-                                $present = true;
-                                break;
-                            }
-                        }
-                        if ( ! $present ) {
-                            $mappings[] = My_IAPSNJ_Field_Mapper::build_mapping( ...$row );
-                        }
-                    }
-                    update_option( 'my_iapsnj_field_mappings', array_values( $mappings ) );
-                }
-            }
+            // ---- v9: pointed the Profile Mirror rows at the 4.x CRM slugs ---
+            // (Nothing to do any more: the Profile Mirror was retired in 4.35.)
 
             // ---- v10: Checkout Builder — several forms, one per level -------
             // The single field list (my_iapsnj_checkout_fields) and the
@@ -549,8 +473,7 @@ final class My_IAPSNJ_Plugin {
             // * Rank, Spouse and Veteran Status were written to duplicate
             //   fields (rank_level, spouse_name, armed_service); the CRM
             //   already had iapsnj_rank (a dropdown), spouse and
-            //   armed_services. Builder rows and Profile Mirror rows are
-            //   pointed at them and the values already collected are copied
+            //   armed_services. Builder rows are pointed at them and the values already collected are copied
             //   across (the old fields are left for an admin to delete).
             // * "Explain your ancestry" and "Veteran Status" are added / shown
             //   on every checkout form.
@@ -559,16 +482,6 @@ final class My_IAPSNJ_Plugin {
                 My_IAPSNJ_Checkout_Fields::remap_crm_slugs();
                 My_IAPSNJ_Checkout_Fields::add_missing_builtins();
                 My_IAPSNJ_Checkout_Fields::enable_fields( [ 'armed_service', 'explain_your_ancestry' ] );
-                $mappings = get_option( 'my_iapsnj_field_mappings', [] );
-                if ( is_array( $mappings ) && $mappings ) {
-                    foreach ( $mappings as $i => $m ) {
-                        $legacy = My_IAPSNJ_Schema::legacy_slugs();
-                        if ( is_array( $m ) && ( $m['fcrm_field_source'] ?? '' ) === 'custom' && isset( $legacy[ (string) ( $m['fcrm_field_key'] ?? '' ) ] ) ) {
-                            $mappings[ $i ]['fcrm_field_key'] = $legacy[ $m['fcrm_field_key'] ];
-                        }
-                    }
-                    update_option( 'my_iapsnj_field_mappings', array_values( $mappings ) );
-                }
                 // FluentCRM's helpers load on plugins_loaded; the custom fields
                 // and their values are touched once init has happened.
                 $finish15 = function () {
@@ -622,6 +535,46 @@ final class My_IAPSNJ_Plugin {
                 My_IAPSNJ_Checkout_Fields::hide_law_enforcement_rows_for_associate();
                 My_IAPSNJ_Checkout_Fields::group_personal_fields();
                 My_IAPSNJ_Checkout_Fields::certify_last();
+            }
+
+            // ---- v18: the Profile Mirror / Profile Sync are retired (4.35) ----
+            // Member data lives in FluentCRM only; nothing is copied onto
+            // WordPress users any more. The saved field map, its bookmarks and
+            // the three mirror switches go; the roles (Settings →
+            // Configurations → WordPress roles) and the user ↔ contact link stay.
+            if ( $installed < 18 ) {
+                delete_option( 'my_iapsnj_field_mappings' );
+                delete_option( 'my_iapsnj_last_bulk_sync' );
+                delete_transient( 'my_iapsnj_fm_meta_keys' );
+                delete_transient( 'my_iapsnj_fm_acf_fields' );
+                $settings = get_option( 'my_iapsnj_settings', [] );
+                if ( is_array( $settings ) ) {
+                    unset( $settings['sync_on_fcrm_update'], $settings['link_on_user_register'], $settings['sync_on_user_delete'] );
+                    update_option( 'my_iapsnj_settings', $settings );
+                }
+            }
+
+            // ---- v19: Settings → Emails (4.36) ---------------------------------
+            // The one "New-member notification" (a switch and a recipient
+            // list) becomes the Membership Committee's notice, with the same
+            // switch, recipients and wording (new members only); the President's
+            // is added off.
+            if ( $installed < 19 ) {
+                $settings = get_option( 'my_iapsnj_settings', [] );
+                if ( is_array( $settings ) ) {
+                    if ( ! isset( $settings['staff_mail'] ) ) {
+                        $staff = My_IAPSNJ_Notifications::staff_defaults();
+                        if ( array_key_exists( 'notify_new_member', $settings ) ) {
+                            $staff['committee']['enabled'] = ! empty( $settings['notify_new_member'] );
+                        }
+                        if ( isset( $settings['notify_emails'] ) ) {
+                            $staff['committee']['to'] = implode( ', ', My_IAPSNJ_Notifications::emails( (string) $settings['notify_emails'] ) );
+                        }
+                        $settings['staff_mail'] = $staff;
+                    }
+                    unset( $settings['notify_new_member'], $settings['notify_emails'] );
+                    update_option( 'my_iapsnj_settings', $settings );
+                }
             }
 
             update_option( 'my_iapsnj_data_version', self::DATA_VERSION );

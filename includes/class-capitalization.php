@@ -420,7 +420,7 @@ final class My_IAPSNJ_Capitalization {
      * Apply the rules to the names and addresses already in the CRM.
      *
      * Writes go straight to the FluentCRM table (no contact-updated hooks, so
-     * no automations fire and the WordPress profiles are not re-mirrored).
+     * no automations fire and no WordPress roles are re-applied).
      * Apply changes up to $limit contacts per call; the admin page repeats
      * until nothing is left.
      *

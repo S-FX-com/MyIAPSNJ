@@ -10,8 +10,10 @@ schema, runbook, automations, forms, UAT matrix, what is not in git).
   integration (`class-membership.php`), the checkout application
   (`class-checkout-fields.php` / `class-applications.php`), the member's own
   profile editor (`class-profile.php`, the logged-in member's contact only)
-  and the migration toolkit. `class-engine.php` is a one-way CRM → WordPress mirror; never add a
-  WP → CRM write path.
+  and the migration toolkit. `class-engine.php` links WordPress users to their contacts and
+  gives them the role of their membership; it copies no member data onto the
+  user (the Profile Mirror / Profile Sync are gone) and nothing is ever
+  written from WordPress back to the CRM: never add a WP → CRM write path.
 - The membership application is collected **on the FluentCart checkout page**
   (hooks `fluent_cart/before_payment_methods`, `checkout/validate_data`,
   `checkout/prepare_other_data`, `checkout/form_data_changed`). Fluent Forms is

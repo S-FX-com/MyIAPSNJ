@@ -84,63 +84,6 @@
     letter-spacing: .05em;
 }
 
-/* Mapping table ----------------------------------------------------------- */
-.fcrm-mapping-toolbar {
-    display: flex;
-    gap: 10px;
-    margin-bottom: 12px;
-}
-
-.fcrm-mapping-table-wrap {
-    overflow-x: auto;
-}
-
-.fcrm-mapping-table {
-    width: 100%;
-    border-collapse: collapse;
-}
-.fcrm-mapping-table th,
-.fcrm-mapping-table td {
-    padding: 8px 10px;
-    vertical-align: middle;
-}
-.fcrm-mapping-table th {
-    background: #f6f7f7;
-    font-weight: 600;
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: .04em;
-    color: #555;
-}
-.fcrm-mapping-table tbody tr:nth-child(even) {
-    background: #fafafa;
-}
-.fcrm-mapping-table select {
-    width: 100%;
-    min-width: 180px;
-    max-width: 260px;
-}
-.fcrm-mapping-table .fcrm-field-type select {
-    min-width: 140px;
-}
-.fcrm-date-format-wrap {
-    display: none;
-    margin-top: 4px;
-    font-size: 12px;
-}
-.fcrm-date-format-wrap input {
-    width: 80px;
-}
-/* Field hint text (source + type label shown beneath each dropdown) ------- */
-.fcrm-field-hint {
-    margin: 4px 0 0;
-    font-size: 11px;
-    color: #787c82;
-    font-style: italic;
-    line-height: 1.4;
-    min-height: 1.4em; /* reserve space so rows don't jump when hint appears */
-}
-
 .fcrm-row-error td {
     background: #fff0f0 !important;
 }
@@ -161,27 +104,6 @@
 .fcrm-remove-row:hover {
     background: #fdf3f3 !important;
     border-color: #dc3232 !important;
-}
-
-/* Bulk sync controls ------------------------------------------------------ */
-.fcrm-bulk-controls {
-    display: flex;
-    gap: 10px;
-    margin-bottom: 16px;
-}
-
-.fcrm-progress-bar-wrap {
-    height: 14px;
-    background: #e0e0e0;
-    border-radius: 7px;
-    overflow: hidden;
-    margin-bottom: 8px;
-}
-.fcrm-progress-bar {
-    height: 100%;
-    background: #1a2b4a;
-    border-radius: 7px;
-    transition: width .3s ease;
 }
 
 /* Mismatch resolver ------------------------------------------------------- */
@@ -319,36 +241,6 @@
     font-weight: 600;
 }
 
-/* Value-map sub-row ------------------------------------------------------- */
-.fcrm-value-map-row td {
-    background: #f9f9fc;
-    border-top: 1px dashed #c8d0e7;
-    padding: 10px 16px !important;
-}
-.fcrm-value-map-container {
-    max-width: 680px;
-}
-.fcrm-value-map-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 6px;
-}
-.fcrm-value-map-table th {
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: .04em;
-    color: #666;
-    padding: 4px 8px;
-    text-align: left;
-    border-bottom: 1px solid #ddd;
-}
-.fcrm-value-map-table td {
-    vertical-align: middle;
-}
-.fcrm-vm-select {
-    min-width: 200px;
-}
-
 /* Field selection (bulk sync) --------------------------------------------- */
 .fcrm-field-selection {
     margin-bottom: 16px;
@@ -391,15 +283,6 @@
     min-width: 14px;
     text-align: center;
 }
-
-/* Sample Data Preview ----------------------------------------------------- */
-.fcrm-preview-search {
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-    flex-wrap: wrap;
-    margin-bottom: 4px;
-}
 .fcrm-user-search-wrap {
     position: relative;
 }
@@ -426,29 +309,6 @@
 }
 .fcrm-user-suggestion-item:last-child { border-bottom: none; }
 .fcrm-user-suggestion-item:hover { background: #f0f6fc; }
-
-.fcrm-preview-user-info {
-    margin-bottom: 10px;
-    font-size: 13px;
-    color: #444;
-}
-.fcrm-preview-uid {
-    color: #999;
-    font-size: 11px;
-    margin-left: 4px;
-}
-.fcrm-preview-table th,
-.fcrm-preview-table td {
-    vertical-align: middle;
-    font-size: 13px;
-}
-.fcrm-preview-value {
-    font-family: monospace;
-    font-size: 12px;
-    color: #333;
-    max-width: 240px;
-    word-break: break-word;
-}
 .fcrm-match-yes {
     color: #00a32a;
     font-size: 16px;
@@ -664,3 +524,13 @@ tr.fcrm-sort-helper { background: #fff; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.1
 .my-iapsnj-sc-example { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 6px 0; }
 .my-iapsnj-sc-example code { padding: 6px 10px; word-break: break-all; }
 .my-iapsnj-sc-atts { margin-top: 8px; }
+
+/* Settings → Emails (4.36) */
+.fcrm-subnav { margin: 4px 0 12px; }
+.fcrm-email-card { border: 1px solid #dcdcde; border-radius: 4px; background: #fff; margin: 12px 0; padding: 2px 16px 6px; }
+.fcrm-email-card h4 { margin: 12px 0 0; font-size: 14px; }
+.fcrm-email-card .form-table th { width: 110px; padding: 12px 10px 12px 0; }
+.fcrm-email-card .form-table td { padding: 8px 10px; }
+.fcrm-email-table { margin: 8px 0 12px; }
+.fcrm-email-table td { vertical-align: top; }
+.fcrm-email-notes { list-style: disc; margin: 4px 0 12px 20px; line-height: 1.7; }

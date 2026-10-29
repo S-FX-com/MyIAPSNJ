@@ -351,7 +351,7 @@ Membership Products; event and merchandise checkouts keep FluentCart's page.
 * **Existing contacts:** Settings → Configurations → *Names & addresses* →
   Preview / Apply now, or `wp iapsnj capitalize [--dry-run]`: first name,
   last name, street lines, city and state of every CRM contact. Direct table
-  writes: no automations fire and WordPress profiles are not re-mirrored.
+  writes: no automations fire and no WordPress roles are re-applied.
 
 ## 3. Renewal
 

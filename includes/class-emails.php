@@ -5,8 +5,8 @@
  * One look for every email the site sends. FluentCRM's campaign and
  * automation emails (Welcome, Happy Birthday …) already use the design set in
  * FluentCRM → Settings → Email Styling; the others went out in their own
- * dress: WordPress's plain-text account emails, this plugin's new-member
- * notice and FluentCart's receipts. They are wrapped in the same FluentCRM
+ * dress: WordPress's plain-text account emails, this plugin's staff
+ * notices and FluentCart's receipts. They are wrapped in the same FluentCRM
  * design template (the filter FluentCRM's own double opt-in email renders
  * through), with the IAPSNJ logo on top and the business name and address
  * as the footer.
@@ -16,9 +16,9 @@
  *   retrieve_password_notification_email   password reset (member)
  *   password_change_email, email_change_email   "your password / email was changed" (member)
  *   fluent_cart/email_notification/mailer  receipts, check instructions … (FluentCart)
- *   My_IAPSNJ_Membership                   new-member notice (calls wrap())
+ *   My_IAPSNJ_Notifications                staff notices and the member's own emails (call wrap())
  *
- * Settings → Configurations → Email design: on / off, FluentCRM design,
+ * Settings → Emails → Email design: on / off, FluentCRM design,
  * logo, footer, Preview and Send test.
  */
 
@@ -364,7 +364,7 @@ final class My_IAPSNJ_Emails {
     }
 
     // -----------------------------------------------------------------------
-    // Preview / test (Settings → Configurations → Email design)
+    // Preview / test (Settings → Emails → Email design)
     // -----------------------------------------------------------------------
 
     /**

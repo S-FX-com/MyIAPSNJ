@@ -36,7 +36,11 @@ gives a payment before the cutover the current year.
 
 Then My IAPSNJ → Membership Products: enable each and set its member type.
 Set the renewal-season cutover (default `10-01`) in Dues → Membership
-Products.
+Products. That one date also decides when **Renew Now** appears on the
+`[iapsnj_my_membership]` bar for a member in good standing (4.34): from the
+cutover, in the year their membership runs out (a payment then carries them
+past their `paid_through`); never before it, and never again once they have
+renewed until next year's cutover. A lapsed member always sees it.
 
 Subscriptions work in FluentCart free with Stripe; Pro is not required for
 them. Renewal reminder emails: FluentCart → Settings → Emails → Reminders.

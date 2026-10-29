@@ -575,7 +575,7 @@ final class My_IAPSNJ_Profile {
         }
 
         // The same events FluentCRM fires for its own profile form: the
-        // WordPress mirror (My_IAPSNJ_Engine) and automations follow.
+        // WordPress role (My_IAPSNJ_Engine) and automations follow.
         if ( $changed ) {
             do_action( 'fluentcrm_contact_updated', $contact, $dirty ); // phpcs:ignore WordPress.NamingConventions.ValidHookName
             do_action( 'fluent_crm/contact_updated', $contact, $dirty );

@@ -5,16 +5,16 @@ Jersey (IAPSNJ) website — version 4.x, built for the FluentCRM / FluentCart
 stack that replaced Paid Memberships Pro.
 
 **FluentCRM is the single source of truth.** WordPress users are credentials
-plus a one-way mirror of a few profile fields; the membership application is
-collected on the FluentCart checkout page; FluentCart payments set membership
-state; this plugin runs the workflow around them and ships the PMPro →
+only (nothing about a member is copied onto them; they get the WordPress role
+of their membership); the membership application is collected on the
+FluentCart checkout page; FluentCart payments set membership state; this plugin runs the workflow around them and ships the PMPro →
 FluentCRM migration toolkit.
 
 | Layer | Plugin | Role |
 |---|---|---|
 | Data | FluentCRM | member records (`member_type`, `paid_through`, `Paid-YYYY` tags …) |
 | Application + payment | FluentCart | one checkout page: FluentCart's name / email / phone / address fields plus the application fields this plugin injects; orders, receipts, refunds; check payments as the offline method |
-| Login | WordPress users | credentials, mirrored one way from the CRM |
+| Login | WordPress users | credentials and a role, linked to the member's CRM contact |
 | Operations | **My IAPSNJ** | checkout application fields, membership automation, pending checks, reports, migration |
 
 Documentation: [`docs/phase1-findings.md`](docs/phase1-findings.md) ·
@@ -40,15 +40,23 @@ Documentation: [`docs/phase1-findings.md`](docs/phase1-findings.md) ·
   payment before the renewal-season cutover (default Oct 1, Dues → Membership
   Products) covers through Dec 31 of that year; on/after it, through Dec 31 of
   the next year. Checks count from the deposit date.
-* **New-member notification** — email on *payment* with name, full
-  mailing address, email, phone, department, rank, member number, product,
-  amount and links. Never on application submitted.
+* **Payment emails** (Settings → Emails) — what a membership payment sends,
+  once per order and only after payment (never on application submitted):
+  - *to the member*: FluentCart's receipt / renewal / Pay by Check emails are
+    listed and linked, with a switch to stop each one **for membership
+    purchases only**; plus an optional Welcome email (join) and Renewal email
+    (renewal) of our own, with editable subject and message, Preview and Send
+    test; FluentCRM automations are listed and linked;
+  - *to IAPSNJ staff*: a notice each for the **President** and the
+    **Membership Committee**: recipients, on join and / or renewal, Summary or
+    Full (name, type, paid-through, department, rank, member number … plus
+    email, phone, mailing address, payment and order links).
 * **Email design** — WordPress account emails (login details / set
   password, password reset, password or email changed, "New user
   registration"), FluentCart emails (receipts, check instructions) and the
-  new-member notification are sent in the same FluentCRM design as the
+  staff notices are sent in the same FluentCRM design as the
   automations and campaigns, with the IAPSNJ logo and the business name and
-  address as footer (Settings → Configurations → Email design: design, logo,
+  address as footer (Settings → Emails → Email design: design, logo,
   footer, Preview, Send test).
 * **Application inside the checkout** — the Join page is a set of buttons
   (one instant-checkout link per membership product). On the checkout page
@@ -98,9 +106,11 @@ Documentation: [`docs/phase1-findings.md`](docs/phase1-findings.md) ·
   deposit slip. **Record a check** for a member who never used the website.
 * **Reports** — applications awaiting payment, paid orders without an
   application, checks pending 30+ days, WordPress ↔ CRM orphans.
-* **Profile Mirror** — CRM → WordPress user meta, configurable field map,
-  plus a WordPress role per member type (Settings → Profile Sync; staff accounts
-  are never touched).
+* **WordPress roles** — a role per member type and a "when expired" role
+  (Settings → Configurations → WordPress roles; staff accounts are never
+  touched), and each user linked to its CRM contact. Member details are not
+  copied onto WordPress users: the Profile Mirror / Profile Sync were retired
+  in 4.35 (see the upgrade notes).
 * **Expirations** — status tag `Member-Active` and the role are given on
   payment and taken away by a daily WP-Cron job once `paid_through` is past
   (grace period configurable); `wp iapsnj expire` and a Preview / Apply
@@ -142,8 +152,7 @@ migration if present.
 4. My IAPSNJ → Membership Products → map the FluentCart products, then build
    the Join page from the *Checkout links* it prints.
 
-Upgrading from 3.x: data-version 5 drops PMPro-sourced and `pmpro_b*`
-mappings, forces the mirror to CRM → WP, removes the PMPro options/cron and
+Upgrading from 3.x: data-version 5 removes the PMPro options/cron and
 creates the applications table. Data-version 6 (4.1) removes the Fluent Forms
 settings, adds `cart_hash` / `fields` to the applications table and seeds the
 default checkout fields. Data-version 7 (4.2) converts product rows to *years
@@ -151,10 +160,8 @@ covered* and the checkout fields to the builder format. Data-version 8 (4.3)
 adds the remaining onboarding-form fields to the checkout, shows the union
 fields, fills empty dropdown option lists (ACF choices → CRM values →
 built-in list) and creates the CRM custom fields those answers are written to
-(existing fields are never modified). Data-version 9 (4.4) points 3.x-era
-Profile Mirror rows at `member_type` / `paid_through` and adds the
-membership rows (member status, expiration date, join date, member number)
-if missing. Data-version 10 (4.7) moves the checkout field list and the
+(existing fields are never modified). Data-version 9 (4.4) pointed the
+Profile Mirror rows at the 4.x slugs (nothing to do since 4.35). Data-version 10 (4.7) moves the checkout field list and the
 application heading / intro into the Checkout Builder as the form
 "Membership application", used by both levels (the checkout looks the same
 until the forms are changed). Data-version 11 (4.16) shows and requires the
@@ -175,9 +182,8 @@ slugs of the screens that existed before 4.11 are unchanged.
 | Members | Lapsed Members | `my-iapsnj-lapsed` | lapsed members and data checks; grace period; expirations Preview / Apply now |
 | Members | Notes Search | `my-iapsnj-notes-search` | |
 | | Reports | `my-iapsnj-reports` | open applications, orphan orders, aging, WP↔CRM orphans; aging threshold, go-live date |
-| Settings | Configurations | `my-iapsnj-sync` | new-member notification, email design, CRM schema, phone number format, names & addresses capitalisation (formerly "Sync & Settings") |
-| Settings | Profile Mirror | `my-iapsnj-mapping` | CRM → WP field map with sample preview |
-| Settings | Profile Sync | `my-iapsnj-profile-sync` | mirror triggers, mirror all contacts now, WordPress role per member type |
+| Settings | Emails | `my-iapsnj-emails` | emails to the member (FluentCart's, our Welcome / Renewal), to the President and the Membership Committee; email design. The old Configurations sections (`#notifications`, `#email-design`) redirect here |
+| Settings | Configurations | `my-iapsnj-sync` | WordPress role per member type, CRM schema, phone number format, names & addresses capitalisation (formerly "Sync & Settings"). The old Profile Mirror and Profile Sync slugs (`my-iapsnj-mapping`, `my-iapsnj-profile-sync`) redirect here |
 | Settings | Migrate PMPro | `my-iapsnj-migration` | PMPro → CRM steps (shown while PMPro tables exist) |
 
 ### Member lists (4.12)
@@ -214,13 +220,16 @@ characters and a password different from the current one, keeps the member
 signed in on this device and sends WordPress's "password changed" email.
 Visitors see a log-in link. WordPress account only; nothing is written to the CRM.
 
-`[iapsnj_my_membership button="Renew Now" window="60" regular_url="" associate_url=""]`
+`[iapsnj_my_membership button="Renew Now" regular_url="" associate_url=""]`
 — "My Membership" bar (full width of its column) for the logged-in member, read from their CRM contact:
 Membership Role (`member_type`, plus a staff / admin WordPress role such as Administrator when the account has one), Member Since (`join_date`), Expiration Date
 (`paid_through`; Lifetime reads LIFETIME, Honorary NO EXPIRATION), Active /
 Inactive (the same test as the daily expiry job, grace days included) and Member
-Number. **Renew Now** appears when the membership has lapsed or ends within
-`window` days (60), never for Lifetime / Honorary. It links to `regular_url` /
+Number. **Renew Now** appears when the membership has lapsed, or once the
+**Renewal season starts** date (Dues → Membership Products, MM-DD) has passed
+and a payment today would carry the member further than their `paid_through`
+(a member paid through Dec 31 of this year sees it from the start date; one who
+renewed after it waits for next year's). Never for Lifetime / Honorary. It links to `regular_url` /
 `associate_url` for the member's type, else to the renewal product set in Dues →
 Membership Products (variation ids differ between sites, so prefer that setting
 or pass the URLs per site).
@@ -229,15 +238,16 @@ or pass the URLs per site).
 **active** members (the Active Membership rule): cards with headshot (silhouette
 when missing), name, member type, member since, department, rank and email /
 phone icons (`mailto:` / `tel:`). Filters, as a plain GET form so a filtered page
-can be bookmarked: department, rank (the values present among active members),
-join date range, retired Yes / No (retired = a retirement date on the contact, or
+can be bookmarked: membership type (Regular, Associate, Lifetime, and Honorary
+while there is an active Honorary member), department, rank (the values present
+among active members), join date range, retired Yes / No (retired = a retirement date on the contact, or
 Lifetime). Visible to administrators and logged-in members whose own membership
 is active; nobody else. The headshot is the user meta named by `photo_meta` (an
 image URL or an attachment id), or the `my_iapsnj/directory_photo_url` filter.
 
 `[iapsnj_edit_profile button="Save Changes"]` — "Edit Profile" form for the
 logged-in member, written straight to their FluentCRM contact (the WordPress
-profile follows through the usual mirror). It shows name, cell phone, address
+account's role follows). It shows name, cell phone, address
 and the fields of the Checkout Builder form for the member's level (so the same
 labels, dropdown lists, "Other (not listed)", conditional fields and validation
 as the checkout), every one filled with what is on file. Dropdown lists are
@@ -309,8 +319,8 @@ Steps: `census`, `link_subscribers`, `consolidate_addresses`,
 
 | Method | Route |
 |---|---|
-| GET | `/status`, `/summary`, `/fields`, `/mappings`, `/pending-checks` |
-| POST | `/mappings`, `/bulk-sync`, `/checks/mark-paid`, `/checks/record` |
+| GET | `/status`, `/summary`, `/pending-checks` |
+| POST | `/checks/mark-paid`, `/checks/record` |
 | GET | `/reports/{open-applications|orders-without-application|aging|users-without-contact|contacts-missing-user}` |
 
 ## Hooks
@@ -318,7 +328,7 @@ Steps: `census`, `link_subscribers`, `consolidate_addresses`,
 Actions: `my_iapsnj/membership_paid($subscriber, $order, $applied)`,
 `my_iapsnj/new_member(...)`, `my_iapsnj/membership_refunded(...)`,
 `my_iapsnj/application_recorded($row, $cart)`.
-Filters: `my_iapsnj/new_member_notification($mail, …)`.
+Filters: `my_iapsnj/staff_notification($mail, $group, $facts, $order)` (every staff notice, `president` | `committee`), `my_iapsnj/new_member_notification($mail, $subscriber, $order, $applied)` (staff notices for a new member only, kept from ≤ 4.35), `my_iapsnj/member_notification($mail, $kind, $facts, $order)` (the member's Welcome / Renewal email).
 
 FluentCart hooks consumed: `fluent_cart/order_paid`, `fluent_cart/renewal_paid`,
 `fluent_cart/order_placed_offline`, `fluent_cart/order_fully_refunded`,
@@ -340,7 +350,6 @@ OrderAddress); WordPress `the_title`, `document_title_parts`.
 
 Options: `my_iapsnj_settings`, `my_iapsnj_products`, `my_iapsnj_checkout_forms`
 (`my_iapsnj_checkout_fields` is the ≤ 4.6 list, kept for a rollback),
-`my_iapsnj_field_mappings`, `my_iapsnj_last_bulk_sync`,
 `my_iapsnj_data_version`. Table: `{prefix}my_iapsnj_applications`. User meta:
 `_my_iapsnj_subscriber_id`. FluentCart order meta: `_my_iapsnj_application`,
 `_my_iapsnj_application_applied`, `_my_iapsnj_checkout_form`, `_my_iapsnj_typed_name`, `_my_iapsnj_applied`, `_my_iapsnj_snapshot`,
@@ -364,8 +373,7 @@ includes/class-checks.php         Pending checks, batch mark paid, record a chec
 includes/class-reports.php        Orphans, aging, summary
 includes/class-migration.php      PMPro → CRM steps (dry-run, paged)
 includes/class-cli.php            wp iapsnj …
-includes/class-engine.php         CRM → WP mirror
-includes/class-field-mapper.php   Field discovery + mirror map
+includes/class-engine.php         User ↔ contact link, WordPress role from the membership
 includes/class-admin.php          Screens + AJAX
 includes/class-rest-api.php       REST routes
 includes/class-github-updater.php GitHub Releases updater

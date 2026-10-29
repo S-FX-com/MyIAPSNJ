@@ -1,8 +1,9 @@
 # FluentCRM schema (Phase 2)
 
 FluentCRM is the single source of truth for member records. WordPress users
-hold credentials only, plus a one-way mirror of a few profile fields
-(My IAPSNJ → Profile Mirror). ACF user fields are **retired**, not synced.
+hold credentials and a role only: nothing about a member is copied onto the
+user (the Profile Mirror / Profile Sync were retired in 4.35). ACF user fields
+are **retired**, not synced.
 
 `wp iapsnj crm-schema` (or My IAPSNJ → Settings → Configurations → *Create missing tags &
 fields*) creates every tag and custom field below idempotently. Constants live
@@ -17,7 +18,7 @@ in `includes/class-schema.php`.
 | `Checkout-Abandoned` | `checkout-abandoned` | email typed at the FluentCart checkout (`checkout/form_data_changed`) | `order_placed_offline`, `order_paid` | Checkout started, no payment — the follow-up list that did not exist before |
 | `Honorary` | `honorary` | migration (`migrate_comped`) / admin by hand | admin | Comped; **excluded from every dues automation** |
 | `Lifetime` | `lifetime` | migration (`migrate_comped`), Lifetime product paid | admin | Comped; **excluded from every dues automation** |
-| `Member-Active` | `member-active` | `order_paid` / `renewal_paid`, daily expiry job (`wp iapsnj expire`), Members → Lapsed Members → *Apply now* | daily expiry job when `paid_through` (+ grace days) is past; full refund that leaves the contact lapsed | **Status**, not history: present while in good standing (or comped). Drives the WordPress role (Settings → Profile Sync) and is the tag to key "membership expired" automations on (Tag Removed). |
+| `Member-Active` | `member-active` | `order_paid` / `renewal_paid`, daily expiry job (`wp iapsnj expire`), Members → Lapsed Members → *Apply now* | daily expiry job when `paid_through` (+ grace days) is past; full refund that leaves the contact lapsed | **Status**, not history: present while in good standing (or comped). Drives the WordPress role (Settings → Configurations → WordPress roles) and is the tag to key "membership expired" automations on (Tag Removed). |
 
 Honorary is **never a product**: it is admin-assigned (tag + `member_type`).
 
@@ -90,32 +91,33 @@ onboarding form on the checkout, so only `admin_notes` is retired. `elo_title`
 is kept but hidden until its meaning is confirmed. Any field can still be
 hidden from My IAPSNJ → Checkout Builder.
 
-## Profile mirror (CRM → WordPress user meta)
+## WordPress user: link and role (4.35)
 
-Seeded by `seed_default_mappings()` in 4.0 and editable in My IAPSNJ → Profile
-Mirror. Direction is always CRM → WP. Targets keep the ACF-era meta keys so
-the existing member-area profile screen keeps rendering:
+Until 4.34 a *Profile Mirror* copied a configurable list of CRM fields (name,
+email, member number / type / expiry, phone, address, department, rank) into
+the user's meta in the ACF-era keys, run from *Profile Sync*. Members now edit
+their contact directly ([iapsnj_edit_profile]) and nothing reads those copies,
+so both screens, the REST routes (`/fields`, `/mappings`, `/bulk-sync`) and the
+saved map were removed; data version 18 deletes the option
+`my_iapsnj_field_mappings`, `my_iapsnj_last_bulk_sync`, the field-list caches
+and the three mirror switches. The copies already in user meta stay where they
+are (they can be deleted with the ACF user fields). A WordPress user's name and
+email are therefore no longer updated from the CRM: change them in both places.
 
-`first_name`, `last_name`, `user_email`, `MemberNum ← member_number`,
-`member_status ← member_type`, `expiration_date ← paid_through`, `join_date`,
-`primary_phone ← phone`, `address`, `address2`, `city`, `state`,
-`zip_code ← postal_code`, `department`, `rank_level ← iapsnj_rank`.
+What remains of `My_IAPSNJ_Engine`:
 
-Installs upgraded from 3.x carried mappings to the retired CRM slugs
-`member_status` / `expiration_date`; data version 9 (4.4.0) points them at
-`member_type` / `paid_through` and adds the membership rows if missing. The
-mirror runs on every CRM contact save **and** at the end of each paid /
-check-placed order, so the WordPress profile (ACF meta) reflects the payment
-immediately. Extra ACF fields (e.g. a separate `member_type`) need no code:
-create the ACF field and add the row in Profile Mirror.
-
-**WordPress role** (4.5.0, Settings → Profile Sync → *WordPress role per member
-type*): `member_type` → role slug, applied by the same mirror (contact save,
-paid / check-placed order, refund, bulk mirror). New users are created as
-Subscriber and get the mapped role in the same request. Guard rails: the
-administrator role is never assignable, and a user whose current roles
-include anything other than a mapped role or Subscriber (editors, staff) is
-never changed. Unmapped types are skipped.
+* the **link** between a user and its contact: `subscriber.user_id`, cached in
+  user meta `_my_iapsnj_subscriber_id`; a new user is linked to the contact with
+  the same email, and a deleted user unlinks its contact (never deletes it);
+* the **WordPress role** (Settings → Configurations → *WordPress roles*):
+  `member_type` → role slug, and a "when expired" role. It is applied on every
+  CRM contact save, at the end of each paid / check-placed order and refund,
+  by the daily expiry job (Members → Lapsed Members → *Apply now* brings every
+  account up to date) and when a new user is linked. New users are created as
+  Subscriber and get the mapped role in the same request. Guard rails: the
+  administrator role is never assignable, and a user whose current roles
+  include anything other than a mapped role or Subscriber (editors, staff) is
+  never changed. Unmapped types are skipped.
 
 **Expiration** (4.6.0): a membership is *active* while `paid_through` plus
 the grace period (Members → Lapsed Members, default 0 days) is today or later, or the
@@ -216,7 +218,7 @@ one-time products with the January renewal campaign.
   keeps its own codes.
 * **Slugs the plugin once wrote** (`rank_level`, `spouse_name`,
   `armed_service`) duplicated fields the CRM already had. The 4.29 upgrade
-  points the Checkout Builder rows and Profile Mirror at `iapsnj_rank`,
+  points the Checkout Builder rows at `iapsnj_rank`,
   `spouse`, `armed_services`, and copies the values collected so far into them
   where those are empty. The old fields are left in place: delete them in
   FluentCRM once you have looked.

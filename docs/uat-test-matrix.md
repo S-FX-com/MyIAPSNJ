@@ -22,7 +22,7 @@ email is blocked — verify emails in the mail log / catcher. Tick every row.
 | 13 | Mismatched deposit | Select checks totalling $90, type $60 on the slip | | | "slip is $30.00 less" shown before marking | |
 | 14 | Logins | `wp iapsnj verify-logins --expected=N` | | | 0 problems | |
 | 15 | Timezone | Member with `paid_through=2027-12-31`; view notification, dashboard, CRM | | | Every render says Dec 31, 2027 | |
-| 16 | Profile mirror | Edit address in FluentCRM | | | WP user meta updated (Profile Mirror preview shows in sync) | |
+| 16 | WordPress role | Mark a test member's check paid, then let a second one lapse (Members → Lapsed Members → Apply now) | | | Paid member has the role mapped in Configurations → WordPress roles; the lapsed one drops to the "when expired" role; no profile fields are copied onto either WordPress user | |
 | 17 | User delete | Delete a test WP user | | Contact kept, `user_id` cleared | | |
 | 18 | Form per level | Checkout Builder: duplicate the form, edit the copy, assign it to Associate; open a Regular, a Lifetime and an Associate checkout | Order note names the checkout form used | Answers written to the fields of that form | Regular + Lifetime show the Regular form, Associate the copy (heading, fields, required marks) | |
 | 19 | Plain store checkout | Buy an event registration or merchandise product only (not in Membership Products) | Order completes with FluentCart's fields only | No `Checkout-Abandoned`, no application fields written | No application section on the checkout; no application row | |
@@ -34,6 +34,11 @@ email is blocked — verify emails in the mail log / catcher. Tick every row.
 | 25 | Name split and capitals | FluentCart First Name + Last Name on; type `mary` / `van dyke jr`, street `12 main st apt 4b`, city `MT LAUREL` → leave each field | Fields turn into "Mary", "Van Dyke Jr", "12 Main St Apt 4B", "Mt Laurel" as you leave them; order address and customer the same | Contact first name `Mary`, last name `Van Dyke Jr` (not "Mary Van Dyke" / "Jr"), address as shown | | |
 | 26 | Date of birth required | Leave Date of birth empty, then pick a future date | Inline error each time; no order | | | |
 | 27 | Retired (4.17) | Regular checkout as a new member: leave "I am retired" unticked; then tick it and leave the date empty; then renew as a member who has a retirement date | Unticked: no date field, order goes through; ticked: Retirement date appears and is required; renewal: box already ticked, date filled | `retirement_date` written only when ticked | | |
+| 28 | Staff emails (4.36) | Settings → Emails: set the President and the Membership Committee to two different test addresses, President on join + renewal (Summary), Committee on join only (Full); Save. Pay a test join by card, then a test renewal | | | Join: both inboxes get one email (President short, Committee with address / phone / order links). Renewal: only the President. No second email if the order is paid again | |
+| 29 | Staff email tests | Same screen: Preview and Send me a test for each notice | | | Preview opens the email as sent; the test lands in your inbox marked [TEST], never in the President's or Committee's | |
+| 30 | Member emails (4.36) | Emails → FluentCart's emails: untick *Send* on Purchase receipt; switch on the Welcome email; Save. Join as a new member, then buy an event ticket | | | Member gets our Welcome (their name, type, date, number) and no FluentCart receipt; the event ticket still gets FluentCart's receipt | |
+| 31 | Old notice carried over | After upgrading from ≤ 4.35 | Committee's *Send* and recipients are what New-member notification had; President is off | | Committee: new members only, Full | |
+| 32 | Directory type filter (4.36) | Member Directory → Membership type: Associate, Regular, Lifetime | | | Each shows only that type; the count, paging and Reset follow; type + department combine | |
 
 ## Client UAT (acceptance gate)
 
