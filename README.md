@@ -45,12 +45,25 @@ Documentation: [`docs/phase1-findings.md`](docs/phase1-findings.md) ·
   - *to the member*: FluentCart's receipt / renewal / Pay by Check emails are
     listed and linked, with a switch to stop each one **for membership
     purchases only**; plus an optional Welcome email (join) and Renewal email
-    (renewal) of our own, with editable subject and message, Preview and Send
-    test; FluentCRM automations are listed and linked;
-  - *to IAPSNJ staff*: a notice each for the **President** and the
-    **Membership Committee**: recipients, on join and / or renewal, Summary or
-    Full (name, type, paid-through, department, rank, member number … plus
-    email, phone, mailing address, payment and order links).
+    (renewal) of our own, with an editable subject and a message written in
+    WordPress's editor (HTML), Preview and Send test; FluentCRM automations
+    are listed and linked;
+  - *to IAPSNJ staff*: the **President** and the **Membership Committee** get
+    the same email (recipients, on join and / or renewal are set per group):
+    one message for a new member and one for a renewal, each topped by a green
+    **New member** / blue **Renewal** label with its own subject, written in
+    the editor, so a note can sit above the application. The code
+    **`{application}`** prints the whole application as one styled table:
+    membership, contact (name, email, phone, mailing address), **every row of
+    the checkout form for the member's level** (read from the Checkout
+    Builder, so a new question appears by itself; unanswered rows show —) and
+    the payment, order and CRM links. It is also available in the member's own
+    emails (a copy without the payment / admin links). Other codes:
+    `{first_name} {last_name} {full_name} {email} {phone} {member_type} {kind}
+    {paid_through} {member_number} {order_number} {amount} {organization}`.
+  - *test emails*: **Send tests to** (Settings → Emails, remembered per
+    administrator; blank = their own address; up to five, comma-separated)
+    decides where every Send test goes, never to the real recipients.
 * **Email design** — WordPress account emails (login details / set
   password, password reset, password or email changed, "New user
   registration"), FluentCart emails (receipts, check instructions) and the
@@ -237,8 +250,12 @@ or pass the URLs per site).
 `[iapsnj_directory per_page="24" photo_meta="headshot"]` — members-only directory of
 **active** members (the Active Membership rule): cards with headshot (silhouette
 when missing), name, member type, member since, department, rank and email /
-phone icons (`mailto:` / `tel:`). Filters, as a plain GET form so a filtered page
-can be bookmarked: membership type (Regular, Associate, Lifetime, and Honorary
+phone icons (`mailto:` / `tel:`). A **Search by name** box on top finds members as
+the person types (every word must be in the first or last name, so "jo sm" finds
+John Smith; two characters or more; the cards, count and paging update in place,
+through a members-only wp-ajax call). Filters, as a plain GET form so a filtered
+page can be bookmarked (the search box too; without scripts the Filter button
+does the same with a page load): membership type (Regular, Associate, Lifetime, and Honorary
 while there is an active Honorary member), department, rank (the values present
 among active members), join date range, retired Yes / No (retired = a retirement date on the contact, or
 Lifetime). Visible to administrators and logged-in members whose own membership

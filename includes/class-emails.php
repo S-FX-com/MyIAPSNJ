@@ -414,9 +414,11 @@ final class My_IAPSNJ_Emails {
     }
 
     /**
-     * Send the sample to $to (Configurations → Send test).
+     * Send the sample to $to (Settings → Emails → Send test).
+     *
+     * @param string|string[] $to
      */
-    public static function send_test( string $to ): bool {
+    public static function send_test( $to ): bool {
         $sample = self::sample();
         return (bool) wp_mail( $to, $sample['subject'], $sample['html'], [ 'Content-Type: text/html; charset=UTF-8' ] );
     }

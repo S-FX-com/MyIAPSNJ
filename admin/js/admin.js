@@ -126,6 +126,8 @@
         var $btn = $(this).find('[type="submit"]'), data = {};
         var $notice = $(this).find('.fcrm-form-notice').first();
         if (!$notice.length) { $notice = $('#fcrm-settings-notice'); }
+        // The email message editors (TinyMCE) hold their text apart until told to write it back.
+        if (window.tinyMCE && window.tinyMCE.triggerSave) { window.tinyMCE.triggerSave(); }
         $(this).find('input, select, textarea').each(function () {
             var name = $(this).attr('name');
             if (!name) { return; }
@@ -615,11 +617,36 @@
             .always(function () { resetBtn($btn); });
     });
 
-    // Emails → Send test of a member / staff email (to the current admin only).
+    // Emails → "Send tests to": where every Send test on the page goes (blank = the
+    // administrator's own address); the buttons show it, and send it with the request.
+    function testTo() { return $.trim($('#fcrm-test-to').val() || ''); }
+    $('#fcrm-test-to').on('input', function () {
+        $('.fcrm-test-to-label').text(testTo() || $(this).data('default'));
+    });
+
+    // Emails → a code chip puts its {token} into the message editor it belongs to
+    // (the Visual tab at the cursor, or the Text tab).
+    $(document).on('click', '.fcrm-token', function () {
+        var token = String($(this).data('token')), id = String($(this).data('editor'));
+        var editor = window.tinyMCE && window.tinyMCE.get(id);
+        if (editor && !editor.isHidden()) {
+            editor.execCommand('mceInsertContent', false, token);
+            editor.focus();
+            return;
+        }
+        var el = document.getElementById(id);
+        if (!el) { return; }
+        var start = el.selectionStart || 0, end = el.selectionEnd || 0;
+        el.value = el.value.slice(0, start) + token + el.value.slice(end);
+        el.focus();
+        el.selectionStart = el.selectionEnd = start + token.length;
+    });
+
+    // Emails → Send test of a member / staff email (to the "Send tests to" address).
     $(document).on('click', '.fcrm-send-test-notification', function () {
         var $btn = $(this), $notice = $btn.closest('form').find('.fcrm-form-notice').first();
         setBtn($btn, i18n.loading, true);
-        post('send_test_notification', { kind: $btn.data('kind') })
+        post('send_test_notification', { kind: $btn.data('kind'), to: testTo() })
             .done(function (resp) { showNotice($notice, resp.success ? resp.data.message : errMsg(resp), resp.success ? 'success' : 'error'); })
             .fail(function () { showNotice($notice, i18n.error, 'error'); })
             .always(function () { resetBtn($btn); });
@@ -629,7 +656,7 @@
     $('.fcrm-send-test-email').on('click', function () {
         var $btn = $(this), $notice = $btn.closest('form').find('.fcrm-form-notice').first();
         setBtn($btn, i18n.loading, true);
-        post('send_test_email', {})
+        post('send_test_email', { to: testTo() })
             .done(function (resp) { showNotice($notice, resp.success ? resp.data.message : errMsg(resp), resp.success ? 'success' : 'error'); })
             .fail(function () { showNotice($notice, i18n.error, 'error'); })
             .always(function () { resetBtn($btn); });
