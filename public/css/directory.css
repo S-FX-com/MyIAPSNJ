@@ -11,25 +11,76 @@
     box-sizing: border-box;
 }
 
-/* Filters */
+/* Filters: a panel. One column on a phone; two from 480px of directory
+   width; Type / Department / Rank on one row and Joined / Retired / the
+   buttons on the next from 760px. Container queries follow the width of the
+   column the directory sits in, not the window (a browser without them keeps
+   the one-column stack). */
+.my-iapsnj-dir {
+    container-type: inline-size;
+    container-name: iapsnj-dir;
+}
 .my-iapsnj-dir .my-iapsnj-dir-filters {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-    gap: 12px 16px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px 18px;
     align-items: end;
-    margin: 0 0 16px;
+    margin: 0 0 18px;
+    padding: 18px 20px;
+    border: 1px solid var(--my-iapsnj-dir-border);
+    border-radius: 12px;
+    background: #f6f8fa;
 }
-.my-iapsnj-dir .my-iapsnj-dir-field label {
+@container iapsnj-dir (min-width: 480px) {
+    .my-iapsnj-dir .my-iapsnj-dir-filters {
+        grid-template-columns: repeat(12, minmax(0, 1fr));
+    }
+    .my-iapsnj-dir .my-iapsnj-dir-filters > * {
+        grid-column: span 6;
+    }
+}
+@container iapsnj-dir (min-width: 760px) {
+    .my-iapsnj-dir .my-iapsnj-dir-field--wide {
+        grid-column: span 4;
+    }
+    .my-iapsnj-dir .my-iapsnj-dir-field--range {
+        grid-column: span 6;
+    }
+    .my-iapsnj-dir .my-iapsnj-dir-field--retired,
+    .my-iapsnj-dir .my-iapsnj-dir-actions {
+        grid-column: span 3;
+    }
+    .my-iapsnj-dir .my-iapsnj-dir-actions {
+        justify-content: flex-end;
+    }
+}
+.my-iapsnj-dir fieldset.my-iapsnj-dir-field {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+.my-iapsnj-dir .my-iapsnj-dir-field label,
+.my-iapsnj-dir .my-iapsnj-dir-field legend {
     display: block;
     margin: 0 0 6px;
-    font-size: 14px;
-    font-weight: 400;
+    padding: 0;
+    font-size: 13px;
+    font-weight: 600;
     line-height: 1.4;
+    letter-spacing: 0.01em;
+    color: #3c434a;
+}
+.my-iapsnj-dir .my-iapsnj-dir-range {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
 }
 .my-iapsnj-dir .my-iapsnj-dir-field select,
 .my-iapsnj-dir .my-iapsnj-dir-field input[type="date"] {
     display: block;
     width: 100%;
+    min-width: 0;
     height: 42px;
     margin: 0;
     padding: 0 12px;
@@ -38,7 +89,20 @@
     background-color: #fff;
     box-shadow: none;
     font-size: 15px;
+    line-height: 1.2;
     color: inherit;
+}
+/* One look for every dropdown (the browser's own arrow differs by system). */
+.my-iapsnj-dir .my-iapsnj-dir-field select {
+    padding-right: 36px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%230c3d54' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 13px center;
+    background-size: 12px 8px;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    cursor: pointer;
 }
 .my-iapsnj-dir .my-iapsnj-dir-field select:focus,
 .my-iapsnj-dir .my-iapsnj-dir-field input:focus {
@@ -50,10 +114,12 @@
     display: flex;
     align-items: center;
     gap: 14px;
+    min-height: 42px;
 }
 .my-iapsnj-dir .my-iapsnj-dir-submit {
     display: inline-block;
-    padding: 10px 21px;
+    min-height: 42px;
+    padding: 10px 24px;
     border: 1px solid var(--my-iapsnj-dir-accent);
     border-radius: 6px;
     background: var(--my-iapsnj-dir-accent);

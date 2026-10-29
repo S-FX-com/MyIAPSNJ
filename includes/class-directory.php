@@ -430,7 +430,7 @@ final class My_IAPSNJ_Directory {
                 <?php foreach ( $keep as $k => $v ) : ?>
                     <input type="hidden" name="<?php echo esc_attr( $k ); ?>" value="<?php echo esc_attr( $v ); ?>">
                 <?php endforeach; ?>
-                <div class="my-iapsnj-dir-field">
+                <div class="my-iapsnj-dir-field my-iapsnj-dir-field--wide">
                     <label for="mdir-type"><?php esc_html_e( 'Membership type', 'my-iapsnj' ); ?></label>
                     <select id="mdir-type" name="<?php echo esc_attr( self::Q_TYPE ); ?>">
                         <option value=""><?php esc_html_e( 'All types', 'my-iapsnj' ); ?></option>
@@ -439,7 +439,7 @@ final class My_IAPSNJ_Directory {
                         <?php endforeach; ?>
                     </select>
                 </div>
-                <div class="my-iapsnj-dir-field">
+                <div class="my-iapsnj-dir-field my-iapsnj-dir-field--wide">
                     <label for="mdir-dept"><?php esc_html_e( 'Department', 'my-iapsnj' ); ?></label>
                     <select id="mdir-dept" name="<?php echo esc_attr( self::Q_DEPT ); ?>">
                         <option value=""><?php esc_html_e( 'All departments', 'my-iapsnj' ); ?></option>
@@ -448,7 +448,7 @@ final class My_IAPSNJ_Directory {
                         <?php endforeach; ?>
                     </select>
                 </div>
-                <div class="my-iapsnj-dir-field">
+                <div class="my-iapsnj-dir-field my-iapsnj-dir-field--wide">
                     <label for="mdir-rank"><?php esc_html_e( 'Rank', 'my-iapsnj' ); ?></label>
                     <select id="mdir-rank" name="<?php echo esc_attr( self::Q_RANK ); ?>">
                         <option value=""><?php esc_html_e( 'All ranks', 'my-iapsnj' ); ?></option>
@@ -457,15 +457,14 @@ final class My_IAPSNJ_Directory {
                         <?php endforeach; ?>
                     </select>
                 </div>
-                <div class="my-iapsnj-dir-field">
-                    <label for="mdir-from"><?php esc_html_e( 'Joined from', 'my-iapsnj' ); ?></label>
-                    <input type="date" id="mdir-from" name="<?php echo esc_attr( self::Q_FROM ); ?>" value="<?php echo esc_attr( $filters['from'] ); ?>">
-                </div>
-                <div class="my-iapsnj-dir-field">
-                    <label for="mdir-to"><?php esc_html_e( 'Joined to', 'my-iapsnj' ); ?></label>
-                    <input type="date" id="mdir-to" name="<?php echo esc_attr( self::Q_TO ); ?>" value="<?php echo esc_attr( $filters['to'] ); ?>">
-                </div>
-                <div class="my-iapsnj-dir-field">
+                <fieldset class="my-iapsnj-dir-field my-iapsnj-dir-field--range">
+                    <legend><?php esc_html_e( 'Joined between', 'my-iapsnj' ); ?></legend>
+                    <div class="my-iapsnj-dir-range">
+                        <input type="date" id="mdir-from" name="<?php echo esc_attr( self::Q_FROM ); ?>" value="<?php echo esc_attr( $filters['from'] ); ?>" aria-label="<?php esc_attr_e( 'Joined from', 'my-iapsnj' ); ?>">
+                        <input type="date" id="mdir-to" name="<?php echo esc_attr( self::Q_TO ); ?>" value="<?php echo esc_attr( $filters['to'] ); ?>" aria-label="<?php esc_attr_e( 'Joined to', 'my-iapsnj' ); ?>">
+                    </div>
+                </fieldset>
+                <div class="my-iapsnj-dir-field my-iapsnj-dir-field--retired">
                     <label for="mdir-retired"><?php esc_html_e( 'Retired', 'my-iapsnj' ); ?></label>
                     <select id="mdir-retired" name="<?php echo esc_attr( self::Q_RETIRED ); ?>">
                         <option value=""><?php esc_html_e( 'Any', 'my-iapsnj' ); ?></option>
