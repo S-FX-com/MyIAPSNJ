@@ -122,7 +122,7 @@ class My_IAPSNJ_Reports {
     /**
      * Paid membership orders with no application row (a checkout the plugin
      * did not see, e.g. an order created by hand in FluentCart). Orders
-     * recorded through "Record a Check" are excluded by design.
+     * recorded through Payments → Record Payment are excluded by design.
      *
      * @return array<int,array>
      */
@@ -157,7 +157,7 @@ class My_IAPSNJ_Reports {
             if ( ! My_IAPSNJ_Membership::plan_for_order( $order ) ) {
                 continue;
             }
-            if ( (string) $order->getMeta( My_IAPSNJ_Membership::META_SOURCE ) === 'manual_check' ) {
+            if ( My_IAPSNJ_Membership::is_manual_source( $order->getMeta( My_IAPSNJ_Membership::META_SOURCE ) ) ) {
                 continue;
             }
             $customer = is_object( $order->customer ?? null ) ? $order->customer : null;
@@ -167,7 +167,9 @@ class My_IAPSNJ_Reports {
                 'email'      => $customer ? (string) $customer->email : '',
                 'name'       => $customer ? trim( (string) $customer->first_name . ' ' . (string) $customer->last_name ) : '',
                 'total'      => My_IAPSNJ_Membership::format_money( (int) $order->total_amount, (string) $order->currency ),
-                'payment'    => (string) $order->payment_method === My_IAPSNJ_Membership::OFFLINE_METHOD ? 'check' : 'card',
+                'payment'    => (string) $order->payment_method === My_IAPSNJ_Membership::OFFLINE_METHOD
+                    ? My_IAPSNJ_Payments::normalize_method( (string) $order->getMeta( My_IAPSNJ_Membership::META_PAY_METHOD ) )
+                    : 'card',
                 'applied'    => (bool) $order->getMeta( My_IAPSNJ_Membership::META_APPLIED ),
                 'admin_url'  => My_IAPSNJ_Membership::order_admin_url( $order ),
             ];

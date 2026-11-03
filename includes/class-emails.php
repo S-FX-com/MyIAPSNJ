@@ -114,7 +114,7 @@ final class My_IAPSNJ_Emails {
     }
 
     /**
-     * Logo shown on top: the one typed in Configurations, else FluentCRM's
+     * Logo shown on top: the one typed in Settings → Emails, else FluentCRM's
      * business logo, else the theme's custom logo, else the site icon; ''
      * when there is none.
      */
@@ -124,7 +124,7 @@ final class My_IAPSNJ_Emails {
     }
 
     /**
-     * The logo used when none is typed in Configurations.
+     * The logo used when none is typed in Settings → Emails.
      */
     public static function default_logo_url(): string {
         $url = trim( (string) ( self::business()['logo'] ?? '' ) );

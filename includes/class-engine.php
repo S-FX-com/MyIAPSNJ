@@ -19,7 +19,7 @@
  *    deleted user unlinks its contact (the contact is never deleted);
  *  - apply_role(): the role mapped to the member type while the membership is
  *    active, the "expired" role once it has lapsed (Settings →
- *    Configurations → WordPress roles). Staff accounts are never touched.
+ *    Settings → Config → Roles). Staff accounts are never touched.
  *    It runs when a contact is saved, when a payment is applied and in the
  *    daily expiry job.
  */
@@ -144,7 +144,7 @@ class My_IAPSNJ_Engine {
     }
 
     /**
-     * member_type => role slug from Settings → Configurations → WordPress roles ('' = leave the role alone).
+     * member_type => role slug from Settings → Config → Roles ('' = leave the role alone).
      *
      * @return array<string,string>
      */
@@ -154,7 +154,7 @@ class My_IAPSNJ_Engine {
     }
 
     /**
-     * Role an expired member drops to (Settings → Configurations → WordPress roles; default subscriber).
+     * Role an expired member drops to (Settings → Config → Roles; default subscriber).
      */
     public static function expired_role(): string {
         $role = sanitize_key( (string) ( My_IAPSNJ_Plugin::settings()['role_expired'] ?? 'subscriber' ) );

@@ -3,7 +3,7 @@
  * Plugin Name:       My IAPSNJ
  * Plugin URI:        https://github.com/S-FX-com/MyIAPSNJ
  * Description:       Membership operations for the IAPSNJ website. FluentCRM is the single source of truth: the membership application is collected on the FluentCart checkout page, FluentCart payments set membership state (Paid-YYYY tags, member_type, paid_through), applications are tracked until they are paid, mailed checks are reconciled in batch, and WordPress accounts get the role of their membership. Includes the PMPro → FluentCRM migration toolkit.
- * Version:           4.38.1
+ * Version:           4.39.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Requires Plugins:  fluent-crm
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'MY_IAPSNJ_VERSION', '4.38.1' );
+define( 'MY_IAPSNJ_VERSION', '4.39.0' );
 define( 'MY_IAPSNJ_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'MY_IAPSNJ_URL',     plugin_dir_url( __FILE__ ) );
 define( 'MY_IAPSNJ_FILE',    __FILE__ );
@@ -87,6 +87,7 @@ final class My_IAPSNJ_Plugin {
         My_IAPSNJ_REST_API::get_instance();
         My_IAPSNJ_Reports::register_hooks();
         My_IAPSNJ_Members::register_hooks();
+        My_IAPSNJ_Freshly_Paid::register_hooks();
         // WordPress account emails, FluentCart emails and the new-member
         // notice in the FluentCRM email design.
         My_IAPSNJ_Emails::get_instance();
@@ -541,7 +542,7 @@ final class My_IAPSNJ_Plugin {
             // Member data lives in FluentCRM only; nothing is copied onto
             // WordPress users any more. The saved field map, its bookmarks and
             // the three mirror switches go; the roles (Settings →
-            // Configurations → WordPress roles) and the user ↔ contact link stay.
+            // Settings → Config → Roles) and the user ↔ contact link stay.
             if ( $installed < 18 ) {
                 delete_option( 'my_iapsnj_field_mappings' );
                 delete_option( 'my_iapsnj_last_bulk_sync' );

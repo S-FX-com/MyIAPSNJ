@@ -17,7 +17,7 @@ Join page (buttons)  →  FluentCart checkout  →  pay (card / Pay by Check)  �
 ## 1. Join page (built in WordPress, any page builder)
 
 One button or card per membership product. Each button's URL is the
-instant-checkout link printed in **My IAPSNJ → Membership Products →
+instant-checkout link printed in **My IAPSNJ → Settings → Config → Product Mapping →
 Checkout links**:
 
 ```
@@ -25,12 +25,17 @@ https://SITE/?fluent-cart=instant_checkout&item_id={VARIATION_ID}&quantity=1
 ```
 
 Regular Membership · Associate Membership · Lifetime Membership. Set the page
-URL in **Dues → Membership Products → Join page URL**.
+URL in **Settings → Config → Membership Terms → Join page URL**.
 
 Variation ids differ between staging and production — rebuild the buttons
 after the product import (`docs/not-in-git.md`).
 
 ## 2. Checkout page
+
+> The **Checkout Builder** is not in the menu (4.39): the checkouts are built by
+> this plugin and a live checkout should not be edited by accident. The screen
+> still works at `wp-admin/admin.php?page=my-iapsnj-checkout`, and Settings →
+> Config → Product Mapping links to it.
 
 **FluentCart's own fields** (FluentCart → Settings → Checkout Fields): first
 name, last name (required), email (system), phone (billing, **on and required**: the field is FluentCart's and ships off, with it off the application has no phone; data version 16 / 4.30 switches it on and required for every checkout and the Health check warns if it is off again; on a membership checkout the plugin relabels it *Cell phone* and makes it required whatever the setting says),
@@ -61,7 +66,7 @@ Builder**.
   expiry, so a Lifetime product uses the Regular form; Honorary is never
   sold. Renewals use the same form as joining (prefilled from the CRM).
 * **Which form a checkout shows** comes from the cart: the highest member
-  type among the cart's products configured in **Membership Products**
+  type among the cart's products configured in **Product Mapping**
   (same ranking as the payment: Regular < Associate < Lifetime). A cart with
   no membership product — event registration, merchandise, any product not
   mapped there — shows **no application fields and validates none**, so
@@ -276,12 +281,12 @@ lists.
   of its own. Selector: `input[name="billing_email"]`, notice placed after
   `.fct_checkout_input_group`; if a FluentCart update renames either, the
   prompt silently stops appearing.
-* Only carts with a product mapped in Membership Products get an
+* Only carts with a product mapped in Product Mapping get an
   application (see *Checkout Builder* above); a membership product that is
   not mapped checks out like any other product and, on payment, the order
   gets the note "membership not applied". The Dashboard flags mapped
   variation ids that no longer exist in FluentCart (products recreated).
-* Record a Check (admin) never renders, validates or records an application.
+* Record Payment (admin) never renders, validates or records an application.
 
 ### Layout (4.33)
 
@@ -298,7 +303,7 @@ explicitly, never `width: auto`, which collapses it to a sliver — 4.33.1).
 
 Client requests of 2026-09-29, in `My_IAPSNJ_Checkout_Page` (FluentCart
 1.6.5). "Membership checkout" means a cart with a product mapped in
-Membership Products; event and merchandise checkouts keep FluentCart's page.
+Product Mapping; event and merchandise checkouts keep FluentCart's page.
 
 | Request | What the plugin does | Admin side |
 |---|---|---|
@@ -348,7 +353,7 @@ Membership Products; event and merchandise checkouts keep FluentCart's page.
   acronym typed in an all-caps address is lowered ("JFK BLVD" → "Jfk Blvd");
   without PHP's mbstring extension, words with accented letters are left as
   typed.
-* **Existing contacts:** Settings → Configurations → *Names & addresses* →
+* **Existing contacts:** Settings → Toolkit → *Names & Addresses* →
   Preview / Apply now, or `wp iapsnj capitalize [--dry-run]`: first name,
   last name, street lines, city and state of every CRM contact. Direct table
   writes: no automations fire and no WordPress roles are re-applied.
@@ -361,7 +366,7 @@ extends `paid_through` by the term rule (`docs/crm-schema.md`). For a member
 without an active subscription (lapsed, check payer, migrated from PMPro) a
 logged-in click on **Renew** — the `[iapsnj_renew_link]` shortcode (member
 area, dues emails) — lands on the checkout of the renewal product configured
-for their type (**Dues → Membership Products → Renewal product**, Regular → Regular
+for their type (**Settings → Config → Membership Terms → Renewal product**, Regular → Regular
 Membership, Associate → Associate Membership). Name, email, address
 come from FluentCart's customer record; the application fields come prefilled
 from the CRM. Lifetime / Honorary members get no link; visitors get the Join
@@ -454,7 +459,7 @@ A FluentCRM text field whose slug or label contains "phone", "mobile" or
 "cell" is offered as a Phone field. Work phone and Alternate phone are no
 longer offered (4.18) or used at all (4.29).
 
-Numbers already in the CRM: **Settings → Configurations → Phone numbers →
+Numbers already in the CRM: **Settings → Toolkit → Phone Numbers →
 Preview / Apply now**, or `wp iapsnj phones [--dry-run]`. This reformats the
 contact Phone to the format above. It
 lists numbers it cannot read (too few digits, extensions, letters) and leaves

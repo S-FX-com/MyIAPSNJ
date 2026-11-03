@@ -18,7 +18,7 @@
  *     recipients and "send on join / on renewal". They get the same email: one
  *     message for a new member and one for a renewal (a subject and a message
  *     written in WordPress's editor), each topped by a New member / Renewal
- *     label. The single recipient list of ≤ 4.35 (Configurations → New-member
+ *     label. The single recipient list of ≤ 4.35 (Emails → New-member
  *     notification) became the Committee's (data v19).
  *
  * Messages are HTML and may use {tokens}. The one token {application} prints the
@@ -465,7 +465,7 @@ final class My_IAPSNJ_Notifications {
             'member_type'   => (string) $applied['member_type'],
             'paid_through'  => (string) $applied['paid_through'],
             'product'       => implode( '; ', $items ),
-            'payment'       => ( ( $applied['payment'] ?? '' ) === 'check' ? __( 'Check', 'my-iapsnj' ) : __( 'Card', 'my-iapsnj' ) ) . ' — ' . $money,
+            'payment'       => My_IAPSNJ_Payments::label( (string) ( $applied['payment'] ?? '' ) ) . ' — ' . $money,
             'amount'        => $money,
             'order'         => '#' . (int) $order->id . ( $order->receipt_number ? ' (' . $order->receipt_number . ')' : '' ),
             'department'    => (string) ( $custom[ My_IAPSNJ_Schema::FIELD_DEPARTMENT ] ?? '' ),

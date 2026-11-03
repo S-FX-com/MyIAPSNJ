@@ -2,7 +2,7 @@
 /**
  * My_IAPSNJ_Members_List_Table
  *
- * WP_List_Table for the Active Membership / Lapsed Members screens. Data
+ * WP_List_Table for the Active / Lapsed tabs of Membership → Overview. Data
  * comes from My_IAPSNJ_Members::query(); this class only renders views,
  * filters, columns and paging. Read-only: no bulk actions.
  */

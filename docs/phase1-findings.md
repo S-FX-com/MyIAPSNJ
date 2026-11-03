@@ -86,7 +86,7 @@ Label* / *Checkout Instructions*). So:
 * **No custom gateway is required.** Set the label to `Pay by Check` and the
   instructions to the mailing address + "write your member number on the memo
   line".
-* My IAPSNJ → Dues → Checkout Builder (Pay by Check) has an *Apply label & instructions* button that
+* the (hidden) Checkout Builder (Pay by Check) has an *Apply label & instructions* button that
   writes the same two keys (`fct_meta`, key
   `fluent_cart_payment_settings_offline_payment`), and there is
   `wp iapsnj offline-label --label="Pay by Check" --instructions="…"`.
@@ -101,7 +101,7 @@ Offline order lifecycle (verified in `CodHandler::handlePayment`,
 
 * placed → order `on-hold`, payment `pending`, one pending transaction with no
   `vendor_charge_id`; fires `fluent_cart/order_placed_offline`.
-* admin *Mark as paid* (or My IAPSNJ Pending Checks) → the pending transaction
+* admin *Mark as paid* (or My IAPSNJ Payments → Open Invoices) → the pending transaction
   is updated to `succeeded`, `syncOrderStatuses()` sets payment `paid`, order
   `processing` → `completed` (digital), and dispatches **`fluent_cart/order_paid`
   synchronously** plus `fluent_cart/order_paid_done` asynchronously (Action
@@ -182,7 +182,7 @@ then `markAsPaid` → `syncOrderStatuses` → `order_paid`). Automations that fi
 * `fluent_cart/order_paid_done` (async) → FluentCart receipt, FluentCRM
   "Order Paid" automation trigger, integration feeds.
 
-My IAPSNJ → Pending Checks → *Record a check* does the same thing in one step
+My IAPSNJ → Payments → Record Payment does the same thing in one step
 for a member who mailed a check without using the website: creates the
 FluentCart customer if missing, creates the offline order, suppresses the
 "please pay" email (the check is already in hand), marks it paid with the check

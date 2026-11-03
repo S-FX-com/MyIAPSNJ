@@ -2,23 +2,26 @@
 /**
  * My_IAPSNJ_Admin
  *
- * Admin menu, screens and AJAX handlers. Menu (groups are headings):
+ * Admin menu, screens and AJAX handlers. Menu (groups are headings; a page
+ * with tabs shows them under its title):
  *
- *  Dashboard              counts, members by type (active / lapsed), environment checks
- *  Dues
- *    Membership Products  product → membership mapping; term rule, renewal products, Join page
- *    Pending Checks       unpaid check orders, batch mark paid, record a check
- *    Checkout Builder     checkout forms per level; billing address → CRM; Pay by Check label
- *  Members
- *    Active Membership    members in good standing (My_IAPSNJ_Members)
- *    Lapsed Members       lapsed members, data checks; grace period, expiry Preview / Apply
+ *  Membership
+ *    Overview             tabs: Summary (counts, members by type, environment checks),
+ *                         Active, Lapsed (grace period, expiry Preview / Apply), Reports
+ *    Payments             tabs: Record Payment (check / cash / Venmo, no website order),
+ *                         Open Invoices (unpaid check orders, batch mark paid), Stripe Payments
+ *    Freshly Paid         members who paid in the last 7 / 15 / 30 days; mailing-label CSV
  *    Notes Search         FluentCRM notes search with inline tagging
- *  Reports                open applications, orphan orders, aging checks, WP↔CRM orphans; report settings
  *  Settings
- *    Configurations       WordPress role per member type, CRM schema, phones, names & addresses (slug my-iapsnj-sync)
  *    Emails               emails to the member, to the President and the Membership Committee; email design
  *    Shortcodes           every shortcode the plugin provides, with options and copy-ready examples
- *    Migrate PMPro        PMPro → FluentCRM toolkit (only while PMPro tables exist)
+ *    Config               tabs: Roles, Product Mapping, Membership Terms
+ *    Toolkit              tabs: Phone Numbers, Names & Addresses, CRM Schema, PMPro Migration
+ *                         (the last only while PMPro tables exist)
+ *
+ * Not in the menu: Checkout Builder (slug my-iapsnj-checkout). The checkouts
+ * are built by this plugin; the screen stays reachable by URL and from a link
+ * under Config → Product Mapping, so nobody edits a live checkout by accident.
  */
 
 defined( 'ABSPATH' ) || exit;
@@ -45,6 +48,10 @@ class My_IAPSNJ_Admin {
         add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_menu_assets' ] );
         add_action( 'admin_init',            [ $this, 'redirect_legacy_slugs' ] );
         add_action( 'admin_notices',         [ $this, 'environment_notices' ] );
+        // Checkout Builder stays registered (so its URL works) but is taken
+        // out of the menu once the page's access check has passed.
+        add_action( 'admin_head',            [ $this, 'hide_checkout_builder' ] );
+        add_filter( 'submenu_file',          [ $this, 'checkout_builder_submenu_file' ] );
 
         // Place My IAPSNJ right under Dashboard / FluentHub; nothing else moves.
         add_filter( 'custom_menu_order', '__return_true' );
@@ -54,7 +61,7 @@ class My_IAPSNJ_Admin {
             'save_settings', 'save_checkout_fields', 'import_field_options',
             'checkout_form_create', 'checkout_form_duplicate', 'checkout_form_delete', 'checkout_forms_assign',
             'search_notes', 'get_tags', 'assign_tag',
-            'checks_list', 'checks_mark_paid', 'search_members', 'record_check',
+            'checks_list', 'checks_mark_paid', 'search_members', 'record_payment',
             'save_products', 'apply_offline_labels', 'ensure_schema', 'run_expiry', 'normalize_phones', 'normalize_names', 'send_test_email', 'send_test_notification',
             'migration_run', 'export_orders', 'download_export', 'report',
         ];
@@ -67,62 +74,102 @@ class My_IAPSNJ_Admin {
     // Menu
     // -----------------------------------------------------------------------
 
+    const SLUG_CHECKOUT = 'my-iapsnj-checkout';
+
     public function register_menu(): void {
-        add_menu_page( esc_html__( 'My IAPSNJ', 'my-iapsnj' ), esc_html__( 'My IAPSNJ', 'my-iapsnj' ), self::CAP, 'my-iapsnj', [ $this, 'render_dashboard_page' ], 'dashicons-shield', 56 );
+        add_menu_page( esc_html__( 'My IAPSNJ', 'my-iapsnj' ), esc_html__( 'My IAPSNJ', 'my-iapsnj' ), self::CAP, 'my-iapsnj', [ $this, 'render_overview_page' ], 'dashicons-shield', 56 );
 
         // WordPress draws two menu levels. Groups are heading entries (a
         // "#…" slug with no page: never a link target, never "current")
-        // followed by their pages, indented by the MENU_CHILD class. The
-        // slugs of existing screens are unchanged, so bookmarks keep working.
-        $settings = [
-            [ 'my-iapsnj-sync',         esc_html__( 'Configurations', 'my-iapsnj' ), 'render_sync_page' ],
-            [ 'my-iapsnj-emails',       esc_html__( 'Emails', 'my-iapsnj' ),         'render_emails_page' ],
-            [ 'my-iapsnj-shortcodes',   esc_html__( 'Shortcodes', 'my-iapsnj' ),     'render_shortcodes_page' ],
-        ];
-        if ( My_IAPSNJ_Migration::tables_exist() ) {
-            $settings[] = [ 'my-iapsnj-migration', esc_html__( 'Migrate PMPro', 'my-iapsnj' ), 'render_migration_page' ];
-        }
+        // followed by their pages, indented by the MENU_CHILD class. Pages
+        // that hold several screens (Overview, Payments, Config, Toolkit)
+        // show them as tabs.
         $groups = [
-            [ '', '', [
-                [ 'my-iapsnj', esc_html__( 'Dashboard', 'my-iapsnj' ), 'render_dashboard_page' ],
-            ] ],
-            [ 'dues', esc_html__( 'Dues', 'my-iapsnj' ), [
-                [ 'my-iapsnj-products', esc_html__( 'Membership Products', 'my-iapsnj' ), 'render_products_page' ],
-                [ 'my-iapsnj-checks',   esc_html__( 'Pending Checks', 'my-iapsnj' ),      'render_checks_page' ],
-                [ 'my-iapsnj-checkout', esc_html__( 'Checkout Builder', 'my-iapsnj' ),    'render_checkout_builder_page' ],
-            ] ],
-            [ 'members', esc_html__( 'Members', 'my-iapsnj' ), [
-                [ My_IAPSNJ_Members::page_slug( My_IAPSNJ_Members::STATE_ACTIVE ), esc_html__( 'Active Membership', 'my-iapsnj' ), 'render_members_active_page' ],
-                [ My_IAPSNJ_Members::page_slug( My_IAPSNJ_Members::STATE_LAPSED ), esc_html__( 'Lapsed Members', 'my-iapsnj' ),    'render_members_lapsed_page' ],
+            [ 'membership', esc_html__( 'Membership', 'my-iapsnj' ), [
+                [ 'my-iapsnj',              esc_html__( 'Overview', 'my-iapsnj' ),     'render_overview_page' ],
+                [ 'my-iapsnj-payments',     esc_html__( 'Payments', 'my-iapsnj' ),     'render_payments_page' ],
+                [ 'my-iapsnj-freshly-paid', esc_html__( 'Freshly Paid', 'my-iapsnj' ), 'render_freshly_paid_page' ],
                 [ 'my-iapsnj-notes-search', esc_html__( 'Notes Search', 'my-iapsnj' ), 'render_notes_search_page' ],
             ] ],
-            [ '', '', [
-                [ 'my-iapsnj-reports', esc_html__( 'Reports', 'my-iapsnj' ), 'render_reports_page' ],
+            [ 'settings', esc_html__( 'Settings', 'my-iapsnj' ), [
+                [ 'my-iapsnj-emails',     esc_html__( 'Emails', 'my-iapsnj' ),     'render_emails_page' ],
+                [ 'my-iapsnj-shortcodes', esc_html__( 'Shortcodes', 'my-iapsnj' ), 'render_shortcodes_page' ],
+                [ 'my-iapsnj-config',     esc_html__( 'Config', 'my-iapsnj' ),     'render_config_page' ],
+                [ 'my-iapsnj-toolkit',    esc_html__( 'Toolkit', 'my-iapsnj' ),    'render_toolkit_page' ],
             ] ],
-            [ 'settings', esc_html__( 'Settings', 'my-iapsnj' ), $settings ],
+        ];
+        // Registered, never listed: see hide_checkout_builder().
+        $hidden = [
+            [ self::SLUG_CHECKOUT, esc_html__( 'Checkout Builder', 'my-iapsnj' ), 'render_checkout_builder_page' ],
         ];
 
-        $classes = [];
+        // The first entry must be a real page (not a heading): WordPress
+        // links the top-level "My IAPSNJ" item to the first submenu entry.
+        add_submenu_page( 'my-iapsnj', esc_html__( 'Overview', 'my-iapsnj' ), esc_html__( 'Overview', 'my-iapsnj' ), self::CAP, 'my-iapsnj', [ $this, 'render_overview_page' ] );
         foreach ( $groups as [ $group, $label, $pages ] ) {
-            if ( $group !== '' ) {
-                $slug = '#my-iapsnj-' . $group;
-                add_submenu_page( 'my-iapsnj', $label, $label, self::CAP, $slug ); // no callback: a heading, not a page
-                $classes[ $slug ] = self::MENU_GROUP;
-            }
+            add_submenu_page( 'my-iapsnj', $label, $label, self::CAP, '#my-iapsnj-' . $group ); // no callback: a heading, not a page
             foreach ( $pages as [ $slug, $title, $method ] ) {
-                add_submenu_page( 'my-iapsnj', $title, $title, self::CAP, $slug, [ $this, $method ] );
-                if ( $group !== '' ) {
-                    $classes[ $slug ] = self::MENU_CHILD;
+                if ( $slug !== 'my-iapsnj' ) {
+                    add_submenu_page( 'my-iapsnj', $title, $title, self::CAP, $slug, [ $this, $method ] );
                 }
             }
         }
-        // Index 4 of a submenu entry is its CSS class (core prints it on the <li> and <a>).
+        foreach ( $hidden as [ $slug, $title, $method ] ) {
+            add_submenu_page( 'my-iapsnj', $title, $title, self::CAP, $slug, [ $this, $method ] );
+        }
+
+        // Order the entries (the heading of the first group goes above
+        // Overview) and set each one's CSS class (index 4 of a submenu entry;
+        // core prints it on the <li> and <a>). Hidden pages follow the rest.
         global $submenu;
-        foreach ( (array) ( $submenu['my-iapsnj'] ?? [] ) as $i => $item ) {
-            if ( isset( $classes[ $item[2] ] ) ) {
-                $submenu['my-iapsnj'][ $i ][4] = $classes[ $item[2] ]; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+        $by_slug = [];
+        foreach ( (array) ( $submenu['my-iapsnj'] ?? [] ) as $item ) {
+            if ( ! isset( $by_slug[ $item[2] ] ) ) {
+                $by_slug[ $item[2] ] = $item;
             }
         }
+        $sorted = [];
+        foreach ( $groups as [ $group, $label, $pages ] ) {
+            $slug_list = [ '#my-iapsnj-' . $group ];
+            foreach ( $pages as $page ) {
+                $slug_list[] = $page[0];
+            }
+            foreach ( $slug_list as $slug ) {
+                if ( ! isset( $by_slug[ $slug ] ) ) {
+                    continue;
+                }
+                $item     = $by_slug[ $slug ];
+                $item[4]  = $slug === '#my-iapsnj-' . $group ? self::MENU_GROUP : self::MENU_CHILD;
+                $sorted[] = $item;
+                unset( $by_slug[ $slug ] );
+            }
+        }
+        $submenu['my-iapsnj'] = array_merge( $sorted, array_values( $by_slug ) ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+    }
+
+    /**
+     * Take Checkout Builder out of the menu. It has to stay in $submenu while
+     * WordPress checks access to the page (a page missing from the menu is
+     * refused), so it goes at admin_head: after that check, before the menu
+     * is drawn.
+     */
+    public function hide_checkout_builder(): void {
+        remove_submenu_page( 'my-iapsnj', self::SLUG_CHECKOUT );
+    }
+
+    /**
+     * On the hidden Checkout Builder, light up Settings → Config (where its
+     * link lives) instead of nothing.
+     *
+     * @param mixed $submenu_file
+     * @return mixed
+     */
+    public function checkout_builder_submenu_file( $submenu_file ) {
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+        if ( isset( $_GET['page'] ) && sanitize_key( wp_unslash( $_GET['page'] ) ) === self::SLUG_CHECKOUT ) {
+            return 'my-iapsnj-config';
+        }
+        return $submenu_file;
     }
 
     /**
@@ -131,7 +178,8 @@ class My_IAPSNJ_Admin {
      * core handles (no extra request; FluentCRM's no-conflict mode keeps
      * core scripts). Scoped with two ids so folded, mobile and colour-scheme
      * rules never win. The script turns headings into plain text (no href:
-     * not focusable, not announced as links).
+     * not focusable, not announced as links) and points the top-level item
+     * at Overview (WordPress points it at the first submenu entry, a heading).
      */
     public function enqueue_menu_assets(): void {
         if ( ! current_user_can( self::CAP ) ) {
@@ -143,23 +191,74 @@ class My_IAPSNJ_Admin {
             . $m . ' li.' . self::MENU_CHILD . '{padding-inline-start:10px}'
             . '@media screen and (max-width:782px){' . $m . ' li.' . self::MENU_GROUP . '>a{font-size:13px;padding-top:12px;padding-bottom:4px}' . $m . ' li.' . self::MENU_CHILD . '{padding-inline-start:14px}}';
         wp_add_inline_style( 'admin-menu', $css );
-        wp_add_inline_script( 'common', '(function(){var a=document.querySelectorAll("#toplevel_page_my-iapsnj li.' . self::MENU_GROUP . ' > a");for(var i=0;i<a.length;i++){a[i].removeAttribute("href");}}());' );
+        wp_add_inline_script( 'common', '(function(){var a=document.querySelectorAll("#toplevel_page_my-iapsnj li.' . self::MENU_GROUP . ' > a");for(var i=0;i<a.length;i++){a[i].removeAttribute("href");}var t=document.querySelector("#toplevel_page_my-iapsnj > a.menu-top");if(t){t.setAttribute("href",' . wp_json_encode( admin_url( 'admin.php?page=my-iapsnj' ) ) . ');}}());' );
+    }
+
+    // -----------------------------------------------------------------------
+    // Page URLs and tabs
+    // -----------------------------------------------------------------------
+
+    /**
+     * Admin URL of a page (and tab).
+     */
+    public static function page_url( string $page, string $tab = '', string $anchor = '' ): string {
+        $url = admin_url( 'admin.php?page=' . $page );
+        if ( $tab !== '' ) {
+            $url .= '&tab=' . rawurlencode( $tab );
+        }
+        return $anchor !== '' ? $url . '#' . $anchor : $url;
     }
 
     /**
-     * Slugs from the fcrm-wp-sync era and from the removed 3.x screens (audit P4-8).
+     * The tab asked for in the URL, when it is one of $tabs; else $default.
+     *
+     * @param array<string,string> $tabs slug => label
+     */
+    private function current_tab( array $tabs, string $default ): string {
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only
+        $tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : '';
+        return isset( $tabs[ $tab ] ) ? $tab : $default;
+    }
+
+    /**
+     * @param array<string,string> $tabs slug => label
+     */
+    private function tab_nav( string $page, array $tabs, string $current ): void {
+        echo '<nav class="nav-tab-wrapper my-iapsnj-tabs" aria-label="' . esc_attr__( 'Sections', 'my-iapsnj' ) . '">';
+        foreach ( $tabs as $slug => $label ) {
+            echo '<a href="' . esc_url( self::page_url( $page, $slug ) ) . '" class="nav-tab' . ( $slug === $current ? ' nav-tab-active' : '' ) . '"' . ( $slug === $current ? ' aria-current="page"' : '' ) . '>' . esc_html( $label ) . '</a>';
+        }
+        echo '</nav>';
+    }
+
+    private function description( string $text ): void {
+        echo '<p class="description">' . esc_html( $text ) . '</p>';
+    }
+
+    /**
+     * Slugs of screens that moved: from the fcrm-wp-sync era, the removed 3.x
+     * screens (audit P4-8) and the pre-4.39 menu. Each maps to
+     * [ page, tab, anchor ]; the query string (filters, paging) is kept.
      */
     private static array $legacy_slugs = [
-        'fcrm-wp-sync'              => 'my-iapsnj-sync',
-        'fcrm-wp-sync-sync'         => 'my-iapsnj-sync',
-        'fcrm-wp-sync-mismatches'   => 'my-iapsnj-reports',
-        'fcrm-wp-sync-pmp'          => 'my-iapsnj-migration',
-        'fcrm-wp-sync-notes-search' => 'my-iapsnj-notes-search',
-        'my-iapsnj-mismatches'      => 'my-iapsnj-reports',
-        'my-iapsnj-pmp'             => 'my-iapsnj-migration',
+        'fcrm-wp-sync'              => [ 'my-iapsnj-config', 'roles', '' ],
+        'fcrm-wp-sync-sync'         => [ 'my-iapsnj-config', 'roles', '' ],
+        'fcrm-wp-sync-mismatches'   => [ 'my-iapsnj', 'reports', '' ],
+        'fcrm-wp-sync-pmp'          => [ 'my-iapsnj-toolkit', 'migration', '' ],
+        'fcrm-wp-sync-notes-search' => [ 'my-iapsnj-notes-search', '', '' ],
+        'my-iapsnj-mismatches'      => [ 'my-iapsnj', 'reports', '' ],
+        'my-iapsnj-pmp'             => [ 'my-iapsnj-toolkit', 'migration', '' ],
         // Retired in 4.35: the field mirror is gone; the roles moved to Configurations.
-        'my-iapsnj-mapping'         => 'my-iapsnj-sync',
-        'my-iapsnj-profile-sync'    => 'my-iapsnj-sync',
+        'my-iapsnj-mapping'         => [ 'my-iapsnj-config', 'roles', '' ],
+        'my-iapsnj-profile-sync'    => [ 'my-iapsnj-config', 'roles', 'roles' ],
+        // Retired in 4.39: the Dues / Members / Reports menu became Membership and Settings.
+        'my-iapsnj-sync'            => [ 'my-iapsnj-config', 'roles', '' ],
+        'my-iapsnj-products'        => [ 'my-iapsnj-config', 'products', '' ],
+        'my-iapsnj-checks'          => [ 'my-iapsnj-payments', 'invoices', '' ],
+        'my-iapsnj-members'         => [ 'my-iapsnj', 'active', '' ],
+        'my-iapsnj-lapsed'          => [ 'my-iapsnj', 'lapsed', '' ],
+        'my-iapsnj-reports'         => [ 'my-iapsnj', 'reports', '' ],
+        'my-iapsnj-migration'       => [ 'my-iapsnj-toolkit', 'migration', '' ],
     ];
 
     public function redirect_legacy_slugs(): void {
@@ -171,9 +270,10 @@ class My_IAPSNJ_Admin {
         if ( '' === $page || ! isset( self::$legacy_slugs[ $page ] ) ) {
             return;
         }
-        $target = self::$legacy_slugs[ $page ];
-        if ( $target === 'my-iapsnj-migration' && ! My_IAPSNJ_Migration::tables_exist() ) {
+        [ $target, $tab, $anchor ] = self::$legacy_slugs[ $page ];
+        if ( $target === 'my-iapsnj-toolkit' && $tab === 'migration' && ! My_IAPSNJ_Migration::tables_exist() ) {
             $target = 'my-iapsnj';
+            $tab    = '';
         }
         // phpcs:ignore WordPress.Security.NonceVerification.Recommended
         $raw  = wp_unslash( $_GET );
@@ -184,8 +284,12 @@ class My_IAPSNJ_Admin {
             }
         }
         $args['page'] = $target;
-        $anchor       = $page === 'my-iapsnj-profile-sync' ? '#roles' : ''; // the roles moved to Configurations
-        wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ) . $anchor, 301 );
+        if ( $tab !== '' ) {
+            $args['tab'] = $tab;
+        } else {
+            unset( $args['tab'] );
+        }
+        wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ) . ( $anchor !== '' ? '#' . $anchor : '' ), 301 );
         exit;
     }
 
@@ -241,7 +345,7 @@ class My_IAPSNJ_Admin {
             return;
         }
         if ( ! My_IAPSNJ_Membership::is_available() ) {
-            echo '<div class="notice notice-warning"><p>' . esc_html__( 'FluentCart is not active. Membership state, the checkout application, Pending Checks and Record a Check are unavailable until it is.', 'my-iapsnj' ) . '</p></div>';
+            echo '<div class="notice notice-warning"><p>' . esc_html__( 'FluentCart is not active. Membership state, the checkout application and Payments are unavailable until it is.', 'my-iapsnj' ) . '</p></div>';
         }
     }
 
@@ -314,32 +418,58 @@ class My_IAPSNJ_Admin {
     }
 
     // -----------------------------------------------------------------------
-    // Page: Dashboard
+    // Page: Membership → Overview (Summary, Active, Lapsed, Reports)
     // -----------------------------------------------------------------------
 
-    public function render_dashboard_page(): void {
+    public function render_overview_page(): void {
         $this->guard();
+        $tabs = [
+            'summary' => __( 'Summary', 'my-iapsnj' ),
+            'active'  => __( 'Active', 'my-iapsnj' ),
+            'lapsed'  => __( 'Lapsed', 'my-iapsnj' ),
+            'reports' => __( 'Reports', 'my-iapsnj' ),
+        ];
+        $tab = $this->current_tab( $tabs, 'summary' );
+        $this->page_header( __( 'Overview', 'my-iapsnj' ) );
+        $this->tab_nav( 'my-iapsnj', $tabs, $tab );
+        switch ( $tab ) {
+            case 'active':
+                $this->render_members_active_tab();
+                break;
+            case 'lapsed':
+                $this->render_members_lapsed_tab();
+                break;
+            case 'reports':
+                $this->render_reports_tab();
+                break;
+            default:
+                $this->render_summary_tab();
+        }
+        echo '</div>';
+    }
+
+    private function render_summary_tab(): void {
         $s        = My_IAPSNJ_Reports::summary();
         $settings = My_IAPSNJ_Plugin::settings();
         $products = My_IAPSNJ_Membership::products_config();
         $offline  = My_IAPSNJ_Membership::offline_labels();
 
-        $this->page_header( __( 'Dashboard', 'my-iapsnj' ), __( 'FluentCRM is the source of truth. FluentCart payments set membership state; this plugin runs the operations around them.', 'my-iapsnj' ) );
+        $this->description( __( 'FluentCRM is the source of truth. FluentCart payments set membership state; this plugin runs the operations around them.', 'my-iapsnj' ) );
 
         echo '<div class="fcrm-status-cards">';
         $this->card( (string) $s['crm_contacts'], __( 'CRM contacts', 'my-iapsnj' ) );
         $this->card( (string) $s['wp_users'], __( 'WordPress users', 'my-iapsnj' ) );
-        $this->card( (string) $s['pending_checks'] . ( $s['pending_total'] ? ' · ' . $s['pending_total'] : '' ), __( 'Checks pending', 'my-iapsnj' ), admin_url( 'admin.php?page=my-iapsnj-checks' ) );
-        $this->card( (string) $s['aging_checks'], sprintf( __( 'Checks pending %d+ days', 'my-iapsnj' ), (int) $settings['aging_days'] ), admin_url( 'admin.php?page=my-iapsnj-reports#aging' ) );
-        $this->card( (string) $s['open_applications'], __( 'Applications awaiting payment', 'my-iapsnj' ), admin_url( 'admin.php?page=my-iapsnj-reports#open-applications' ) );
+        $this->card( (string) $s['pending_checks'] . ( $s['pending_total'] ? ' · ' . $s['pending_total'] : '' ), __( 'Checks pending', 'my-iapsnj' ), self::page_url( 'my-iapsnj-payments', 'invoices' ) );
+        $this->card( (string) $s['aging_checks'], sprintf( __( 'Checks pending %d+ days', 'my-iapsnj' ), (int) $settings['aging_days'] ), self::page_url( 'my-iapsnj', 'reports', 'aging' ) );
+        $this->card( (string) $s['open_applications'], __( 'Applications awaiting payment', 'my-iapsnj' ), self::page_url( 'my-iapsnj', 'reports', 'open-applications' ) );
         echo '</div>';
 
         echo '<div class="fcrm-two-col">';
 
         // Active / lapsed per type, by the same rule as the daily expiry job.
         $counts     = My_IAPSNJ_Members::counts();
-        $active_url = admin_url( 'admin.php?page=' . My_IAPSNJ_Members::page_slug( My_IAPSNJ_Members::STATE_ACTIVE ) );
-        $lapsed_url = admin_url( 'admin.php?page=' . My_IAPSNJ_Members::page_slug( My_IAPSNJ_Members::STATE_LAPSED ) );
+        $active_url = My_IAPSNJ_Members::list_url( My_IAPSNJ_Members::STATE_ACTIVE );
+        $lapsed_url = My_IAPSNJ_Members::list_url( My_IAPSNJ_Members::STATE_LAPSED );
         echo '<div class="fcrm-section"><h2>' . esc_html__( 'Members by type', 'my-iapsnj' ) . '</h2><table class="widefat striped">';
         echo '<thead><tr><th>' . esc_html__( 'Type', 'my-iapsnj' ) . '</th><th style="text-align:right">' . esc_html__( 'Active', 'my-iapsnj' ) . '</th><th style="text-align:right">' . esc_html__( 'Lapsed', 'my-iapsnj' ) . '</th></tr></thead><tbody>';
         foreach ( $counts as $type => $c ) {
@@ -363,7 +493,7 @@ class My_IAPSNJ_Admin {
                 echo '<tr><td>' . esc_html( My_IAPSNJ_Schema::paid_tag_title( My_IAPSNJ_Schema::year_from_paid_slug( $slug ) ) ) . '</td><td style="text-align:right">' . esc_html( (string) $n ) . '</td></tr>';
             }
         } else {
-            echo '<tr><td colspan="2">' . esc_html__( 'No Paid-YYYY tags yet. Create the CRM schema in Settings → Configurations, then run the migration.', 'my-iapsnj' ) . '</td></tr>';
+            echo '<tr><td colspan="2">' . esc_html__( 'No Paid-YYYY tags yet. Create the CRM schema in Settings → Toolkit → CRM Schema, then run the migration.', 'my-iapsnj' ) . '</td></tr>';
         }
         echo '</tbody></table></div>';
 
@@ -387,15 +517,15 @@ class My_IAPSNJ_Admin {
         $stale          = array_diff_key( $products, $variations );
         $checks = [
             [ My_IAPSNJ_Membership::is_available(), __( 'FluentCart active', 'my-iapsnj' ), '' ],
-            [ count( $products ) > 0, sprintf( __( 'Membership products configured (%d)', 'my-iapsnj' ), count( $products ) ), admin_url( 'admin.php?page=my-iapsnj-products' ) ],
-            [ ! $stale, $stale ? sprintf( __( 'Mapped variations no longer exist in FluentCart: #%s — re-map after recreating products', 'my-iapsnj' ), implode( ', #', array_keys( $stale ) ) ) : __( 'Every mapped variation exists in FluentCart', 'my-iapsnj' ), admin_url( 'admin.php?page=my-iapsnj-products' ) ],
-            [ $levels_ok, sprintf( __( 'Checkout form per level (fields shown): %s', 'my-iapsnj' ), implode( ' · ', $level_forms ) ), admin_url( 'admin.php?page=my-iapsnj-checkout' ) ],
-            [ (int) $settings['renewal_variation_regular'] > 0, __( 'Renewal product set for Regular members', 'my-iapsnj' ), admin_url( 'admin.php?page=my-iapsnj-products#join-renew' ) ],
-            [ (int) $settings['renewal_variation_associate'] > 0, __( 'Renewal product set for Associate members', 'my-iapsnj' ), admin_url( 'admin.php?page=my-iapsnj-products#join-renew' ) ],
-            [ $offline['configured'] && $offline['active'] && stripos( $offline['label'], 'check' ) !== false, sprintf( __( 'Offline payment method active and labelled "%s"', 'my-iapsnj' ), $offline['label'] !== '' ? $offline['label'] : 'Cash' ), admin_url( 'admin.php?page=my-iapsnj-checkout#pay-by-check' ) ],
-            [ My_IAPSNJ_Membership::check_offered_on_subscriptions() !== false, __( 'Pay by Check offered on yearly memberships (FluentCart → Settings → Subscriptions: Manual Fallback on; the plugin switches it on at upgrade)', 'my-iapsnj' ), admin_url( 'admin.php?page=my-iapsnj-checkout#pay-by-check' ) ],
+            [ count( $products ) > 0, sprintf( __( 'Membership products configured (%d)', 'my-iapsnj' ), count( $products ) ), self::page_url( 'my-iapsnj-config', 'products' ) ],
+            [ ! $stale, $stale ? sprintf( __( 'Mapped variations no longer exist in FluentCart: #%s — re-map after recreating products', 'my-iapsnj' ), implode( ', #', array_keys( $stale ) ) ) : __( 'Every mapped variation exists in FluentCart', 'my-iapsnj' ), self::page_url( 'my-iapsnj-config', 'products' ) ],
+            [ $levels_ok, sprintf( __( 'Checkout form per level (fields shown): %s', 'my-iapsnj' ), implode( ' · ', $level_forms ) ), self::page_url( self::SLUG_CHECKOUT ) ],
+            [ (int) $settings['renewal_variation_regular'] > 0, __( 'Renewal product set for Regular members', 'my-iapsnj' ), self::page_url( 'my-iapsnj-config', 'terms', 'join-renew' ) ],
+            [ (int) $settings['renewal_variation_associate'] > 0, __( 'Renewal product set for Associate members', 'my-iapsnj' ), self::page_url( 'my-iapsnj-config', 'terms', 'join-renew' ) ],
+            [ $offline['configured'] && $offline['active'] && stripos( $offline['label'], 'check' ) !== false, sprintf( __( 'Offline payment method active and labelled "%s"', 'my-iapsnj' ), $offline['label'] !== '' ? $offline['label'] : 'Cash' ), self::page_url( self::SLUG_CHECKOUT, '', 'pay-by-check' ) ],
+            [ My_IAPSNJ_Membership::check_offered_on_subscriptions() !== false, __( 'Pay by Check offered on yearly memberships (FluentCart → Settings → Subscriptions: Manual Fallback on; the plugin switches it on at upgrade)', 'my-iapsnj' ), self::page_url( self::SLUG_CHECKOUT, '', 'pay-by-check' ) ],
             [ My_IAPSNJ_Membership::checkout_phone_enabled() !== false, __( 'Phone field on every FluentCart checkout (FluentCart → Settings → Checkout Fields → Billing → Phone on; a membership checkout labels it "Cell phone"; the plugin switches it on at upgrade)', 'my-iapsnj' ), '' ],
-            [ $staff_mail_ok, __( 'Staff payment notice switched on with a recipient (President or Membership Committee)', 'my-iapsnj' ), admin_url( 'admin.php?page=my-iapsnj-emails#staff-emails' ) ],
+            [ $staff_mail_ok, __( 'Staff payment notice switched on with a recipient (President or Membership Committee)', 'my-iapsnj' ), self::page_url( 'my-iapsnj-emails', '', 'staff-emails' ) ],
             [ My_IAPSNJ_Applications::table_exists(), __( 'Applications table present', 'my-iapsnj' ), '' ],
             [ ! My_IAPSNJ_Migration::tables_exist() || ! function_exists( 'pmpro_getMembershipLevelForUser' ), __( 'Paid Memberships Pro deactivated (tables may remain)', 'my-iapsnj' ), '' ],
         ];
@@ -410,8 +540,6 @@ class My_IAPSNJ_Admin {
             echo '</li>';
         }
         echo '</ul></div>';
-
-        echo '</div>';
     }
 
     private function card( string $number, string $label, string $link = '' ): void {
@@ -428,13 +556,39 @@ class My_IAPSNJ_Admin {
     }
 
     // -----------------------------------------------------------------------
-    // Page: Pending Checks
+    // Page: Membership → Payments (Record Payment, Open Invoices, Stripe Payments)
     // -----------------------------------------------------------------------
 
-    public function render_checks_page(): void {
+    public function render_payments_page(): void {
         $this->guard();
-        $this->page_header( __( 'Pending Checks', 'my-iapsnj' ), __( 'Every unpaid "Pay by Check" order in one list. Tick the checks in a deposit, enter the deposit date, confirm the total matches the deposit slip, and mark them paid. Marking paid applies the Paid-YYYY tag, sets paid_through and sends the FluentCart receipt.', 'my-iapsnj' ) );
-        $products = My_IAPSNJ_Membership::products_config();
+        $tabs = [
+            'record'   => __( 'Record Payment', 'my-iapsnj' ),
+            'invoices' => __( 'Open Invoices', 'my-iapsnj' ),
+            'stripe'   => __( 'Stripe Payments', 'my-iapsnj' ),
+        ];
+        $tab = $this->current_tab( $tabs, 'record' );
+        $this->page_header( __( 'Payments', 'my-iapsnj' ) );
+        $this->tab_nav( 'my-iapsnj-payments', $tabs, $tab );
+        switch ( $tab ) {
+            case 'invoices':
+                $this->render_invoices_tab();
+                break;
+            case 'stripe':
+                $this->render_stripe_tab();
+                break;
+            default:
+                $this->render_record_tab();
+        }
+        echo '</div>';
+    }
+
+    /**
+     * Open Invoices: every unpaid "Pay by Check" order (the old Pending
+     * Checks screen). Marking one paid is how a check that arrived for an
+     * open invoice is entered.
+     */
+    private function render_invoices_tab(): void {
+        $this->description( __( 'Every open "Pay by Check" invoice in one list. When the check arrives, tick it, type the check number, enter the deposit date, confirm the batch total matches the deposit slip, and mark it paid. Marking paid applies the Paid-YYYY tag, sets paid_through and sends the FluentCart receipt.', 'my-iapsnj' ) );
         ?>
         <div id="fcrm-checks-notice" class="fcrm-notice" style="display:none"></div>
 
@@ -444,7 +598,7 @@ class My_IAPSNJ_Admin {
                 <button id="fcrm-checks-reload" class="button"><?php esc_html_e( 'Reload', 'my-iapsnj' ); ?></button>
                 <span id="fcrm-checks-status" class="fcrm-muted"></span>
             </div>
-            <div id="fcrm-checks-table"><p class="fcrm-placeholder"><?php esc_html_e( 'Loading pending checks…', 'my-iapsnj' ); ?></p></div>
+            <div id="fcrm-checks-table"><p class="fcrm-placeholder"><?php esc_html_e( 'Loading open invoices…', 'my-iapsnj' ); ?></p></div>
 
             <div class="fcrm-deposit-bar">
                 <label title="<?php esc_attr_e( 'Also decides the membership term: before the renewal-season cutover the check covers this year, on/after it the next year.', 'my-iapsnj' ); ?>"><?php esc_html_e( 'Deposit date', 'my-iapsnj' ); ?> <input type="date" id="fcrm-deposit-date" value="<?php echo esc_attr( My_IAPSNJ_Dates::today() ); ?>"></label>
@@ -454,12 +608,32 @@ class My_IAPSNJ_Admin {
             </div>
             <div id="fcrm-mark-paid-results"></div>
         </div>
+        <?php
+    }
 
+    /**
+     * Record Payment: a member paid without using the website (a check in
+     * the mail, cash in person, Venmo). Creates the FluentCart order, pays
+     * it and fires the same membership automation as an online payment.
+     */
+    private function render_record_tab(): void {
+        $products = My_IAPSNJ_Membership::products_config();
+        $methods  = My_IAPSNJ_Payments::methods();
+        $first    = (string) array_key_first( $methods );
+        $this->description( __( 'Creates the FluentCart order for the member, marks it paid, and fires the same membership automation as an online payment. The member receives the FluentCart receipt. For a check that was mailed against an invoice the member already has, use Open Invoices instead.', 'my-iapsnj' ) );
+        ?>
         <div class="fcrm-section" id="fcrm-record-check">
-            <h2><?php esc_html_e( 'Record a check for a member who did not use the website', 'my-iapsnj' ); ?></h2>
-            <p class="description"><?php esc_html_e( 'Creates the FluentCart order for the member, marks it paid by check, and fires the same membership automation as an online payment. The member receives the FluentCart receipt.', 'my-iapsnj' ); ?></p>
-            <?php if ( ! $products ) : ?>
-                <p class="fcrm-error"><?php esc_html_e( 'Configure at least one membership product first (My IAPSNJ → Membership Products).', 'my-iapsnj' ); ?></p>
+            <h2><?php esc_html_e( 'Record a payment received in person, by check or by Venmo', 'my-iapsnj' ); ?></h2>
+            <?php if ( ! My_IAPSNJ_Membership::is_available() ) : ?>
+                <p class="fcrm-error"><?php esc_html_e( 'FluentCart is not active.', 'my-iapsnj' ); ?></p>
+            <?php elseif ( ! $products ) : ?>
+                <p class="fcrm-error"><?php
+                    printf(
+                        /* translators: %s: link to Product Mapping */
+                        esc_html__( 'Configure at least one membership product first (%s).', 'my-iapsnj' ),
+                        '<a href="' . esc_url( self::page_url( 'my-iapsnj-config', 'products' ) ) . '">' . esc_html__( 'Settings → Config → Product Mapping', 'my-iapsnj' ) . '</a>'
+                    );
+                ?></p>
             <?php endif; ?>
             <table class="form-table fcrm-form-compact">
                 <tr>
@@ -492,12 +666,24 @@ class My_IAPSNJ_Admin {
                     </td>
                 </tr>
                 <tr>
-                    <th><?php esc_html_e( 'Check', 'my-iapsnj' ); ?></th>
+                    <th><?php esc_html_e( 'Paid by', 'my-iapsnj' ); ?></th>
                     <td>
-                        <input type="text" id="fcrm-rc-check-number" placeholder="<?php esc_attr_e( 'Check #', 'my-iapsnj' ); ?>" class="small-text" style="width:120px">
+                        <fieldset id="fcrm-rc-methods">
+                            <?php foreach ( $methods as $slug => $m ) : ?>
+                                <label style="margin-right:16px"><input type="radio" name="fcrm_rc_method" value="<?php echo esc_attr( $slug ); ?>" data-reference-label="<?php echo esc_attr( $m['reference_label'] ); ?>" data-date-label="<?php echo esc_attr( $m['date_label'] ); ?>" <?php checked( $slug, $first ); ?>> <?php echo esc_html( $m['label'] ); ?></label>
+                            <?php endforeach; ?>
+                        </fieldset>
+                    </td>
+                </tr>
+                <tr>
+                    <th><?php esc_html_e( 'Payment', 'my-iapsnj' ); ?></th>
+                    <td>
+                        <label><span id="fcrm-rc-reference-label"><?php echo esc_html( $methods[ $first ]['reference_label'] ); ?></span>
+                            <input type="text" id="fcrm-rc-reference" class="regular-text" style="width:200px"></label>
                         <label><?php esc_html_e( 'Received', 'my-iapsnj' ); ?> <input type="date" id="fcrm-rc-received" value="<?php echo esc_attr( My_IAPSNJ_Dates::today() ); ?>"></label>
-                        <label><?php esc_html_e( 'Deposited', 'my-iapsnj' ); ?> <input type="date" id="fcrm-rc-deposit" value="<?php echo esc_attr( My_IAPSNJ_Dates::today() ); ?>"></label>
-                        <p class="description"><?php esc_html_e( 'The deposit date decides the term: before the renewal-season cutover it covers this year, on/after it the next year.', 'my-iapsnj' ); ?></p>
+                        <span id="fcrm-rc-deposit-wrap"><label><?php esc_html_e( 'Deposit date', 'my-iapsnj' ); ?> <input type="date" id="fcrm-rc-deposit" value="<?php echo esc_attr( My_IAPSNJ_Dates::today() ); ?>"></label></span>
+                        <p class="description" id="fcrm-rc-term-check"><?php esc_html_e( 'The deposit date decides the term: before the renewal-season cutover it covers this year, on/after it the next year.', 'my-iapsnj' ); ?></p>
+                        <p class="description" id="fcrm-rc-term-other" style="display:none"><?php esc_html_e( 'The date received decides the term: before the renewal-season cutover it covers this year, on/after it the next year.', 'my-iapsnj' ); ?></p>
                     </td>
                 </tr>
                 <tr>
@@ -505,32 +691,151 @@ class My_IAPSNJ_Admin {
                     <td><input type="text" id="fcrm-rc-note" class="regular-text" placeholder="<?php esc_attr_e( 'Optional', 'my-iapsnj' ); ?>"></td>
                 </tr>
             </table>
-            <button id="fcrm-rc-submit" class="button button-primary" <?php disabled( ! $products ); ?>><?php esc_html_e( 'Record check & mark paid', 'my-iapsnj' ); ?></button>
+            <button id="fcrm-rc-submit" class="button button-primary" <?php disabled( ! $products || ! My_IAPSNJ_Membership::is_available() ); ?>><?php esc_html_e( 'Record payment & mark paid', 'my-iapsnj' ); ?></button>
             <div id="fcrm-rc-result" style="margin-top:12px"></div>
         </div>
+        <?php
+    }
+
+    /**
+     * Stripe Payments: every successful Stripe charge taken through
+     * FluentCart's own checkout (new members, renewals), newest first.
+     */
+    private function render_stripe_tab(): void {
+        $this->description( __( 'Every payment taken by card through the site\'s own checkout (Stripe), newest first. Checks, cash and Venmo are not listed here: they are recorded by hand, under Record Payment and Open Invoices.', 'my-iapsnj' ) );
+        if ( ! My_IAPSNJ_Membership::is_available() ) {
+            echo '<div class="fcrm-section"><p>' . esc_html__( 'FluentCart is not active.', 'my-iapsnj' ) . '</p></div>';
+            return;
+        }
+        $get = static function ( string $key ): string {
+            // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filters
+            return isset( $_GET[ $key ] ) && is_scalar( $_GET[ $key ] ) ? sanitize_text_field( wp_unslash( (string) $_GET[ $key ] ) ) : '';
+        };
+        $from   = My_IAPSNJ_Dates::ymd( $get( 'from' ) );
+        $to     = My_IAPSNJ_Dates::ymd( $get( 'to' ) );
+        $search = $get( 's' );
+        $result = My_IAPSNJ_Payments::stripe( [ 'from' => $from, 'to' => $to, 's' => $search, 'paged' => max( 1, (int) $get( 'paged' ) ) ] );
+        $filtered = $from !== '' || $to !== '' || $search !== '';
+        ?>
+        <div class="fcrm-section">
+            <form method="get" action="<?php echo esc_url( admin_url( 'admin.php' ) ); ?>" class="fcrm-toolbar">
+                <input type="hidden" name="page" value="my-iapsnj-payments">
+                <input type="hidden" name="tab" value="stripe">
+                <label><?php esc_html_e( 'From', 'my-iapsnj' ); ?> <input type="date" name="from" value="<?php echo esc_attr( $from ); ?>"></label>
+                <label><?php esc_html_e( 'To', 'my-iapsnj' ); ?> <input type="date" name="to" value="<?php echo esc_attr( $to ); ?>"></label>
+                <input type="search" name="s" value="<?php echo esc_attr( $search ); ?>" class="regular-text" placeholder="<?php esc_attr_e( 'Name or email', 'my-iapsnj' ); ?>">
+                <button type="submit" class="button"><?php esc_html_e( 'Filter', 'my-iapsnj' ); ?></button>
+                <?php if ( $filtered ) : ?><a class="button-link" href="<?php echo esc_url( self::page_url( 'my-iapsnj-payments', 'stripe' ) ); ?>"><?php esc_html_e( 'Clear filters', 'my-iapsnj' ); ?></a><?php endif; ?>
+            </form>
+            <p class="fcrm-muted"><?php echo esc_html( sprintf(
+                /* translators: 1: number of payments, 2: total charged */
+                _n( '%1$s payment · %2$s charged', '%1$s payments · %2$s charged', $result['total'], 'my-iapsnj' ),
+                number_format_i18n( $result['total'] ),
+                html_entity_decode( My_IAPSNJ_Membership::format_money( $result['sum_cents'], $result['currency'] ), ENT_QUOTES, 'UTF-8' )
+            ) ); ?></p>
+            <?php if ( ! $result['rows'] ) : ?>
+                <p><?php echo esc_html( $filtered ? __( 'No Stripe payments match these filters.', 'my-iapsnj' ) : __( 'No Stripe payments yet.', 'my-iapsnj' ) ); ?></p>
+            <?php else : ?>
+                <table class="widefat striped">
+                    <thead><tr>
+                        <th><?php esc_html_e( 'Date', 'my-iapsnj' ); ?></th>
+                        <th><?php esc_html_e( 'Order', 'my-iapsnj' ); ?></th>
+                        <th><?php esc_html_e( 'Member', 'my-iapsnj' ); ?></th>
+                        <th><?php esc_html_e( 'Items', 'my-iapsnj' ); ?></th>
+                        <th><?php esc_html_e( 'Amount', 'my-iapsnj' ); ?></th>
+                        <th><?php esc_html_e( 'Status', 'my-iapsnj' ); ?></th>
+                        <th><?php esc_html_e( 'Stripe', 'my-iapsnj' ); ?></th>
+                    </tr></thead>
+                    <tbody>
+                    <?php foreach ( $result['rows'] as $r ) : ?>
+                        <tr>
+                            <td><?php echo esc_html( $r['date'] ); ?></td>
+                            <td><a href="<?php echo esc_url( $r['order_url'] ); ?>">#<?php echo (int) $r['order_id']; ?></a><?php if ( $r['renewal'] ) : ?> <span class="fcrm-badge"><?php esc_html_e( 'renewal', 'my-iapsnj' ); ?></span><?php endif; ?></td>
+                            <td><?php echo esc_html( $r['name'] !== '' ? $r['name'] : $r['email'] ); ?><?php if ( $r['name'] !== '' ) : ?><br><small class="fcrm-muted"><?php echo esc_html( $r['email'] ); ?></small><?php endif; ?></td>
+                            <td><?php echo esc_html( implode( '; ', $r['items'] ) ); ?></td>
+                            <td><?php echo esc_html( html_entity_decode( $r['amount'], ENT_QUOTES, 'UTF-8' ) ); ?></td>
+                            <td><?php if ( $r['refunded'] ) : ?><span class="fcrm-badge fcrm-badge-warn"><?php echo esc_html( $r['status'] ); ?></span><?php else : ?><?php echo esc_html( $r['status'] ); ?><?php endif; ?></td>
+                            <td><?php if ( $r['stripe_url'] !== '' ) : ?><a href="<?php echo esc_url( $r['stripe_url'] ); ?>" target="_blank" rel="noopener"><?php echo esc_html( $r['charge_id'] ); ?></a><?php else : ?><?php echo esc_html( $r['charge_id'] ); ?><?php endif; ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+                <?php if ( $result['pages'] > 1 ) : ?>
+                    <div class="tablenav"><div class="tablenav-pages">
+                        <?php echo wp_kses_post( (string) paginate_links( [
+                            'base'      => add_query_arg( 'paged', '%#%' ),
+                            'format'    => '',
+                            'current'   => $result['paged'],
+                            'total'     => $result['pages'],
+                            'prev_text' => '&lsaquo;',
+                            'next_text' => '&rsaquo;',
+                        ] ) ); ?>
+                    </div></div>
+                <?php endif; ?>
+            <?php endif; ?>
         </div>
         <?php
     }
 
     // -----------------------------------------------------------------------
-    // Page: Membership Products
+    // Page: Membership → Freshly Paid
     // -----------------------------------------------------------------------
 
-    public function render_products_page(): void {
+    public function render_freshly_paid_page(): void {
         $this->guard();
-        $this->page_header( __( 'Membership Products', 'my-iapsnj' ), __( 'Map each FluentCart product (one-time or subscription) to the member type it grants (each payment covers one year), then set the renewal products and the Join page. Honorary is never a product: set member_type Honorary on the contact in FluentCRM (the Honorary tag alone does not count).', 'my-iapsnj' ) );
+        $this->page_header( __( 'Freshly Paid', 'my-iapsnj' ) );
+        My_IAPSNJ_Freshly_Paid::render();
+        echo '</div>';
+    }
+
+    // -----------------------------------------------------------------------
+    // Page: Settings → Config (Roles, Product Mapping, Membership Terms)
+    // -----------------------------------------------------------------------
+
+    public function render_config_page(): void {
+        $this->guard();
+        $tabs = [
+            'roles'    => __( 'Roles', 'my-iapsnj' ),
+            'products' => __( 'Product Mapping', 'my-iapsnj' ),
+            'terms'    => __( 'Membership Terms', 'my-iapsnj' ),
+        ];
+        $tab = $this->current_tab( $tabs, 'roles' );
+        $this->page_header( __( 'Config', 'my-iapsnj' ) );
+        $this->tab_nav( 'my-iapsnj-config', $tabs, $tab );
+        switch ( $tab ) {
+            case 'products':
+                $this->render_products_tab();
+                break;
+            case 'terms':
+                $this->render_terms_tab();
+                break;
+            default:
+                $this->render_roles_tab();
+        }
+        echo '</div>';
+        // Bookmarks from before 4.39 (…my-iapsnj-sync#schema) go to the Toolkit tab that holds the section.
+        $moved = [
+            'schema' => self::page_url( 'my-iapsnj-toolkit', 'schema' ),
+            'phones' => self::page_url( 'my-iapsnj-toolkit', 'phones' ),
+            'names'  => self::page_url( 'my-iapsnj-toolkit', 'names' ),
+        ];
+        echo '<script>(function(){var m=' . wp_json_encode( $moved ) . ',h=(location.hash||"").replace("#","");if(h&&m[h]){location.replace(m[h]);}}());</script>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- JSON-encoded admin URLs
+    }
+
+    /**
+     * Config → Product Mapping: which FluentCart product grants which member
+     * type, and the checkout link of each (the Join page buttons).
+     */
+    private function render_products_tab(): void {
+        $this->description( __( 'Map each FluentCart product (one-time or subscription) to the member type it grants (each payment covers one year). Honorary is never a product: set member_type Honorary on the contact in FluentCRM (the Honorary tag alone does not count).', 'my-iapsnj' ) );
         $variations = My_IAPSNJ_Membership::all_variations();
         $raw        = get_option( My_IAPSNJ_Membership::OPTION_PRODUCTS, [] );
         $raw        = is_array( $raw ) ? $raw : [];
-        $settings   = My_IAPSNJ_Plugin::settings();
         $products   = My_IAPSNJ_Membership::products_config();
-        $cutover    = My_IAPSNJ_Membership::renewal_cutover();
-        $today      = My_IAPSNJ_Dates::today();
-        $example    = My_IAPSNJ_Dates::membership_term( $today, $cutover );
         ?>
         <div id="fcrm-products-notice" class="fcrm-notice" style="display:none"></div>
         <?php if ( ! $variations ) : ?>
-            <div class="fcrm-section"><p><?php esc_html_e( 'No FluentCart products found yet. Create the products in FluentCart first (Regular Membership, Associate Membership, Lifetime Membership), then return here.', 'my-iapsnj' ); ?></p></div></div>
+            <div class="fcrm-section"><p><?php esc_html_e( 'No FluentCart products found yet. Create the products in FluentCart first (Regular Membership, Associate Membership, Lifetime Membership), then return here.', 'my-iapsnj' ); ?></p></div>
             <?php return; ?>
         <?php endif; ?>
         <form id="fcrm-products-form">
@@ -567,6 +872,41 @@ class My_IAPSNJ_Admin {
         </div>
         </form>
 
+        <div class="fcrm-section">
+            <h3><?php esc_html_e( 'Checkout links (Join page buttons)', 'my-iapsnj' ); ?></h3>
+            <p class="description"><?php esc_html_e( 'Each link opens the FluentCart checkout with that product; the application fields are collected on the checkout page itself (the Checkout Builder).', 'my-iapsnj' ); ?></p>
+            <table class="widefat striped"><tbody>
+            <?php foreach ( $products as $vid => $cfg ) : ?>
+                <tr><td><?php echo esc_html( $cfg['label'] ?: ( 'Variation #' . $vid ) ); ?></td><td><code><?php echo esc_html( My_IAPSNJ_Membership::checkout_url( (int) $vid ) ); ?></code></td></tr>
+            <?php endforeach; ?>
+            </tbody></table>
+        </div>
+
+        <div class="fcrm-section">
+            <h2><?php esc_html_e( 'Checkout forms', 'my-iapsnj' ); ?></h2>
+            <p class="description"><?php
+                printf(
+                    /* translators: %s: link to the Checkout Builder */
+                    esc_html__( 'Which application form each membership level uses, and the Pay by Check text, are set in the %s. It is not in the menu on purpose: the checkouts are built by this plugin, so open it only to change them deliberately.', 'my-iapsnj' ),
+                    '<a href="' . esc_url( self::page_url( self::SLUG_CHECKOUT ) ) . '">' . esc_html__( 'Checkout Builder', 'my-iapsnj' ) . '</a>'
+                );
+            ?></p>
+        </div>
+        <?php
+    }
+
+    /**
+     * Config → Membership Terms: the renewal season, the renewal product of
+     * each member type and the Join page.
+     */
+    private function render_terms_tab(): void {
+        $this->description( __( 'When a payment buys the next year, where renewals point, and the Join page.', 'my-iapsnj' ) );
+        $settings = My_IAPSNJ_Plugin::settings();
+        $products = My_IAPSNJ_Membership::products_config();
+        $cutover  = My_IAPSNJ_Membership::renewal_cutover();
+        $today    = My_IAPSNJ_Dates::today();
+        $example  = My_IAPSNJ_Dates::membership_term( $today, $cutover );
+        ?>
         <form class="fcrm-settings-form" id="join-renew">
         <div class="fcrm-section">
             <h2><?php esc_html_e( 'Membership term, renewals & Join page', 'my-iapsnj' ); ?></h2>
@@ -598,31 +938,20 @@ class My_IAPSNJ_Admin {
                     <p class="description"><?php esc_html_e( 'Where [iapsnj_renew_link] (member area, dues-reminder emails) sends a logged-in member of each type; only saved products of that type are listed. Lifetime and Honorary members get no link.', 'my-iapsnj' ); ?></p>
                 </td></tr>
                 <tr><th><?php esc_html_e( 'Join page URL', 'my-iapsnj' ); ?></th><td><input type="url" name="join_page_url" value="<?php echo esc_attr( (string) $settings['join_page_url'] ); ?>" class="regular-text" placeholder="<?php echo esc_attr( home_url( '/join/' ) ); ?>">
-                    <p class="description"><?php esc_html_e( 'The page with the membership buttons (the checkout links below). [iapsnj_renew_link] sends visitors who are not logged in there.', 'my-iapsnj' ); ?></p></td></tr>
+                    <p class="description"><?php esc_html_e( 'The page with the membership buttons (the checkout links under Product Mapping). [iapsnj_renew_link] sends visitors who are not logged in there.', 'my-iapsnj' ); ?></p></td></tr>
             </table>
             <p><button type="submit" class="button button-primary"><?php esc_html_e( 'Save term & renewals', 'my-iapsnj' ); ?></button></p>
-
-            <h3><?php esc_html_e( 'Checkout links (Join page buttons)', 'my-iapsnj' ); ?></h3>
-            <p class="description"><?php esc_html_e( 'Each link opens the FluentCart checkout with that product; the application fields are collected on the checkout page itself (Dues → Checkout Builder).', 'my-iapsnj' ); ?></p>
-            <table class="widefat striped"><tbody>
-            <?php foreach ( $products as $vid => $cfg ) : ?>
-                <tr><td><?php echo esc_html( $cfg['label'] ?: ( 'Variation #' . $vid ) ); ?></td><td><code><?php echo esc_html( My_IAPSNJ_Membership::checkout_url( (int) $vid ) ); ?></code></td></tr>
-            <?php endforeach; ?>
-            </tbody></table>
         </div>
         </form>
-        </div>
         <?php
     }
 
     // -----------------------------------------------------------------------
-    // Page: Reports
+    // Overview → Reports tab
     // -----------------------------------------------------------------------
 
-    public function render_reports_page(): void {
-        $this->guard();
+    private function render_reports_tab(): void {
         $settings = My_IAPSNJ_Plugin::settings();
-        $this->page_header( __( 'Reports', 'my-iapsnj' ) );
         ?>
         <div class="fcrm-section" id="open-applications">
             <h2><?php esc_html_e( 'Applications awaiting payment (follow-up list)', 'my-iapsnj' ); ?></h2>
@@ -634,7 +963,7 @@ class My_IAPSNJ_Admin {
 
         <div class="fcrm-section" id="orders-without-application">
             <h2><?php esc_html_e( 'Paid orders with no application', 'my-iapsnj' ); ?></h2>
-            <p class="description"><?php esc_html_e( 'Membership orders paid without an application row (an order created by hand in FluentCart, or a checkout the plugin did not see). Checks recorded through Record a Check are excluded.', 'my-iapsnj' ); ?></p>
+            <p class="description"><?php esc_html_e( 'Membership orders paid without an application row (an order created by hand in FluentCart, or a checkout the plugin did not see). Payments recorded through Payments → Record Payment are excluded.', 'my-iapsnj' ); ?></p>
             <div class="fcrm-toolbar"><label><?php esc_html_e( 'Look back', 'my-iapsnj' ); ?> <input type="number" class="small-text" id="fcrm-rep-orders-days" value="400" min="1"> <?php esc_html_e( 'days', 'my-iapsnj' ); ?></label>
                 <button class="button fcrm-report-load" data-report="orders-without-application" data-target="#fcrm-rep-orders" data-days="#fcrm-rep-orders-days"><?php esc_html_e( 'Load', 'my-iapsnj' ); ?></button></div>
             <div id="fcrm-rep-orders"></div>
@@ -663,39 +992,27 @@ class My_IAPSNJ_Admin {
             <div class="fcrm-notice fcrm-form-notice" style="display:none"></div>
             <table class="form-table">
                 <tr><th><?php esc_html_e( 'Aging threshold', 'my-iapsnj' ); ?></th><td><input type="number" name="aging_days" value="<?php echo (int) $settings['aging_days']; ?>" min="1" class="small-text"> <?php esc_html_e( 'days', 'my-iapsnj' ); ?>
-                    <p class="description"><?php esc_html_e( 'A pending check this old counts as aging: the default of the Aging checks report above, the Dashboard card and the highlight on Pending Checks.', 'my-iapsnj' ); ?></p></td></tr>
+                    <p class="description"><?php esc_html_e( 'A pending check this old counts as aging: the default of the Aging checks report above, the Dashboard card and the highlight on Open Invoices.', 'my-iapsnj' ); ?></p></td></tr>
                 <tr><th><?php esc_html_e( 'Go-live date', 'my-iapsnj' ); ?></th><td><input type="date" name="cutover_date" value="<?php echo esc_attr( (string) $settings['cutover_date'] ); ?>">
                     <p class="description"><?php esc_html_e( 'The day the FluentCart checkout went live. "Paid orders with no application" ignores orders before it (they predate the checkout application).', 'my-iapsnj' ); ?></p></td></tr>
             </table>
             <p><button type="submit" class="button button-primary"><?php esc_html_e( 'Save report settings', 'my-iapsnj' ); ?></button></p>
         </div>
         </form>
-        </div>
         <?php
     }
 
     // -----------------------------------------------------------------------
-    // Pages: Settings → Configurations; Members → Active, Lapsed
+    // Settings → Config → Roles; Settings → Toolkit
     // -----------------------------------------------------------------------
 
     /**
-     * Settings → Configurations (slug my-iapsnj-sync, formerly "Sync &
-     * Settings"): what belongs to no other screen.
+     * Config → Roles: the WordPress role of each member type.
      */
-    public function render_sync_page(): void {
-        $this->guard();
+    private function render_roles_tab(): void {
         $settings = My_IAPSNJ_Plugin::settings();
         $roles    = My_IAPSNJ_Engine::assignable_roles();
         $role_map = My_IAPSNJ_Engine::role_map();
-        $moved    = [
-            'notifications' => [ admin_url( 'admin.php?page=my-iapsnj-emails#staff-emails' ), __( 'Emails', 'my-iapsnj' ), __( 'Emails to the member, the President and the Membership Committee', 'my-iapsnj' ) ],
-            'email-design'  => [ admin_url( 'admin.php?page=my-iapsnj-emails#email-design' ), __( 'Emails', 'my-iapsnj' ), __( 'Email design: logo, footer, FluentCRM look, Preview and Send test', 'my-iapsnj' ) ],
-            'application' => [ admin_url( 'admin.php?page=my-iapsnj-products#join-renew' ), __( 'Membership Products', 'my-iapsnj' ), __( 'Renewal season, renewal products, Join page URL', 'my-iapsnj' ) ],
-            'checkout'    => [ admin_url( 'admin.php?page=my-iapsnj-checkout#checkout-settings' ), __( 'Checkout Builder', 'my-iapsnj' ), __( 'Billing address → CRM, Pay by Check label & instructions', 'my-iapsnj' ) ],
-            'expiry'      => [ admin_url( 'admin.php?page=' . My_IAPSNJ_Members::page_slug( My_IAPSNJ_Members::STATE_LAPSED ) . '#expiry' ), __( 'Lapsed Members', 'my-iapsnj' ), __( 'Expirations (Preview / Apply now), grace period', 'my-iapsnj' ) ],
-            'reports'     => [ admin_url( 'admin.php?page=my-iapsnj-reports#report-settings' ), __( 'Reports', 'my-iapsnj' ), __( 'Aging threshold, go-live date', 'my-iapsnj' ) ],
-        ];
-        $this->page_header( __( 'Configurations', 'my-iapsnj' ) );
         ?>
         <form class="fcrm-settings-form" id="roles">
         <div class="fcrm-section">
@@ -724,7 +1041,7 @@ class My_IAPSNJ_Admin {
                         printf(
                             /* translators: %s: link to Lapsed Members */
                             esc_html__( 'The role a member drops to when the membership lapses (the daily expiry job; grace period and Preview / Apply on %s). A payment puts the mapped role back.', 'my-iapsnj' ),
-                            '<a href="' . esc_url( admin_url( 'admin.php?page=' . My_IAPSNJ_Members::page_slug( My_IAPSNJ_Members::STATE_LAPSED ) . '#expiry' ) ) . '">' . esc_html__( 'Lapsed Members', 'my-iapsnj' ) . '</a>'
+                            '<a href="' . esc_url( admin_url( 'admin.php?page=my-iapsnj&tab=lapsed#expiry' ) ) . '">' . esc_html__( 'Lapsed Members', 'my-iapsnj' ) . '</a>'
                         );
                     ?></p>
                 </td></tr>
@@ -733,6 +1050,44 @@ class My_IAPSNJ_Admin {
         </div>
         </form>
 
+        <?php
+    }
+
+    /**
+     * Settings → Toolkit: one-off data tools (Phone Numbers, Names &
+     * Addresses, CRM Schema) and, while PMPro's tables exist, the migration.
+     */
+    public function render_toolkit_page(): void {
+        $this->guard();
+        $tabs = [
+            'phones' => __( 'Phone Numbers', 'my-iapsnj' ),
+            'names'  => __( 'Names & Addresses', 'my-iapsnj' ),
+            'schema' => __( 'CRM Schema', 'my-iapsnj' ),
+        ];
+        if ( My_IAPSNJ_Migration::tables_exist() ) {
+            $tabs['migration'] = __( 'PMPro Migration', 'my-iapsnj' );
+        }
+        $tab = $this->current_tab( $tabs, 'phones' );
+        $this->page_header( __( 'Toolkit', 'my-iapsnj' ) );
+        $this->tab_nav( 'my-iapsnj-toolkit', $tabs, $tab );
+        switch ( $tab ) {
+            case 'names':
+                $this->render_names_tab();
+                break;
+            case 'schema':
+                $this->render_schema_tab();
+                break;
+            case 'migration':
+                $this->render_migration_tab();
+                break;
+            default:
+                $this->render_phones_tab();
+        }
+        echo '</div>';
+    }
+
+    private function render_schema_tab(): void {
+        ?>
         <div class="fcrm-section" id="schema">
             <h2><?php esc_html_e( 'CRM schema', 'my-iapsnj' ); ?></h2>
             <p class="description"><?php echo esc_html( sprintf(
@@ -745,6 +1100,11 @@ class My_IAPSNJ_Admin {
             <div id="fcrm-schema-result"></div>
         </div>
 
+        <?php
+    }
+
+    private function render_phones_tab(): void {
+        ?>
         <div class="fcrm-section" id="phones">
             <h2><?php esc_html_e( 'Phone numbers', 'my-iapsnj' ); ?></h2>
             <p class="description"><?php esc_html_e( 'New numbers are formatted at checkout: the contact Phone gets the US country code (+19084152478, which FluentCRM shows as +1 908-415-2478). This brings the numbers already in the CRM to the same format. Work phone and Alternate phone are no longer used anywhere in the plugin. Numbers that cannot be read (too few digits, extensions, letters) are listed and left as they are. No automations fire.', 'my-iapsnj' ); ?></p>
@@ -753,6 +1113,11 @@ class My_IAPSNJ_Admin {
             <div id="fcrm-phones-result"></div>
         </div>
 
+        <?php
+    }
+
+    private function render_names_tab(): void {
+        ?>
         <div class="fcrm-section" id="names">
             <h2><?php esc_html_e( 'Names & addresses', 'my-iapsnj' ); ?></h2>
             <p class="description"><?php esc_html_e( 'New names and addresses are capitalised at checkout, so mailing labels read "John McDonald, 12 Main St Apt 4B, Mt Laurel, NJ": words typed in lower case or all in capitals get a capital letter; words typed in mixed case (McDonald, DeLuca) are kept; Mc and O\' names, PO Box, unit letters (4B), suffixes (III, Jr) and NJ / US / CR are handled. This applies the same rule to the first name, last name, street, city and state already in the CRM. No automations fire and the WordPress profiles are not changed.', 'my-iapsnj' ); ?></p>
@@ -761,24 +1126,7 @@ class My_IAPSNJ_Admin {
             <div id="fcrm-names-result"></div>
         </div>
 
-        <div class="fcrm-section">
-            <h2><?php esc_html_e( 'Looking for another setting?', 'my-iapsnj' ); ?></h2>
-            <p class="description"><?php esc_html_e( 'Settings now live next to the screen they affect:', 'my-iapsnj' ); ?></p>
-            <ul class="fcrm-moved-list">
-                <?php foreach ( $moved as [ $url, $screen, $what ] ) : ?>
-                    <li><a href="<?php echo esc_url( $url ); ?>"><?php echo esc_html( $screen ); ?></a> — <?php echo esc_html( $what ); ?></li>
-                <?php endforeach; ?>
-            </ul>
-        </div>
-        </div>
         <?php
-        // Old bookmarks to a section that moved (…my-iapsnj-sync#roles) go to its new screen.
-        $redirects = [];
-        foreach ( $moved as $anchor => $row ) {
-            $redirects[ $anchor ] = $row[0];
-        }
-        $redirects['expiry-grace'] = $redirects['expiry'];
-        echo '<script>(function(){var m=' . wp_json_encode( $redirects ) . ',h=(location.hash||"").replace("#","");if(h&&m[h]){location.replace(m[h]);}}());</script>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- JSON-encoded admin URLs
     }
 
     /**
@@ -1099,25 +1447,22 @@ class My_IAPSNJ_Admin {
     }
 
     /**
-     * Members → Active Membership.
+     * Overview → Active.
      */
-    public function render_members_active_page(): void {
-        $this->guard();
-        $this->page_header( __( 'Active Membership', 'my-iapsnj' ), __( 'Members in good standing: Lifetime and Honorary, and everyone whose paid_through (plus the grace period) is today or later — the same rule as the daily expiry job.', 'my-iapsnj' ) );
+    private function render_members_active_tab(): void {
+        $this->description( __( 'Members in good standing: Lifetime and Honorary, and everyone whose paid_through (plus the grace period) is today or later — the same rule as the daily expiry job.', 'my-iapsnj' ) );
         My_IAPSNJ_Members::render_list( My_IAPSNJ_Members::STATE_ACTIVE );
-        echo '</div>';
     }
 
     /**
-     * Members → Lapsed Members: the list, plus the grace period and the
-     * expiry job (Preview / Apply now) that act on it.
+     * Overview → Lapsed: the list, plus the grace period and the expiry job
+     * (Preview / Apply now) that act on it.
      */
-    public function render_members_lapsed_page(): void {
-        $this->guard();
+    private function render_members_lapsed_tab(): void {
         $settings    = My_IAPSNJ_Plugin::settings();
         $last_expiry = get_option( 'my_iapsnj_last_expiry_run', [] );
         $next_expiry = My_IAPSNJ_Membership::is_available() ? wp_next_scheduled( My_IAPSNJ_Membership::CRON_HOOK ) : false;
-        $this->page_header( __( 'Lapsed Members', 'my-iapsnj' ), __( 'Contacts with a member type whose paid_through (plus the grace period) is past, or missing. Lifetime and Honorary never lapse.', 'my-iapsnj' ) );
+        $this->description( __( 'Contacts with a member type whose paid_through (plus the grace period) is past, or missing. Lifetime and Honorary never lapse.', 'my-iapsnj' ) );
         ?>
         <div class="fcrm-section" id="expiry">
             <h2><?php esc_html_e( 'Expirations (Member-Active tag + role)', 'my-iapsnj' ); ?></h2>
@@ -1125,7 +1470,7 @@ class My_IAPSNJ_Admin {
                 printf(
                     /* translators: %s: link to the WordPress roles settings */
                     esc_html__( 'Runs every day at 00:30 site time: lapsed members lose the Member-Active tag and drop to the "when expired" role (%s); members in good standing without the tag (migrated members, manual CRM edits) get it and their role. Paid-YYYY tags are history and are never removed. Preview lists what would change; Apply does it now, in batches.', 'my-iapsnj' ),
-                    '<a href="' . esc_url( admin_url( 'admin.php?page=my-iapsnj-sync#roles' ) ) . '">' . esc_html__( 'Configurations', 'my-iapsnj' ) . '</a>'
+                    '<a href="' . esc_url( self::page_url( 'my-iapsnj-config', 'roles' ) ) . '">' . esc_html__( 'Config → Roles', 'my-iapsnj' ) . '</a>'
                 );
             ?>
                 <?php if ( is_array( $last_expiry ) && ! empty( $last_expiry['at'] ) ) : ?><br><span class="fcrm-muted"><?php echo esc_html( sprintf( __( 'Last run: %1$s UTC — %2$d expired, %3$d activated, %4$d roles changed.', 'my-iapsnj' ), $last_expiry['at'], (int) ( $last_expiry['report']['expired_now'] ?? 0 ), (int) ( $last_expiry['report']['activated'] ?? 0 ), (int) ( $last_expiry['report']['roles_changed'] ?? 0 ) ) ); ?></span><?php endif; ?>
@@ -1142,7 +1487,6 @@ class My_IAPSNJ_Admin {
         </div>
         <?php
         My_IAPSNJ_Members::render_list( My_IAPSNJ_Members::STATE_LAPSED );
-        echo '</div>';
     }
 
     // -----------------------------------------------------------------------
@@ -1163,7 +1507,7 @@ class My_IAPSNJ_Admin {
         $levels   = My_IAPSNJ_Checkout_Fields::levels();
         $settings = My_IAPSNJ_Plugin::settings();
         $offline  = My_IAPSNJ_Membership::offline_labels();
-        $this->page_header( __( 'Checkout Builder', 'my-iapsnj' ), __( 'The membership application is collected on the FluentCart checkout page. Each membership level uses one checkout form; the form is picked from the membership product in the cart (Membership Products → member type). Products that are not membership products (event registrations, merchandise) show no application fields, only FluentCart\'s own checkout fields.', 'my-iapsnj' ) );
+        $this->page_header( __( 'Checkout Builder', 'my-iapsnj' ), __( 'The membership application is collected on the FluentCart checkout page. Each membership level uses one checkout form; the form is picked from the membership product in the cart (Config → Product Mapping → member type). Products that are not membership products (event registrations, merchandise) show no application fields, only FluentCart\'s own checkout fields.', 'my-iapsnj' ) );
         ?>
         <div id="fcrm-settings-notice" class="fcrm-notice" style="display:none"></div>
 
@@ -1399,7 +1743,7 @@ class My_IAPSNJ_Admin {
     private function render_view_checkout_button( string $url, string $label = '' ): void {
         $label = $label !== '' ? $label : __( 'View', 'my-iapsnj' );
         if ( $url === '' ) {
-            echo '<button type="button" class="button" disabled title="' . esc_attr__( 'Map a membership product in Membership Products first.', 'my-iapsnj' ) . '">' . esc_html( $label ) . '</button>';
+            echo '<button type="button" class="button" disabled title="' . esc_attr__( 'Map a membership product in Settings → Config → Product Mapping first.', 'my-iapsnj' ) . '">' . esc_html( $label ) . '</button>';
             return;
         }
         echo '<a class="button fcrm-view-checkout" href="' . esc_url( $url ) . '" target="_blank" rel="noopener" title="' . esc_attr__( 'Opens the real checkout page in a new tab with a membership product in your cart, showing this form. Nothing is charged unless you place the order.', 'my-iapsnj' ) . '">' . esc_html( $label ) . ' <span class="dashicons dashicons-external" aria-hidden="true" style="font-size:14px;width:14px;height:14px;vertical-align:text-bottom"></span></a>';
@@ -1506,12 +1850,11 @@ class My_IAPSNJ_Admin {
     }
 
     // -----------------------------------------------------------------------
-    // Page: Migration
+    // Toolkit → PMPro Migration tab
     // -----------------------------------------------------------------------
 
-    public function render_migration_page(): void {
-        $this->guard();
-        $this->page_header( __( 'Migrate PMPro', 'my-iapsnj' ), __( 'Reconstructs membership state from PMPro\'s tables. Every step runs as a dry run first and prints a reviewable report; Apply writes to FluentCRM only. PMPro can be deactivated — the tables are all that is read. Never delete the PMPro tables.', 'my-iapsnj' ) );
+    private function render_migration_tab(): void {
+        $this->description( __( 'Reconstructs membership state from PMPro\'s tables. Every step runs as a dry run first and prints a reviewable report; Apply writes to FluentCRM only. PMPro can be deactivated — the tables are all that is read. Never delete the PMPro tables.', 'my-iapsnj' ) );
         $levels = My_IAPSNJ_Migration::levels();
         $map    = My_IAPSNJ_Migration::level_map( [] );
         $spec   = [];
@@ -1580,7 +1923,6 @@ class My_IAPSNJ_Admin {
             <p class="description"><?php esc_html_e( 'Writes every PMPro order (card numbers excluded) to a CSV in a protected folder and gives you a one-time download link. Keep this file outside the database.', 'my-iapsnj' ); ?></p>
             <button id="fcrm-export-orders" class="button"><?php esc_html_e( 'Export orders to CSV', 'my-iapsnj' ); ?></button>
             <div id="fcrm-export-result" style="margin-top:8px"></div>
-        </div>
         </div>
         <?php
     }
@@ -1826,17 +2168,18 @@ class My_IAPSNJ_Admin {
         wp_send_json_success( My_IAPSNJ_Checks::search_members( sanitize_text_field( wp_unslash( $_POST['query'] ?? '' ) ) ) ); // phpcs:ignore
     }
 
-    public function ajax_record_check(): void {
+    public function ajax_record_payment(): void {
         $this->ajax_guard();
         $p = wp_unslash( $_POST ); // phpcs:ignore
-        $result = My_IAPSNJ_Checks::record_check( [
+        $result = My_IAPSNJ_Checks::record_payment( [
             'subscriber_id' => (int) ( $p['subscriber_id'] ?? 0 ),
             'user_id'       => (int) ( $p['user_id'] ?? 0 ),
             'email'         => sanitize_email( (string) ( $p['email'] ?? '' ) ),
             'first_name'    => sanitize_text_field( (string) ( $p['first_name'] ?? '' ) ),
             'last_name'     => sanitize_text_field( (string) ( $p['last_name'] ?? '' ) ),
             'variation_id'  => (int) ( $p['variation_id'] ?? 0 ),
-            'check_number'  => sanitize_text_field( (string) ( $p['check_number'] ?? '' ) ),
+            'method'        => sanitize_key( (string) ( $p['method'] ?? '' ) ),
+            'reference'     => sanitize_text_field( (string) ( $p['reference'] ?? '' ) ),
             'deposit_date'  => sanitize_text_field( (string) ( $p['deposit_date'] ?? '' ) ),
             'received_date' => sanitize_text_field( (string) ( $p['received_date'] ?? '' ) ),
             'note'          => sanitize_text_field( (string) ( $p['note'] ?? '' ) ),

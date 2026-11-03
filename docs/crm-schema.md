@@ -5,7 +5,7 @@ hold credentials and a role only: nothing about a member is copied onto the
 user (the Profile Mirror / Profile Sync were retired in 4.35). ACF user fields
 are **retired**, not synced.
 
-`wp iapsnj crm-schema` (or My IAPSNJ → Settings → Configurations → *Create missing tags &
+`wp iapsnj crm-schema` (or My IAPSNJ → Settings → Toolkit → CRM Schema → *Create missing tags &
 fields*) creates every tag and custom field below idempotently. Constants live
 in `includes/class-schema.php`.
 
@@ -14,11 +14,11 @@ in `includes/class-schema.php`.
 | Tag (title) | slug | Set by | Removed by | Purpose |
 |---|---|---|---|---|
 | `Paid-2024` … `Paid-2031` (one per year, ongoing) | `paid-YYYY` | migration (`backfill_year_tags`), FluentCart `order_paid` | full refund of the order that added it | Year-by-year payment history, queryable |
-| `Payment-Pending-Check` | `payment-pending-check` | `order_placed_offline` (check chosen at checkout) | `order_paid` | Treasurer follow-up; Pending Checks screen |
+| `Payment-Pending-Check` | `payment-pending-check` | `order_placed_offline` (check chosen at checkout) | `order_paid` | Treasurer follow-up; Payments → Open Invoices screen |
 | `Checkout-Abandoned` | `checkout-abandoned` | email typed at the FluentCart checkout (`checkout/form_data_changed`) | `order_placed_offline`, `order_paid` | Checkout started, no payment — the follow-up list that did not exist before |
 | `Honorary` | `honorary` | migration (`migrate_comped`) / admin by hand | admin | Comped; **excluded from every dues automation** |
 | `Lifetime` | `lifetime` | migration (`migrate_comped`), Lifetime product paid | admin | Comped; **excluded from every dues automation** |
-| `Member-Active` | `member-active` | `order_paid` / `renewal_paid`, daily expiry job (`wp iapsnj expire`), Members → Lapsed Members → *Apply now* | daily expiry job when `paid_through` (+ grace days) is past; full refund that leaves the contact lapsed | **Status**, not history: present while in good standing (or comped). Drives the WordPress role (Settings → Configurations → WordPress roles) and is the tag to key "membership expired" automations on (Tag Removed). |
+| `Member-Active` | `member-active` | `order_paid` / `renewal_paid`, daily expiry job (`wp iapsnj expire`), Membership → Overview → Lapsed → *Apply now* | daily expiry job when `paid_through` (+ grace days) is past; full refund that leaves the contact lapsed | **Status**, not history: present while in good standing (or comped). Drives the WordPress role (Settings → Config → Roles) and is the tag to key "membership expired" automations on (Tag Removed). |
 
 Honorary is **never a product**: it is admin-assigned (tag + `member_type`).
 
@@ -28,8 +28,8 @@ Honorary is **never a product**: it is admin-assigned (tag + `member_type`).
 |---|---|---|---|
 | `member_type` | select-one | `Regular` / `Associate` / `Lifetime` / `Honorary` | **Mandatory.** The exclusion condition for dues campaigns is `member_type` is none of `Lifetime`, `Honorary`. A purchase never lowers the type. |
 | `paid_through` | date (Y-m-d) | e.g. `2027-12-31` | Set from the product (fixed calendar-year date), only ever extended (`max`). **Null for Lifetime and Honorary** — the plugin deletes the value; never a far-future date. |
-| `member_number` | number | | Migrated from ACF `MemberNum` (already synced pre-4.0). Printed on the memo line of checks; shown in Pending Checks. |
-| `department` | text (or select-one, see below) | | Required on the checkout application (dropdown options set in My IAPSNJ → Dues → Checkout Builder). |
+| `member_number` | number | | Migrated from ACF `MemberNum` (already synced pre-4.0). Printed on the memo line of checks; shown in Payments → Open Invoices. |
+| `department` | text (or select-one, see below) | | Required on the checkout application (dropdown options set in the (hidden) Checkout Builder). |
 | `iapsnj_rank` | select-one | | The CRM's own Rank dropdown; its option list is what the checkout and profile offer (4.29). Earlier versions wrote a duplicate text field `rank_level`: the 4.29 upgrade copies its values here (see *Slugs the plugin once wrote*). |
 | `join_date` | date | `Y-m-d` | Migrated from ACF `join_date`; for new members set to the payment date of their first paid order (4.4.0), never overwritten. |
 | `legacy_pmpro_level` | text | e.g. `3` or `3, 5` | Written by migration for members/orders on deleted PMPro levels (IDs 3, 5). Diagnostic only. |
@@ -51,7 +51,7 @@ Default FluentCRM fields used: `first_name`, `last_name`, `email`, `phone`,
 
 `department` and `rank_level` were mapped as *select* in the ACF era. Keep them
 `select-one` in FluentCRM only if the option list is maintained there; the
-checkout dropdown (My IAPSNJ → Checkout Builder) is the
+checkout dropdown (the hidden Checkout Builder) is the
 real constraint (non-submittable placeholder, no "N/A"). Its option lists are
 imported from the ACF choices / existing CRM values (`docs/checkout-fields.md`).
 
@@ -89,7 +89,7 @@ and populated it — the data is there; only the ACF side is dropped.
 Retire decision (2026-09-24): the client wants every field of the old
 onboarding form on the checkout, so only `admin_notes` is retired. `elo_title`
 is kept but hidden until its meaning is confirmed. Any field can still be
-hidden from My IAPSNJ → Checkout Builder.
+hidden from the (hidden) Checkout Builder.
 
 ## WordPress user: link and role (4.35)
 
@@ -109,10 +109,10 @@ What remains of `My_IAPSNJ_Engine`:
 * the **link** between a user and its contact: `subscriber.user_id`, cached in
   user meta `_my_iapsnj_subscriber_id`; a new user is linked to the contact with
   the same email, and a deleted user unlinks its contact (never deletes it);
-* the **WordPress role** (Settings → Configurations → *WordPress roles*):
+* the **WordPress role** (Settings → Config → *Roles*):
   `member_type` → role slug, and a "when expired" role. It is applied on every
   CRM contact save, at the end of each paid / check-placed order and refund,
-  by the daily expiry job (Members → Lapsed Members → *Apply now* brings every
+  by the daily expiry job (Membership → Overview → Lapsed → *Apply now* brings every
   account up to date) and when a new user is linked. New users are created as
   Subscriber and get the mapped role in the same request. Guard rails: the
   administrator role is never assignable, and a user whose current roles
@@ -120,10 +120,10 @@ What remains of `My_IAPSNJ_Engine`:
   never changed. Unmapped types are skipped.
 
 **Expiration** (4.6.0): a membership is *active* while `paid_through` plus
-the grace period (Members → Lapsed Members, default 0 days) is today or later, or the
+the grace period (Membership → Overview → Lapsed, default 0 days) is today or later, or the
 type is Lifetime / Honorary. WP-Cron runs `My_IAPSNJ_Membership::run_expirations()`
 daily at 00:30 site time (`my_iapsnj_daily`; also `wp iapsnj expire` and
-Members → Lapsed Members → Expirations → Preview / Apply now): lapsed contacts lose
+Membership → Overview → Lapsed → Expirations → Preview / Apply now): lapsed contacts lose
 `Member-Active` and drop to the *when expired* role (default Subscriber);
 contacts in good standing that lack the tag (migrated members, manual CRM
 edits) get it and their mapped role. Staff roles are never touched. A
@@ -142,7 +142,7 @@ gap with subscription anniversary billing below.
 
 ## Products → membership state (FluentCart)
 
-Configured in My IAPSNJ → Membership Products (option `my_iapsnj_products`).
+Configured in My IAPSNJ → Settings → Config → Product Mapping (option `my_iapsnj_products`).
 Products carry **no year**: a product only says which member type it grants,
 and every payment covers one year. Annual products are FluentCart yearly
 subscriptions (auto-renew); Lifetime is one-time. There is no Multi-Year
@@ -154,7 +154,7 @@ product (removed in 4.15).
 | Associate Membership | $50 | Associate | yearly subscription |
 | Lifetime Membership | $300 | Lifetime | one-time |
 
-**Term rule** (`My_IAPSNJ_Dates::membership_term`, cutover in Dues → Membership Products,
+**Term rule** (`My_IAPSNJ_Dates::membership_term`, cutover in Settings → Config → Membership Terms,
 default `10-01`): the payment date decides the term, not the product.
 
 | Paid on | Term |

@@ -2,7 +2,7 @@
 /**
  * [iapsnj_directory]: the members-only membership directory.
  *
- * Lists active members (the same rule as Members → Active Membership, through
+ * Lists active members (the same rule as Membership → Overview → Active, through
  * My_IAPSNJ_Members' SQL) as cards: headshot (a placeholder when there is
  * none), name, member type, member since, department, rank, and email / phone
  * icons that open the mail or phone app. Filters: a name search, membership

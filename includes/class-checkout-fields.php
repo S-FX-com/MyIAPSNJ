@@ -18,7 +18,7 @@
  * custom field created on save, or "not stored").
  *
  * Which form a checkout shows is decided by the cart: the highest member
- * type among the cart's products configured in Membership Products. A cart
+ * type among the cart's products configured in Product Mapping. A cart
  * without a membership product (event registration, merchandise) shows no
  * application fields and none are validated, so FluentCart works as a plain
  * store for those.
@@ -74,7 +74,7 @@ class My_IAPSNJ_Checkout_Fields {
         'prefix'        => 'Prefix (Mr / Mrs …)',
     ];
 
-    /** @var bool Record a Check places an admin order; it is not an application. */
+    /** @var bool Record Payment places an admin order; it is not an application. */
     private static bool $suppress = false;
 
     /** @var bool The fields were printed on this request. */
@@ -3071,14 +3071,14 @@ class My_IAPSNJ_Checkout_Fields {
             if ( $form_id === '' ) {
                 // Application inputs posted but no mapped membership product:
                 // most likely the products were recreated and the variation
-                // ids in Membership Products are stale.
+                // ids in Product Mapping are stale.
                 $posted = array_filter( array_keys( $request ), function ( $k ) {
                     return is_string( $k ) && strpos( $k, self::PREFIX ) === 0;
                 } );
                 if ( $posted && method_exists( $order, 'addLog' ) ) {
                     $order->addLog(
                         'My IAPSNJ: application fields ignored (product not mapped)',
-                        'The checkout posted application fields but no item is configured in My IAPSNJ → Membership Products, so nothing was stored and no membership will be applied. Items: ' . self::order_item_ids( $order ),
+                        'The checkout posted application fields but no item is configured in My IAPSNJ → Settings → Config → Product Mapping, so nothing was stored and no membership will be applied. Items: ' . self::order_item_ids( $order ),
                         'warning',
                         'My IAPSNJ'
                     );
@@ -3096,7 +3096,7 @@ class My_IAPSNJ_Checkout_Fields {
                 if ( $values && method_exists( $order, 'addLog' ) ) {
                     $order->addLog(
                         'My IAPSNJ: application received (product not mapped)',
-                        'The order carries application answers but none of its items is configured in My IAPSNJ → Membership Products, so no membership will be applied on payment. Items: ' . self::order_item_ids( $order ),
+                        'The order carries application answers but none of its items is configured in My IAPSNJ → Settings → Config → Product Mapping, so no membership will be applied on payment. Items: ' . self::order_item_ids( $order ),
                         'warning',
                         'My IAPSNJ'
                     );
@@ -3261,7 +3261,7 @@ class My_IAPSNJ_Checkout_Fields {
     }
 
     /**
-     * Does the cart hold a product configured in Membership Products? False
+     * Does the cart hold a product configured in Product Mapping? False
      * when the item layout cannot be read: the store also sells events and
      * merchandise, which must never be treated as an application.
      */

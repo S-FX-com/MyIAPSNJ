@@ -23,13 +23,13 @@ final class My_IAPSNJ_Shortcodes {
         return [
             My_IAPSNJ_My_Membership::SHORTCODE => [
                 'title'    => __( 'My Membership', 'my-iapsnj' ),
-                'summary'  => __( 'A horizontal bar, full width of its column, with the member\'s Membership Role (the CRM member type, plus an Administrator / Editor / other staff WordPress role when the account has one), Member Since, Expiration Date, Active / Inactive status and Member Number, read from their FluentCRM contact. Lifetime members read LIFETIME (Honorary: NO EXPIRATION). A Renew Now button appears when the membership has lapsed, or from the renewal season start date set in Dues → Membership Products (Renewal season starts) for a member whose membership runs out before a payment then would; never for Lifetime or Honorary.', 'my-iapsnj' ),
+                'summary'  => __( 'A horizontal bar, full width of its column, with the member\'s Membership Role (the CRM member type, plus an Administrator / Editor / other staff WordPress role when the account has one), Member Since, Expiration Date, Active / Inactive status and Member Number, read from their FluentCRM contact. Lifetime members read LIFETIME (Honorary: NO EXPIRATION). A Renew Now button appears when the membership has lapsed, or from the renewal season start date set in Settings → Config → Membership Terms (Renewal season starts) for a member whose membership runs out before a payment then would; never for Lifetime or Honorary.', 'my-iapsnj' ),
                 'audience' => __( 'Logged-in members. Visitors see a log-in link.', 'my-iapsnj' ),
                 'page'     => __( 'Membership Portal', 'my-iapsnj' ),
                 'atts'     => [
                     [ 'button', __( 'Renew Now', 'my-iapsnj' ), __( 'Text of the renewal button.', 'my-iapsnj' ) ],
-                    [ 'regular_url', '', __( 'Renewal checkout link for Regular members. Empty = the renewal product in Dues → Membership Products.', 'my-iapsnj' ) ],
-                    [ 'associate_url', '', __( 'Renewal checkout link for Associate members. Empty = the renewal product in Dues → Membership Products.', 'my-iapsnj' ) ],
+                    [ 'regular_url', '', __( 'Renewal checkout link for Regular members. Empty = the renewal product in Settings → Config → Membership Terms.', 'my-iapsnj' ) ],
+                    [ 'associate_url', '', __( 'Renewal checkout link for Associate members. Empty = the renewal product in Settings → Config → Membership Terms.', 'my-iapsnj' ) ],
                 ],
                 'examples' => [
                     '[' . My_IAPSNJ_My_Membership::SHORTCODE . ']',
@@ -76,12 +76,12 @@ final class My_IAPSNJ_Shortcodes {
             ],
             'iapsnj_renew_link' => [
                 'title'    => __( 'Renew link', 'my-iapsnj' ),
-                'summary'  => __( 'A link (not a card) to the renewal checkout for the logged-in member: the renewal product for their type, set in Dues → Membership Products. Visitors get a link to the Join page instead; Lifetime and Honorary members get nothing. Handy in emails and the member area.', 'my-iapsnj' ),
+                'summary'  => __( 'A link (not a card) to the renewal checkout for the logged-in member: the renewal product for their type, set in Settings → Config → Membership Terms. Visitors get a link to the Join page instead; Lifetime and Honorary members get nothing. Handy in emails and the member area.', 'my-iapsnj' ),
                 'audience' => __( 'Everyone: members get the renewal link, visitors the Join page link.', 'my-iapsnj' ),
                 'page'     => __( 'Any page or email', 'my-iapsnj' ),
                 'atts'     => [
                     [ 'text', __( 'Renew my membership', 'my-iapsnj' ), __( 'Link text for a member.', 'my-iapsnj' ) ],
-                    [ 'join_text', __( 'Join IAPSNJ', 'my-iapsnj' ), __( 'Link text for a visitor (goes to the Join page URL in Dues → Membership Products).', 'my-iapsnj' ) ],
+                    [ 'join_text', __( 'Join IAPSNJ', 'my-iapsnj' ), __( 'Link text for a visitor (goes to the Join page URL in Settings → Config → Membership Terms).', 'my-iapsnj' ) ],
                     [ 'class', 'button my-iapsnj-renew-link', __( 'CSS classes on the link.', 'my-iapsnj' ) ],
                 ],
                 'examples' => [

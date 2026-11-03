@@ -37,8 +37,8 @@ Documentation: [`docs/phase1-findings.md`](docs/phase1-findings.md) ·
   `Checkout-Abandoned`, gets a WordPress login if it has none, and the
   application is closed. Full refunds revert exactly what the order applied.
 * **Term rule** — products carry no year and every payment covers one year. A
-  payment before the renewal-season cutover (default Oct 1, Dues → Membership
-  Products) covers through Dec 31 of that year; on/after it, through Dec 31 of
+  payment before the renewal-season cutover (default Oct 1, Settings → Config →
+  Membership Terms) covers through Dec 31 of that year; on/after it, through Dec 31 of
   the next year. Checks count from the deposit date.
 * **Payment emails** (Settings → Emails) — what a membership payment sends,
   once per order and only after payment (never on application submitted):
@@ -108,8 +108,8 @@ Documentation: [`docs/phase1-findings.md`](docs/phase1-findings.md) ·
 * **Capitalised names and addresses** — first / last name, street and city
   are stored capitalised ("John McDonald, 12 Main St Apt 4B") on the
   checkout, in FluentCart's records and in the CRM, with the usual exceptions
-  (McDonald, O'Brien, PO Box, 4B, III, NJ). Settings → Configurations →
-  *Names & addresses* or `wp iapsnj capitalize` fixes the contacts already in
+  (McDonald, O'Brien, PO Box, 4B, III, NJ). Settings → Toolkit →
+  *Names & Addresses* or `wp iapsnj capitalize` fixes the contacts already in
   the CRM.
 * **Application tracking** — as soon as an email is typed at checkout the
   contact exists and is tagged `Checkout-Abandoned`, and an application row
@@ -118,20 +118,25 @@ Documentation: [`docs/phase1-findings.md`](docs/phase1-findings.md) ·
 * **Renewal link** — `[iapsnj_renew_link]` sends a logged-in Regular /
   Associate member to the configured renewal product's checkout and a
   visitor to the Join page; Lifetime / Honorary members get nothing.
-* **Pending Checks** — all unpaid check orders in one list; batch *mark paid*
-  with deposit date and check numbers; the batch total is shown against the
-  deposit slip. **Record a check** for a member who never used the website.
-* **Reports** — applications awaiting payment, paid orders without an
-  application, checks pending 30+ days, WordPress ↔ CRM orphans.
+* **Payments** (Membership → Payments) — **Open Invoices**: all unpaid check
+  orders in one list; batch *mark paid* with deposit date and check numbers; the
+  batch total is shown against the deposit slip. **Record Payment** for a member
+  who never used the website: a check, cash in person or Venmo. **Stripe
+  Payments**: every card payment taken through the site's checkout.
+* **Freshly Paid** — who paid in the last 7 / 15 / 30 days, with a CSV of
+  first, last, street, city, state and zip for a label mail merge.
+* **Reports** (Membership → Overview → Reports) — applications awaiting
+  payment, paid orders without an application, checks pending 30+ days,
+  WordPress ↔ CRM orphans.
 * **WordPress roles** — a role per member type and a "when expired" role
-  (Settings → Configurations → WordPress roles; staff accounts are never
+  (Settings → Config → Roles; staff accounts are never
   touched), and each user linked to its CRM contact. Member details are not
   copied onto WordPress users: the Profile Mirror / Profile Sync were retired
   in 4.35 (see the upgrade notes).
 * **Expirations** — status tag `Member-Active` and the role are given on
   payment and taken away by a daily WP-Cron job once `paid_through` is past
   (grace period configurable); `wp iapsnj expire` and a Preview / Apply
-  button on Members → Lapsed Members. `Paid-YYYY` history is never removed.
+  button on Membership → Overview → Lapsed. `Paid-YYYY` history is never removed.
 * **Migration toolkit** — census, subscriber linking, address consolidation,
   Paid-YYYY backfill, Honorary/Lifetime from `pmpro_memberships_users`,
   member state, login verification, reconciliation, PMPro order CSV export.
@@ -160,13 +165,13 @@ migration if present.
 1. Download `my-iapsnj.zip` from the
    [latest release](https://github.com/S-FX-com/MyIAPSNJ/releases/latest).
 2. Plugins → Add New → Upload Plugin → Activate.
-3. My IAPSNJ → Settings → Configurations → *Create missing tags & fields*, review the
+3. My IAPSNJ → Settings → Toolkit → CRM Schema → *Create missing tags & fields*, review the
    application fields (the Department and Rank dropdown options are imported
    from the ACF field choices or the existing CRM values; *Fill empty
    dropdown options* re-runs that), set the
    renewal products and notification recipients, apply the "Pay by Check"
    label.
-4. My IAPSNJ → Membership Products → map the FluentCart products, then build
+4. My IAPSNJ → Settings → Config → Product Mapping → map the FluentCart products, then build
    the Join page from the *Checkout links* it prints.
 
 Upgrading from 3.x: data-version 5 removes the PMPro options/cron and
@@ -186,26 +191,53 @@ date of birth in every checkout form.
 
 ## Admin screens (My IAPSNJ menu, `manage_options`)
 
-The submenu is grouped under headings (**Dues**, **Members**, **Settings**);
-slugs of the screens that existed before 4.11 are unchanged.
+The submenu is grouped under two headings, **Membership** and **Settings**
+(4.39). A page that holds several screens shows them as tabs. Slugs of the
+screens that existed before 4.39 redirect to their new place, with the query
+string kept.
 
-| Group | Screen | Slug | Purpose |
+| Group | Screen (tabs) | Slug | Purpose |
 |---|---|---|---|
-| | Dashboard | `my-iapsnj` | counts, members by type (active / lapsed), paid years, environment checklist |
-| Dues | Membership Products | `my-iapsnj-products` | FluentCart variation → member type; renewal season, renewal product per type, Join page URL, checkout links |
-| Dues | Pending Checks | `my-iapsnj-checks` | batch mark paid; record a check |
-| Dues | Checkout Builder | `my-iapsnj-checkout` | checkout forms and the form per level; billing address → CRM; notes under Discount Code and Pay by Check; Pay by Check label & instructions |
-| Members | Active Membership | `my-iapsnj-members` | members in good standing: search, filters, sort, CSV |
-| Members | Lapsed Members | `my-iapsnj-lapsed` | lapsed members and data checks; grace period; expirations Preview / Apply now |
-| Members | Notes Search | `my-iapsnj-notes-search` | |
-| | Reports | `my-iapsnj-reports` | open applications, orphan orders, aging, WP↔CRM orphans; aging threshold, go-live date |
-| Settings | Emails | `my-iapsnj-emails` | emails to the member (FluentCart's, our Welcome / Renewal), to the President and the Membership Committee; email design. The old Configurations sections (`#notifications`, `#email-design`) redirect here |
-| Settings | Configurations | `my-iapsnj-sync` | WordPress role per member type, CRM schema, phone number format, names & addresses capitalisation (formerly "Sync & Settings"). The old Profile Mirror and Profile Sync slugs (`my-iapsnj-mapping`, `my-iapsnj-profile-sync`) redirect here |
-| Settings | Migrate PMPro | `my-iapsnj-migration` | PMPro → CRM steps (shown while PMPro tables exist) |
+| Membership | Overview | `my-iapsnj` | **Summary** (counts, members by type, paid years, environment checklist), **Active**, **Lapsed** (grace period, expirations Preview / Apply now, data checks), **Reports** (open applications, orphan orders, aging, WP↔CRM orphans; aging threshold, go-live date) |
+| Membership | Payments | `my-iapsnj-payments` | **Record Payment** (a member paid in person, by check or by Venmo without using the website), **Open Invoices** (unpaid "Pay by Check" orders: batch mark paid with check numbers and a deposit date), **Stripe Payments** (every card payment taken through the site's checkout, with filters) |
+| Membership | Freshly Paid | `my-iapsnj-freshly-paid` | members who paid in the last 7, 15 or 30 days; **Export CSV** (`freshlypaid-YYYYMMDDHHMM.csv`: First Name, Last Name, Street Address, City, State, Zip) for a label mail merge |
+| Membership | Notes Search | `my-iapsnj-notes-search` | FluentCRM notes search with inline tagging |
+| Settings | Emails | `my-iapsnj-emails` | emails to the member (FluentCart's, our Welcome / Renewal), to the President and the Membership Committee; email design |
+| Settings | Shortcodes | `my-iapsnj-shortcodes` | every shortcode with options and copy-ready examples |
+| Settings | Config | `my-iapsnj-config` | **Roles** (WordPress role per member type, role when expired), **Product Mapping** (FluentCart variation → member type; checkout links), **Membership Terms** (renewal season, renewal product per type, Join page URL) |
+| Settings | Toolkit | `my-iapsnj-toolkit` | **Phone Numbers**, **Names & Addresses**, **CRM Schema**; **PMPro Migration** while PMPro tables exist |
+| *(hidden)* | Checkout Builder | `my-iapsnj-checkout` | checkout forms and the form per level; billing address → CRM; notes under Discount Code and Pay by Check; Pay by Check label & instructions |
+
+**Checkout Builder is not in the menu.** The checkouts are built by this
+plugin, and a live checkout should not be edited by accident. The screen still
+works by URL, and Config → Product Mapping links to it.
+
+### Recording a payment (4.39)
+
+Payments → Record Payment creates the FluentCart order, pays it and fires the
+same membership automation as an online payment (one code path,
+`fluent_cart/order_paid`). The method decides the labels and the date the term
+counts from: a **check** counts from its *deposit date*; **cash (in person)**
+and **Venmo** from the *date received*. The reference (check number, receipt
+number, Venmo transaction id) is kept on the order, and the order's source is
+`manual_check` / `manual_cash` / `manual_venmo` (the orphan report skips all
+three). The staff email and the order log name the method. All three are
+FluentCart's offline method underneath; `payment_method_type` on the
+transaction and `_my_iapsnj_pay_method` on the order say which.
+
+### Freshly Paid (4.39)
+
+A payment counts when the plugin applied it (`_my_iapsnj_applied`, its
+`applied_at`), so a payment entered today is on today's list even when the
+check was deposited last week. One row per member (their newest payment);
+name and address come from the FluentCRM contact. The window starts at midnight
+(site time) 7, 15 or 30 days ago. The State column is the USPS code (NJ) for
+a US address. Members without a complete street, city and zip are flagged and
+still exported.
 
 ### Member lists (4.12)
 
-**Members → Active Membership** and **Members → Lapsed Members** list FluentCRM
+The **Active** and **Lapsed** tabs of **Membership → Overview** list FluentCRM
 contacts that have a `member_type`, split by the same rule as the daily expiry
 job (`My_IAPSNJ_Schema::is_active_state()`; the cutoff is today minus the grace
 period). Each list has views per member type, search (name, email, member
@@ -243,12 +275,12 @@ Membership Role (`member_type`, plus a staff / admin WordPress role such as Admi
 (`paid_through`; Lifetime reads LIFETIME, Honorary NO EXPIRATION), Active /
 Inactive (the same test as the daily expiry job, grace days included) and Member
 Number. **Renew Now** appears when the membership has lapsed, or once the
-**Renewal season starts** date (Dues → Membership Products, MM-DD) has passed
+**Renewal season starts** date (Settings → Config → Membership Terms, MM-DD) has passed
 and a payment today would carry the member further than their `paid_through`
 (a member paid through Dec 31 of this year sees it from the start date; one who
 renewed after it waits for next year's). Never for Lifetime / Honorary. It links to `regular_url` /
-`associate_url` for the member's type, else to the renewal product set in Dues →
-Membership Products (variation ids differ between sites, so prefer that setting
+`associate_url` for the member's type, else to the renewal product set in Settings →
+Config → Membership Terms (variation ids differ between sites, so prefer that setting
 or pass the URLs per site).
 
 `[iapsnj_directory per_page="24" photo_meta="headshot"]` — members-only directory of
@@ -297,7 +329,7 @@ alone by *Remove my photo*).
 
 `[iapsnj_renew_link text="Renew my membership" join_text="Join IAPSNJ" class="button"]`
 — renewal checkout link for the logged-in member (product per member type in
-Dues → Membership Products), Join page link for visitors, nothing for Lifetime / Honorary.
+Settings → Config → Membership Terms), Join page link for visitors, nothing for Lifetime / Honorary.
 
 ## Pricing Table block
 

@@ -115,8 +115,7 @@
     }
 
     // =========================================================================
-    // Settings forms (Configurations, Membership Products, Checkout Builder,
-    // Lapsed Members, Reports)
+    // Settings forms (Config, Checkout Builder, Overview → Lapsed and Reports)
     // =========================================================================
 
     // Each form saves only its own settings (ajax_save_settings touches the
@@ -725,7 +724,7 @@
         run();
     });
 
-    // Configurations → Names & addresses: same loop as the phone tool.
+    // Toolkit → Names & Addresses: same loop as the phone tool.
     $('.fcrm-normalize-names').on('click', function () {
         var $btn = $(this), dry = String($btn.data('dry')) === '1', $out = $('#fcrm-names-result').html('<p>' + i18n.loading + '</p>');
         if (!dry && !window.confirm('Capitalise the names and addresses stored in the CRM now?')) { $out.empty(); return; }
@@ -813,7 +812,7 @@
     });
 
     // =========================================================================
-    // Membership Products
+    // Config → Product Mapping
     // =========================================================================
 
     $('#fcrm-products-form').on('change', 'input[type="checkbox"]', function () {
@@ -842,7 +841,7 @@
     });
 
     // =========================================================================
-    // Pending Checks
+    // Payments → Open Invoices
     // =========================================================================
 
     var checksRows = [];
@@ -876,7 +875,7 @@
             total += r.total_cents;
             html += '<tr data-id="' + r.id + '" data-cents="' + r.total_cents + '" class="' + (r.age_days >= (myIapsnj.agingDays || 30) ? 'fcrm-aging' : '') + '">' +
                 '<td><input type="checkbox" class="fcrm-check-select"></td>' +
-                '<td>' + link(r.admin_url, '#' + r.id) + (r.source === 'manual_check' ? ' <span class="fcrm-badge">manual</span>' : '') + (r.is_membership ? '' : ' <span class="fcrm-badge fcrm-badge-warn">not membership</span>') + '</td>' +
+                '<td>' + link(r.admin_url, '#' + r.id) + (String(r.source).indexOf('manual_') === 0 ? ' <span class="fcrm-badge">manual</span>' : '') + (r.is_membership ? '' : ' <span class="fcrm-badge fcrm-badge-warn">not membership</span>') + '</td>' +
                 '<td>' + escHtml(r.date) + '</td>' +
                 '<td>' + r.age_days + 'd</td>' +
                 '<td>' + (r.crm_url ? link(r.crm_url, r.customer_name || r.email) : escHtml(r.customer_name || r.email)) + '<br><small class="fcrm-muted">' + escHtml(r.email) + '</small></td>' +
@@ -950,7 +949,7 @@
 
     loadChecks();
 
-    // ---- Record a check --------------------------------------------------------
+    // ---- Payments → Record Payment -----------------------------------------------
 
     if ($('#fcrm-rc-member-input').length) {
         wireSearch($('#fcrm-rc-member-input'), $('#fcrm-rc-suggestions'), 'search_members', function (item) {
@@ -959,6 +958,20 @@
             $('#fcrm-rc-member-summary').text(item ? (item.member_type ? item.member_type + ' · paid through ' + (item.paid_through || '—') : 'No membership state yet') : '');
         });
     }
+
+    // The payment method decides the labels, and whether there is a deposit date
+    // (only a check is deposited; cash and Venmo count from the day received).
+    function rcMethod() { return $('input[name="fcrm_rc_method"]:checked').val() || 'check'; }
+
+    function rcSyncMethod() {
+        var $m = $('input[name="fcrm_rc_method"]:checked'), isCheck = rcMethod() === 'check';
+        $('#fcrm-rc-reference-label').text($m.data('reference-label') || '');
+        $('#fcrm-rc-deposit-wrap, #fcrm-rc-term-check').toggle(isCheck);
+        $('#fcrm-rc-term-other').toggle(!isCheck);
+    }
+
+    $('#fcrm-rc-methods').on('change', 'input[name="fcrm_rc_method"]', rcSyncMethod);
+    rcSyncMethod();
 
     $('#fcrm-rc-submit').on('click', function () {
         var $btn = $(this), $out = $('#fcrm-rc-result');
@@ -970,11 +983,12 @@
         if (!confirm(i18n.confirmRecord)) { return; }
         setBtn($btn, i18n.saving, true);
         $out.html('<p>' + i18n.loading + '</p>');
-        post('record_check', {
+        post('record_payment', {
             subscriber_id: subscriberId, user_id: userId, email: email,
             first_name: $('#fcrm-rc-first').val(), last_name: $('#fcrm-rc-last').val(),
             variation_id: $('#fcrm-rc-variation').val(),
-            check_number: $('#fcrm-rc-check-number').val(),
+            method: rcMethod(),
+            reference: $('#fcrm-rc-reference').val(),
             received_date: $('#fcrm-rc-received').val(),
             deposit_date: $('#fcrm-rc-deposit').val(),
             note: $('#fcrm-rc-note').val()
@@ -983,7 +997,7 @@
             var d = resp.data, a = d.applied;
             $out.html('<div class="fcrm-notice fcrm-notice-success" style="display:block">&#10003; Order ' + link(d.order_url, '#' + d.order_id) + ' created and paid (' + escHtml(d.total) + ') for ' + escHtml(d.email) + '.' +
                 (a ? ' Member type <strong>' + escHtml(a.member_type) + '</strong>, paid through <strong>' + escHtml(a.paid_through || 'n/a') + '</strong>, tags: ' + escHtml((a.tags_added || []).join(', ') || 'none new') + '.' : ' ' + escHtml(d.message)) + '</div>');
-            $('#fcrm-rc-check-number, #fcrm-rc-note, #fcrm-rc-member-input, #fcrm-rc-email, #fcrm-rc-first, #fcrm-rc-last').val('');
+            $('#fcrm-rc-reference, #fcrm-rc-note, #fcrm-rc-member-input, #fcrm-rc-email, #fcrm-rc-first, #fcrm-rc-last').val('');
             $('#fcrm-rc-subscriber-id, #fcrm-rc-user-id').val(0);
             $('#fcrm-rc-member-summary').text('');
             loadChecks();

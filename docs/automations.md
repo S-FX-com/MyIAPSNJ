@@ -58,14 +58,14 @@ first step after the trigger, test with a Lifetime contact).
      per email for membership purchases only), and, when switched on, our
      Welcome (first payment) or Renewal email with an editable message.
 8. Add the status tag `Member-Active` and give the WordPress user the role
-   mapped to its member type (Settings → Configurations → WordPress roles).
+   mapped to its member type (Settings → Config → Roles).
 9. Actions for extensions: `my_iapsnj/membership_paid`, `my_iapsnj/new_member`,
    `my_iapsnj/membership_refunded`, `my_iapsnj/membership_expired`; filters
    `my_iapsnj/staff_notification`, `my_iapsnj/new_member_notification`,
    `my_iapsnj/member_notification`.
 
 **Daily expiry job** (WP-Cron `my_iapsnj_daily`, 00:30 site time; `wp iapsnj
-expire`; Members → Lapsed Members → Expirations): every contact whose `paid_through`
+expire`; Membership → Overview → Lapsed → Expirations): every contact whose `paid_through`
 (+ grace days) is past loses `Member-Active` and drops to the "when expired"
 role; anyone in good standing without the tag gets it. `Paid-YYYY` stays as
 history. Build "membership expired" emails on **Tag Removed → Member-Active**
