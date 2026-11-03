@@ -74,4 +74,17 @@ final class My_IAPSNJ_States {
         }
         return '';
     }
+
+    /**
+     * The two-letter USPS code of a US state written as a code or a name (for
+     * mailing labels); the value as typed when it is not a US state.
+     */
+    public static function code( string $value, string $country = '' ): string {
+        $full = self::full_name( $value, $country );
+        if ( $full === '' ) {
+            return trim( $value );
+        }
+        $code = array_search( $full, self::names(), true );
+        return is_string( $code ) ? $code : trim( $value );
+    }
 }

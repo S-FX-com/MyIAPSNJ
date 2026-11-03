@@ -51,7 +51,7 @@ Principles that are enforced in code:
 Run each step as a dry run, review, then apply. `--limit` is the page size
 (default 200); the CLI loops pages automatically.
 
-In wp-admin (Settings → Migrate PMPro) a step you have run to the end —
+In wp-admin (Settings → Toolkit → PMPro Migration) a step you have run to the end —
 **Apply** for the steps that write, **Run** for the three reports — is dimmed
 and marked *Complete* with its count, time and who ran it. A dry run never
 marks a step, an interrupted run is not complete, and starting a step again
@@ -91,7 +91,7 @@ wp iapsnj migrate set_member_state --dry-run $LM --report=state-dry.json
 wp iapsnj migrate set_member_state $LM
 
 # 6b. Member-Active tag + WordPress role for everyone in good standing
-#     (pick the roles in Settings → Configurations → WordPress roles first; dry-run lists who changes)
+#     (pick the roles in Settings → Config → Roles first; dry-run lists who changes)
 wp iapsnj expire --dry-run
 wp iapsnj expire
 

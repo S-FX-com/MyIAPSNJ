@@ -13,11 +13,11 @@
  * - Lifetime reads LIFETIME; Honorary, which never expires either, reads
  *   NO EXPIRATION. Both are always Active and never see Renew Now.
  * - Renew Now shows when the membership has lapsed, or once the renewal
- *   season has started (Dues → Membership Products → "Renewal season
+ *   season has started (Settings → Config → Membership Terms → "Renewal season
  *   starts") and a payment today would carry the membership further than
  *   it already goes. It links to the product for the member's type: the
  *   shortcode's regular_url / associate_url, else the renewal products set
- *   in Dues → Membership Products.
+ *   in Settings → Config → Membership Terms.
  *
  * @package MyIAPSNJ
  */
@@ -68,7 +68,7 @@ final class My_IAPSNJ_My_Membership {
      * Would a payment made today carry the membership past $paid_through?
      * That is what "the renewal season has started" means for a member in
      * good standing: a payment buys through Dec 31 of this year until the
-     * season starts (Dues → Membership Products → Renewal season starts,
+     * season starts (Settings → Config → Membership Terms → Renewal season starts,
      * default Oct 1) and through Dec 31 of the next year from then on, so a
      * member paid through Dec 31 of this year may renew from the start date,
      * and one who renewed after it has to wait for next year's.
@@ -87,7 +87,7 @@ final class My_IAPSNJ_My_Membership {
     /**
      * Names of the user's WordPress roles that are not membership roles:
      * Administrator, Editor, board roles … Subscriber and the roles that
-     * Settings → Configurations → WordPress roles gives members (per type,
+     * Settings → Config → Roles gives members (per type,
      * and the expired role) are what the membership type already says, so
      * they are left out.
      *

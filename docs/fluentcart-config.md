@@ -1,7 +1,7 @@
 # FluentCart configuration (Phase 4)
 
 Done in the FluentCart UI on staging, exported/re-created on production
-(`docs/not-in-git.md`). Then mapped in My IAPSNJ → Membership Products.
+(`docs/not-in-git.md`). Then mapped in My IAPSNJ → Settings → Config → Product Mapping.
 
 ## Products (no year in the name; annual ones are subscriptions)
 
@@ -20,12 +20,12 @@ Fulfillment **digital** (no shipping) so paid orders auto-complete.
 FluentCart has no "let the buyer choose" switch on one product, but a member
 can choose by which variation they buy. Add a second variation per annual
 membership — e.g. "Regular Membership – pay yearly, no auto-renewal",
-**one-time**, same price — enable it in My IAPSNJ → Membership Products with
+**one-time**, same price — enable it in My IAPSNJ → Settings → Config → Product Mapping with
 the same member type, and put two buttons on the Join page ("Renew
 automatically every year" / "Pay for this year only"). The plugin treats both
 the same (each payment covers one year); the one-time buyer renews by hand
 from the renewal email / `[iapsnj_renew_link]`, which points at the renewal
-product set in Membership Products. A member on automatic billing can also
+product set in Product Mapping. A member on automatic billing can also
 cancel auto-renewal later from their FluentCart account. Switching the
 variation on the checkout page itself is not offered: it starts a new cart
 and the member would retype FluentCart's name and address fields.
@@ -34,9 +34,8 @@ Honorary is **not** a product. No "Multi-Year" product (every payment covers
 one year) and no "Catch-Up" product: the term rule in `docs/crm-schema.md`
 gives a payment before the cutover the current year.
 
-Then My IAPSNJ → Membership Products: enable each and set its member type.
-Set the renewal-season cutover (default `10-01`) in Dues → Membership
-Products. That one date also decides when **Renew Now** appears on the
+Then My IAPSNJ → Settings → Config → Product Mapping: enable each and set its member type.
+Set the renewal-season cutover (default `10-01`) in Settings → Config → Membership Terms. That one date also decides when **Renew Now** appears on the
 `[iapsnj_my_membership]` bar for a member in good standing (4.34): from the
 cutover, in the year their membership runs out (a payment then carries them
 past their `paid_through`); never before it, and never again once they have
@@ -67,7 +66,7 @@ expects. Lifetime is one-time and was never affected.
   Manage): enable; **Checkout Label** = `Pay by Check`; **Checkout
   Instructions** = mailing address + "Make checks payable to IAPSNJ. Write your
   **member number** on the memo line. Your membership is activated when the
-  check is deposited." (Or apply from My IAPSNJ → Dues → Checkout Builder → Pay by Check.) Confirm on
+  check is deposited." (Or apply from the (hidden) Checkout Builder → Pay by Check.) Confirm on
   the checkout page that the label reads *Pay by Check* and that "Cash" appears
   nowhere the member can see (payment list, thank-you page, receipt,
   emails). If any string still says cash, report it — a gettext override can be

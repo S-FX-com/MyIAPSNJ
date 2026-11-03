@@ -2,7 +2,7 @@
 /**
  * My_IAPSNJ_Members
  *
- * The "Members → Active Membership" and "Members → Lapsed Members" lists:
+ * The Active and Lapsed tabs of Membership → Overview:
  * a read-only view of FluentCRM contacts that have a member_type, split by
  * the same rule the daily expiry job uses (My_IAPSNJ_Schema::is_active_state):
  *
@@ -72,10 +72,26 @@ final class My_IAPSNJ_Members {
     // -----------------------------------------------------------------------
 
     /**
-     * Admin page slug of a list.
+     * Admin page slug of a list: both lists are tabs of Membership → Overview.
      */
     public static function page_slug( string $state ): string {
-        return self::norm_state( $state ) === self::STATE_LAPSED ? 'my-iapsnj-lapsed' : 'my-iapsnj-members';
+        return 'my-iapsnj';
+    }
+
+    /**
+     * The Overview tab a list lives on (the `tab` query argument).
+     */
+    public static function tab_slug( string $state ): string {
+        return self::norm_state( $state ) === self::STATE_LAPSED ? 'lapsed' : 'active';
+    }
+
+    /**
+     * URL of a list, with optional filters (type=Regular, year=2025 …).
+     *
+     * @param array<string,scalar> $query
+     */
+    public static function list_url( string $state, array $query = [] ): string {
+        return self::url( $state, $query );
     }
 
     /**
@@ -215,6 +231,7 @@ final class My_IAPSNJ_Members {
         $table->views();
         echo '<form method="get" action="' . esc_url( admin_url( 'admin.php' ) ) . '" class="my-iapsnj-members-form">';
         echo '<input type="hidden" name="page" value="' . esc_attr( self::page_slug( $state ) ) . '" />';
+        echo '<input type="hidden" name="tab" value="' . esc_attr( self::tab_slug( $state ) ) . '" />';
         foreach ( [ 'type', 'check', 'orderby', 'order' ] as $key ) {
             if ( $a[ $key ] !== '' ) {
                 echo '<input type="hidden" name="' . esc_attr( $key ) . '" value="' . esc_attr( $a[ $key ] ) . '" />';
@@ -694,7 +711,7 @@ final class My_IAPSNJ_Members {
      * @param int[] $ids
      * @return array<int,array<string,string>>
      */
-    private static function lookup_fields( array $ids ): array {
+    public static function lookup_fields( array $ids ): array {
         global $wpdb;
         if ( ! $ids ) {
             return [];
@@ -878,7 +895,7 @@ final class My_IAPSNJ_Members {
      * @param array<string,scalar> $query
      */
     private static function url( string $state, array $query ): string {
-        $url   = admin_url( 'admin.php?page=' . self::page_slug( $state ) );
+        $url   = admin_url( 'admin.php?page=' . self::page_slug( $state ) . '&tab=' . self::tab_slug( $state ) );
         $query = array_filter(
             $query,
             static function ( $v ) {
@@ -1193,7 +1210,7 @@ final class My_IAPSNJ_Members {
      * Neutralise spreadsheet formulas (CSV injection): a cell starting with
      * = + - @ tab or CR gets a leading apostrophe.
      */
-    private static function csv_cell( $value ): string {
+    public static function csv_cell( $value ): string {
         $value = (string) $value;
         if ( $value !== '' && strpos( "=+-@\t\r", $value[0] ) !== false ) {
             return "'" . $value;
@@ -1208,7 +1225,7 @@ final class My_IAPSNJ_Members {
     /**
      * FluentCRM contact screen.
      */
-    private static function crm_url( int $id ): string {
+    public static function crm_url( int $id ): string {
         if ( function_exists( 'fluentcrm_menu_url_base' ) ) {
             return (string) fluentcrm_menu_url_base( 'subscribers/' . $id );
         }
@@ -1218,7 +1235,7 @@ final class My_IAPSNJ_Members {
     /**
      * FluentCart admin order screen (Order::getViewUrl('admin') format).
      */
-    private static function order_url( int $id ): string {
+    public static function order_url( int $id ): string {
         if ( class_exists( '\FluentCart\App\Services\URL' ) && method_exists( '\FluentCart\App\Services\URL', 'getDashboardUrl' ) ) {
             try {
                 return (string) \FluentCart\App\Services\URL::getDashboardUrl( 'orders/' . $id . '/view' );

@@ -9,7 +9,7 @@
  * (the member sees the stored form, and FluentCart stores it), on the server
  * before FluentCart saves the order (a member with scripts off), before the
  * CRM contact is written, and by the bulk tool for contacts already in the
- * CRM (Configurations → Names & addresses, `wp iapsnj capitalize`).
+ * CRM (Settings → Toolkit → Names & Addresses, `wp iapsnj capitalize`).
  *
  * Rules
  * - A word typed in lower case, or any word of a value typed entirely in

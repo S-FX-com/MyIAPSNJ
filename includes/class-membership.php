@@ -7,8 +7,8 @@
  *
  *   card at checkout          → Stripe/PayPal webhook → fluent_cart/order_paid
  *   subscription renewal      → renewal order paid    → fluent_cart/renewal_paid (+ order_paid)
- *   check, marked paid later  → Pending Checks screen  → fluent_cart/order_paid
- *   check without the website → Record a Check         → fluent_cart/order_paid
+ *   check, marked paid later  → Payments → Open Invoices → fluent_cart/order_paid
+ *   payment without the website → Payments → Record Payment → fluent_cart/order_paid
  *
  * The term a payment buys is computed from the payment date, not from the
  * product (My_IAPSNJ_Dates::membership_term): through Dec 31 of the payment
@@ -26,7 +26,7 @@
  * fluent_cart/order_paid is dispatched synchronously by FluentCart's
  * StatusHelper::syncOrderStatuses() for every path above (verified against
  * FluentCart 1.6.3 source). fluent_cart/order_paid_done is the async variant;
- * it is not used here because the Pending Checks batch needs the result
+ * it is not used here because the Open Invoices batch needs the result
  * immediately.
  */
 
@@ -45,9 +45,14 @@ class My_IAPSNJ_Membership {
     const META_SKIPPED      = '_my_iapsnj_skipped';
     const META_PENDING      = '_my_iapsnj_pending_check';
     const META_REFUNDED     = '_my_iapsnj_refunded';
-    const META_SOURCE       = '_my_iapsnj_source';       // 'checkout' | 'manual_check'
+    const META_SOURCE       = '_my_iapsnj_source';       // 'checkout' | 'manual_check' | 'manual_cash' | 'manual_venmo'
     const META_CHECK_NUMBER = '_my_iapsnj_check_number';
+    /** The date a payment counts from: a check's deposit date, the day cash / Venmo was received. */
     const META_DEPOSIT_DATE = '_my_iapsnj_deposit_date';
+    /** How an offline order was paid: check | cash | venmo (see My_IAPSNJ_Payments). */
+    const META_PAY_METHOD   = '_my_iapsnj_pay_method';
+    /** Venmo transaction id / receipt number of a payment that is not a check. */
+    const META_PAY_REF      = '_my_iapsnj_pay_ref';
 
     // FluentCart's built-in offline method (labelled "Cash" until renamed).
     const OFFLINE_METHOD = 'offline_payment';
@@ -55,7 +60,7 @@ class My_IAPSNJ_Membership {
 
     const OPTION_PRODUCTS = 'my_iapsnj_products';
 
-    /** @var bool Suppress FluentCart's "order placed (offline)" mail while Record a Check runs. */
+    /** @var bool Suppress FluentCart's "order placed (offline)" mail while Record Payment runs. */
     private static bool $suppress_offline_mail = false;
 
     public static function get_instance(): self {
@@ -341,7 +346,7 @@ class My_IAPSNJ_Membership {
             $this->order_log(
                 $order,
                 'My IAPSNJ: membership not applied',
-                'None of the order items is configured in My IAPSNJ → Membership Products (variation ids may have changed). Items: ' . My_IAPSNJ_Checkout_Fields::order_item_ids( $order ),
+                'None of the order items is configured in My IAPSNJ → Settings → Config → Product Mapping (variation ids may have changed). Items: ' . My_IAPSNJ_Checkout_Fields::order_item_ids( $order ),
                 'warning'
             );
             return null;
@@ -455,7 +460,9 @@ class My_IAPSNJ_Membership {
             'order_type'    => (string) $order->type,
             'kind'          => $is_new ? 'join' : 'renewal',
             'source'        => (string) ( $order->getMeta( self::META_SOURCE ) ?: 'checkout' ),
-            'payment'       => (string) $order->payment_method === self::OFFLINE_METHOD ? 'check' : 'card',
+            'payment'       => (string) $order->payment_method === self::OFFLINE_METHOD
+                ? My_IAPSNJ_Payments::normalize_method( (string) $order->getMeta( self::META_PAY_METHOD ) )
+                : 'card',
             'applied_at'    => My_IAPSNJ_Dates::now_utc(),
         ];
         $order->updateMeta( self::META_APPLIED, $applied );
@@ -805,7 +812,7 @@ class My_IAPSNJ_Membership {
 
     /**
      * Give the contact's linked WordPress user the role its membership calls
-     * for (Settings → Configurations → WordPress roles; no-op when the contact
+     * for (Settings → Config → Roles; no-op when the contact
      * has no user yet). Best effort.
      */
     public static function apply_wp_role( Subscriber $subscriber ): void {
@@ -849,7 +856,7 @@ class My_IAPSNJ_Membership {
             if ( ! $order->getMeta( self::META_SOURCE ) ) {
                 $order->updateMeta( self::META_SOURCE, 'checkout' );
             }
-            $this->order_log( $order, 'My IAPSNJ: check payment pending', 'Contact tagged Payment-Pending-Check. Mark the order paid from My IAPSNJ → Pending Checks when the check clears.' );
+            $this->order_log( $order, 'My IAPSNJ: check payment pending', 'Contact tagged Payment-Pending-Check. Mark the order paid from My IAPSNJ → Payments → Open Invoices when the check clears.' );
         } catch ( \Throwable $e ) {
             error_log( 'My IAPSNJ: order_placed_offline handler failed for order ' . (int) $order->id . ': ' . $e->getMessage() );
         }
@@ -925,7 +932,7 @@ class My_IAPSNJ_Membership {
     // -----------------------------------------------------------------------
 
     /**
-     * Record a Check creates an offline order and marks it paid in the same
+     * Record Payment creates an offline order and marks it paid in the same
      * request. The member mailed the check already; FluentCart's "order placed,
      * please pay" email would be nonsense, so it is suppressed. The receipt
      * (order_paid_customer) still goes out.
@@ -935,6 +942,16 @@ class My_IAPSNJ_Membership {
             return false;
         }
         return $should;
+    }
+
+    /**
+     * Was this order entered by hand (Payments → Record Payment)? The source
+     * is manual_check on orders recorded before 4.39, manual_{method} since.
+     *
+     * @param mixed $source META_SOURCE value
+     */
+    public static function is_manual_source( $source ): bool {
+        return is_string( $source ) && strpos( $source, 'manual_' ) === 0;
     }
 
     public static function suppress_offline_mail( bool $state ): void {

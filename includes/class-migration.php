@@ -322,7 +322,7 @@ class My_IAPSNJ_Migration {
             return;
         }
         if ( $dry ) {
-            $report['warnings'][] = 'CRM custom fields missing: ' . implode( ', ', $missing ) . '. Apply creates them first (or use Settings → Configurations → Create missing tags & fields).';
+            $report['warnings'][] = 'CRM custom fields missing: ' . implode( ', ', $missing ) . '. Apply creates them first (or use Settings → Toolkit → CRM Schema → Create missing tags & fields).';
             return;
         }
         $created              = My_IAPSNJ_Schema::ensure_custom_fields();
@@ -1258,7 +1258,7 @@ class My_IAPSNJ_Migration {
             'crm_us_contacts_with_state_code' => $state_codes,
         ];
         if ( $state_codes > 0 ) {
-            $report['warnings'][] = sprintf( '%d US contact(s) still have a two-letter state. Re-run Consolidate addresses (Apply) or use Settings → Configurations → Names & addresses.', $state_codes );
+            $report['warnings'][] = sprintf( '%d US contact(s) still have a two-letter state. Re-run Consolidate addresses (Apply) or use Settings → Toolkit → Names & Addresses.', $state_codes );
         }
 
         // Emails / duplicates.

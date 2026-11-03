@@ -2,16 +2,19 @@
 /**
  * My_IAPSNJ_Checks
  *
- * Check payments inside FluentCart, for a volunteer treasurer:
+ * Offline payments inside FluentCart, for a volunteer treasurer
+ * (Membership → Payments):
  *
- *  - pending()      every unpaid offline ("Pay by Check") order in one list
- *  - mark_paid()    batch "mark paid" with a deposit date and check numbers;
- *                   the batch total is returned so it can be matched to the
- *                   deposit slip
- *  - record_check() a member mailed a check without ever using the website:
- *                   pick the member, pick the product, record the check —
- *                   the FluentCart order is created and paid behind the
- *                   scenes and the standard order_paid automation fires
+ *  - pending()        every unpaid offline ("Pay by Check") order in one list
+ *  - mark_paid()      batch "mark paid" with a deposit date and check numbers;
+ *                     the batch total is returned so it can be matched to the
+ *                     deposit slip
+ *  - record_payment() a member paid without ever using the website — a check
+ *                     in the mail, cash in person, Venmo: pick the member,
+ *                     pick the product, record the payment — the FluentCart
+ *                     order is created and paid behind the scenes and the
+ *                     standard order_paid automation fires
+ *  - record_check()   record_payment() for a check (the REST route)
  *
  * Marking paid mirrors FluentCart's own OrderController::markAsPaid()
  * (verified against 1.6.3): reuse/create the succeeded transaction, then
@@ -308,10 +311,15 @@ class My_IAPSNJ_Checks {
     }
 
     /**
+     * @param string $deposit_date  the date the payment counts from (a check's deposit date, the day cash / Venmo came in)
+     * @param string $check_number  check number, or the receipt / Venmo reference of another method
+     * @param string $method        My_IAPSNJ_Payments::METHOD_*
      * @return array{order_id:int, ok:bool, message:string, total_cents:int, currency:string}
      */
-    public static function mark_paid_one( int $order_id, string $deposit_date = '', string $check_number = '', string $note = '' ): array {
-        $res = [ 'order_id' => $order_id, 'ok' => false, 'message' => '', 'total_cents' => 0, 'currency' => '' ];
+    public static function mark_paid_one( int $order_id, string $deposit_date = '', string $check_number = '', string $note = '', string $method = My_IAPSNJ_Payments::METHOD_CHECK ): array {
+        $res    = [ 'order_id' => $order_id, 'ok' => false, 'message' => '', 'total_cents' => 0, 'currency' => '' ];
+        $method = My_IAPSNJ_Payments::normalize_method( $method );
+        $is_check = $method === My_IAPSNJ_Payments::METHOD_CHECK;
         try {
             $order = \FluentCart\App\Models\Order::query()->with( [ 'transactions', 'customer' ] )->find( $order_id );
             if ( ! $order ) {
@@ -342,14 +350,14 @@ class My_IAPSNJ_Checks {
                     break;
                 }
             }
-            $vendor_id = $check_number !== '' ? 'CHECK-' . $check_number : 'CHECK-' . $order_id;
+            $vendor_id = strtoupper( $method ) . '-' . ( $check_number !== '' ? $check_number : $order_id );
             $tx_data   = [
                 'total'               => $due,
                 'status'              => $succeeded,
                 'payment_method'      => My_IAPSNJ_Membership::OFFLINE_METHOD,
                 'vendor_charge_id'    => $vendor_id,
                 'payment_mode'        => (string) $order->mode,
-                'payment_method_type' => 'check',
+                'payment_method_type' => $method,
                 'order_type'          => (string) $order->type,
                 'currency'            => (string) $order->currency,
             ];
@@ -362,15 +370,18 @@ class My_IAPSNJ_Checks {
                 ] ) );
             }
 
+            // Set before the status sync: the membership handler reads them.
+            $order->updateMeta( My_IAPSNJ_Membership::META_PAY_METHOD, $method );
             if ( $check_number !== '' ) {
-                $order->updateMeta( My_IAPSNJ_Membership::META_CHECK_NUMBER, $check_number );
+                $order->updateMeta( $is_check ? My_IAPSNJ_Membership::META_CHECK_NUMBER : My_IAPSNJ_Membership::META_PAY_REF, $check_number );
             }
             if ( $deposit_date !== '' ) {
                 $order->updateMeta( My_IAPSNJ_Membership::META_DEPOSIT_DATE, $deposit_date );
             }
             $log = sprintf(
-                /* translators: 1: check number, 2: deposit date, 3: user */
-                __( 'Check %1$s marked paid (deposit %2$s) by %3$s.', 'my-iapsnj' ),
+                /* translators: 1: payment method (Check, Venmo …), 2: reference number, 3: date the payment counts from, 4: user */
+                __( '%1$s %2$s marked paid (%3$s) by %4$s.', 'my-iapsnj' ),
+                My_IAPSNJ_Payments::label( $method ),
                 $check_number !== '' ? '#' . $check_number : __( '(no number)', 'my-iapsnj' ),
                 $deposit_date !== '' ? My_IAPSNJ_Dates::ymd_display( $deposit_date ) : __( 'n/a', 'my-iapsnj' ),
                 wp_get_current_user()->user_login ?: 'system'
@@ -379,7 +390,7 @@ class My_IAPSNJ_Checks {
                 $log .= ' ' . sanitize_text_field( $note );
             }
             if ( method_exists( $order, 'addLog' ) ) {
-                $order->addLog( __( 'My IAPSNJ: check received', 'my-iapsnj' ), $log, 'info', 'My IAPSNJ' );
+                $order->addLog( __( 'My IAPSNJ: payment received', 'my-iapsnj' ), $log, 'info', 'My IAPSNJ' );
             }
 
             // Fires fluent_cart/order_paid synchronously → membership applied.
@@ -405,8 +416,19 @@ class My_IAPSNJ_Checks {
     }
 
     // -----------------------------------------------------------------------
-    // Record a check for a member who never used the website
+    // Record a payment for a member who never used the website
     // -----------------------------------------------------------------------
+
+    /**
+     * A check recorded by hand (the REST route; Payments → Record Payment
+     * calls record_payment() with the method the treasurer picked).
+     *
+     * @param array $args see record_payment()
+     * @return array|WP_Error
+     */
+    public static function record_check( array $args ) {
+        return self::record_payment( array_merge( $args, [ 'method' => My_IAPSNJ_Payments::METHOD_CHECK ] ) );
+    }
 
     /**
      * @param array $args {
@@ -416,14 +438,15 @@ class My_IAPSNJ_Checks {
      *   @type string $first_name
      *   @type string $last_name
      *   @type int    $variation_id   FluentCart variation (must be a configured membership product)
-     *   @type string $check_number
-     *   @type string $deposit_date   Y-m-d
-     *   @type string $received_date  Y-m-d
+     *   @type string $method         My_IAPSNJ_Payments::METHOD_* (check | cash | venmo; default check)
+     *   @type string $reference      check number, receipt number or Venmo transaction id (check_number is the same)
+     *   @type string $deposit_date   Y-m-d — a check's deposit date, which decides its term
+     *   @type string $received_date  Y-m-d — when the payment came in; for cash and Venmo it decides the term
      *   @type string $note
      * }
      * @return array|WP_Error
      */
-    public static function record_check( array $args ) {
+    public static function record_payment( array $args ) {
         if ( ! self::is_available() ) {
             return new WP_Error( 'no_fluentcart', __( 'FluentCart is not active.', 'my-iapsnj' ) );
         }
@@ -456,7 +479,7 @@ class My_IAPSNJ_Checks {
         $variation_id = (int) ( $args['variation_id'] ?? 0 );
         $cfg          = My_IAPSNJ_Membership::product_config( $variation_id );
         if ( ! $cfg ) {
-            return new WP_Error( 'not_membership_product', __( 'That product is not configured as a membership product (My IAPSNJ → Membership Products).', 'my-iapsnj' ) );
+            return new WP_Error( 'not_membership_product', __( 'That product is not configured as a membership product (My IAPSNJ → Settings → Config → Product Mapping).', 'my-iapsnj' ) );
         }
         $variation = \FluentCart\App\Models\ProductVariation::query()->with( 'product' )->find( $variation_id );
         if ( ! $variation ) {
@@ -464,9 +487,15 @@ class My_IAPSNJ_Checks {
         }
         $product_title = is_object( $variation->product ?? null ) ? (string) $variation->product->post_title : '';
 
-        $check_number  = sanitize_text_field( (string) ( $args['check_number'] ?? '' ) );
-        $deposit_date  = My_IAPSNJ_Dates::ymd( $args['deposit_date'] ?? '' );
+        $method        = My_IAPSNJ_Payments::normalize_method( (string) ( $args['method'] ?? '' ) );
+        $method_label  = My_IAPSNJ_Payments::label( $method );
+        // `?:` not `??`: the AJAX handler always posts both keys, possibly empty.
+        $check_number  = sanitize_text_field( (string) ( ( $args['reference'] ?? '' ) ?: ( $args['check_number'] ?? '' ) ) );
         $received_date = My_IAPSNJ_Dates::ymd( $args['received_date'] ?? '' );
+        // The date the term counts from: a check's deposit date; the day cash or Venmo came in.
+        $deposit_date  = $method === My_IAPSNJ_Payments::METHOD_CHECK
+            ? My_IAPSNJ_Dates::ymd( $args['deposit_date'] ?? '' )
+            : $received_date;
         $note          = sanitize_text_field( (string) ( $args['note'] ?? '' ) );
 
         // ---- FluentCart customer ------------------------------------------
@@ -497,8 +526,9 @@ class My_IAPSNJ_Checks {
         // ---- Order (offline, then paid) -----------------------------------
         $by = wp_get_current_user()->user_login ?: 'system';
         $order_note = trim( sprintf(
-            /* translators: 1: check number, 2: received date, 3: admin user */
-            __( 'Check %1$s received %2$s, recorded by %3$s via My IAPSNJ.', 'my-iapsnj' ),
+            /* translators: 1: payment method (Check, Venmo …), 2: reference number, 3: received date, 4: admin user */
+            __( '%1$s %2$s received %3$s, recorded by %4$s via My IAPSNJ.', 'my-iapsnj' ),
+            $method_label,
             $check_number !== '' ? '#' . $check_number : __( '(no number)', 'my-iapsnj' ),
             $received_date !== '' ? My_IAPSNJ_Dates::ymd_display( $received_date ) : __( '(date not given)', 'my-iapsnj' ),
             $by
@@ -536,7 +566,7 @@ class My_IAPSNJ_Checks {
             }
             $order->note = $order_note;
             $order->save();
-            $order->updateMeta( My_IAPSNJ_Membership::META_SOURCE, 'manual_check' );
+            $order->updateMeta( My_IAPSNJ_Membership::META_SOURCE, 'manual_' . $method );
             My_IAPSNJ_Reports::flush_summary();
             if ( $received_date !== '' ) {
                 $order->updateMeta( '_my_iapsnj_received_date', $received_date );
@@ -555,7 +585,7 @@ class My_IAPSNJ_Checks {
             My_IAPSNJ_Checkout_Fields::suppress( false );
         }
 
-        $paid = self::mark_paid_one( (int) $order->id, $deposit_date, $check_number, '' );
+        $paid = self::mark_paid_one( (int) $order->id, $deposit_date, $check_number, '', $method );
         if ( ! $paid['ok'] ) {
             return new WP_Error( 'mark_paid_failed', sprintf( __( 'Order #%1$d was created but could not be marked paid: %2$s', 'my-iapsnj' ), (int) $order->id, $paid['message'] ) );
         }
@@ -567,6 +597,7 @@ class My_IAPSNJ_Checks {
             'order_id'  => (int) $order->id,
             'order_url' => My_IAPSNJ_Membership::order_admin_url( $fresh ?: $order ),
             'email'     => $email,
+            'method'    => $method,
             'total'     => My_IAPSNJ_Membership::format_money( (int) $order->total_amount, (string) $order->currency ),
             'applied'   => is_array( $applied ) ? $applied : null,
             'message'   => $paid['message'],
@@ -574,7 +605,7 @@ class My_IAPSNJ_Checks {
     }
 
     // -----------------------------------------------------------------------
-    // Member search (Record a Check UI)
+    // Member search (Record Payment UI)
     // -----------------------------------------------------------------------
 
     /**
