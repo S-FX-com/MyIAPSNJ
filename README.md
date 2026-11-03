@@ -121,7 +121,8 @@ Documentation: [`docs/phase1-findings.md`](docs/phase1-findings.md) ·
 * **Payments** (Membership → Payments) — **Open Invoices**: all unpaid check
   orders in one list; batch *mark paid* with deposit date and check numbers; the
   batch total is shown against the deposit slip. **Record Payment** for a member
-  who never used the website: a check, cash in person or Venmo. **Stripe
+  who never used the website: a check, cash in person or Venmo. **Manual
+  Payments**: the log of check, cash and Venmo payments. **Stripe
   Payments**: every card payment taken through the site's checkout.
 * **Freshly Paid** — who paid in the last 7 / 15 / 30 days, with a CSV of
   first, last, street, city, state and zip for a label mail merge.
@@ -199,7 +200,7 @@ string kept.
 | Group | Screen (tabs) | Slug | Purpose |
 |---|---|---|---|
 | Membership | Overview | `my-iapsnj` | **Summary** (counts, members by type, paid years, environment checklist), **Active**, **Lapsed** (grace period, expirations Preview / Apply now, data checks), **Reports** (open applications, orphan orders, aging, WP↔CRM orphans; aging threshold, go-live date) |
-| Membership | Payments | `my-iapsnj-payments` | **Record Payment** (a member paid in person, by check or by Venmo without using the website), **Open Invoices** (unpaid "Pay by Check" orders: batch mark paid with check numbers and a deposit date), **Stripe Payments** (every card payment taken through the site's checkout, with filters) |
+| Membership | Payments | `my-iapsnj-payments` | **Record Payment** (a member paid in person, by check or by Venmo without using the website), **Open Invoices** (unpaid "Pay by Check" orders: batch mark paid with check numbers and a deposit date), **Manual Payments** (the log of every check, cash and Venmo payment, searchable by member, check number or reference), **Stripe Payments** (every card payment taken through the site's checkout, with filters) |
 | Membership | Freshly Paid | `my-iapsnj-freshly-paid` | members who paid in the last 7, 15 or 30 days; **Export CSV** (`freshlypaid-YYYYMMDDHHMM.csv`: First Name, Last Name, Street Address, City, State, Zip) for a label mail merge |
 | Membership | Notes Search | `my-iapsnj-notes-search` | FluentCRM notes search with inline tagging |
 | Settings | Emails | `my-iapsnj-emails` | emails to the member (FluentCart's, our Welcome / Renewal), to the President and the Membership Committee; email design |

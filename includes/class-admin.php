@@ -9,7 +9,8 @@
  *    Overview             tabs: Summary (counts, members by type, environment checks),
  *                         Active, Lapsed (grace period, expiry Preview / Apply), Reports
  *    Payments             tabs: Record Payment (check / cash / Venmo, no website order),
- *                         Open Invoices (unpaid check orders, batch mark paid), Stripe Payments
+ *                         Open Invoices (unpaid check orders, batch mark paid),
+ *                         Manual Payments (log of check / cash / Venmo payments), Stripe Payments
  *    Freshly Paid         members who paid in the last 7 / 15 / 30 days; mailing-label CSV
  *    Notes Search         FluentCRM notes search with inline tagging
  *  Settings
@@ -556,7 +557,7 @@ class My_IAPSNJ_Admin {
     }
 
     // -----------------------------------------------------------------------
-    // Page: Membership → Payments (Record Payment, Open Invoices, Stripe Payments)
+    // Page: Membership → Payments (Record Payment, Open Invoices, Manual Payments, Stripe Payments)
     // -----------------------------------------------------------------------
 
     public function render_payments_page(): void {
@@ -564,6 +565,7 @@ class My_IAPSNJ_Admin {
         $tabs = [
             'record'   => __( 'Record Payment', 'my-iapsnj' ),
             'invoices' => __( 'Open Invoices', 'my-iapsnj' ),
+            'log'      => __( 'Manual Payments', 'my-iapsnj' ),
             'stripe'   => __( 'Stripe Payments', 'my-iapsnj' ),
         ];
         $tab = $this->current_tab( $tabs, 'record' );
@@ -572,6 +574,9 @@ class My_IAPSNJ_Admin {
         switch ( $tab ) {
             case 'invoices':
                 $this->render_invoices_tab();
+                break;
+            case 'log':
+                $this->render_manual_log_tab();
                 break;
             case 'stripe':
                 $this->render_stripe_tab();
@@ -670,7 +675,7 @@ class My_IAPSNJ_Admin {
                     <td>
                         <fieldset id="fcrm-rc-methods">
                             <?php foreach ( $methods as $slug => $m ) : ?>
-                                <label style="margin-right:16px"><input type="radio" name="fcrm_rc_method" value="<?php echo esc_attr( $slug ); ?>" data-reference-label="<?php echo esc_attr( $m['reference_label'] ); ?>" data-date-label="<?php echo esc_attr( $m['date_label'] ); ?>" <?php checked( $slug, $first ); ?>> <?php echo esc_html( $m['label'] ); ?></label>
+                                <label style="display:inline-block;margin-right:24px"><input type="radio" name="fcrm_rc_method" value="<?php echo esc_attr( $slug ); ?>" data-reference-label="<?php echo esc_attr( $m['reference_label'] ); ?>" data-date-label="<?php echo esc_attr( $m['date_label'] ); ?>" <?php checked( $slug, $first ); ?>> <?php echo esc_html( $m['label'] ); ?></label>
                             <?php endforeach; ?>
                         </fieldset>
                     </td>
@@ -693,6 +698,97 @@ class My_IAPSNJ_Admin {
             </table>
             <button id="fcrm-rc-submit" class="button button-primary" <?php disabled( ! $products || ! My_IAPSNJ_Membership::is_available() ); ?>><?php esc_html_e( 'Record payment & mark paid', 'my-iapsnj' ); ?></button>
             <div id="fcrm-rc-result" style="margin-top:12px"></div>
+        </div>
+        <?php
+    }
+
+    /**
+     * Manual Payments: the log of checks, cash and Venmo payments, so one can
+     * be looked up by member, check number or reference.
+     */
+    private function render_manual_log_tab(): void {
+        $this->description( __( 'Every payment that did not go through the card checkout: checks (recorded here or marked paid from Open Invoices), cash in person and Venmo. Search by member, check number or Venmo transaction ID.', 'my-iapsnj' ) );
+        if ( ! My_IAPSNJ_Membership::is_available() ) {
+            echo '<div class="fcrm-section"><p>' . esc_html__( 'FluentCart is not active.', 'my-iapsnj' ) . '</p></div>';
+            return;
+        }
+        $get = static function ( string $key ): string {
+            // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filters
+            return isset( $_GET[ $key ] ) && is_scalar( $_GET[ $key ] ) ? sanitize_text_field( wp_unslash( (string) $_GET[ $key ] ) ) : '';
+        };
+        $methods  = My_IAPSNJ_Payments::methods();
+        $method   = isset( $methods[ $get( 'method' ) ] ) ? $get( 'method' ) : '';
+        $from     = My_IAPSNJ_Dates::ymd( $get( 'from' ) );
+        $to       = My_IAPSNJ_Dates::ymd( $get( 'to' ) );
+        $search   = $get( 's' );
+        $result   = My_IAPSNJ_Payments::manual( [ 'method' => $method, 'from' => $from, 'to' => $to, 's' => $search, 'paged' => max( 1, (int) $get( 'paged' ) ) ] );
+        $filtered = $method !== '' || $from !== '' || $to !== '' || $search !== '';
+        ?>
+        <div class="fcrm-section">
+            <form method="get" action="<?php echo esc_url( admin_url( 'admin.php' ) ); ?>" class="fcrm-toolbar">
+                <input type="hidden" name="page" value="my-iapsnj-payments">
+                <input type="hidden" name="tab" value="log">
+                <select name="method">
+                    <option value=""><?php esc_html_e( 'All methods', 'my-iapsnj' ); ?></option>
+                    <?php foreach ( $methods as $slug => $m ) : ?>
+                        <option value="<?php echo esc_attr( $slug ); ?>" <?php selected( $method, $slug ); ?>><?php echo esc_html( $m['label'] ); ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <label><?php esc_html_e( 'From', 'my-iapsnj' ); ?> <input type="date" name="from" value="<?php echo esc_attr( $from ); ?>"></label>
+                <label><?php esc_html_e( 'To', 'my-iapsnj' ); ?> <input type="date" name="to" value="<?php echo esc_attr( $to ); ?>"></label>
+                <input type="search" name="s" value="<?php echo esc_attr( $search ); ?>" class="regular-text" placeholder="<?php esc_attr_e( 'Name, email, check # or reference', 'my-iapsnj' ); ?>">
+                <button type="submit" class="button"><?php esc_html_e( 'Filter', 'my-iapsnj' ); ?></button>
+                <?php if ( $filtered ) : ?><a class="button-link" href="<?php echo esc_url( self::page_url( 'my-iapsnj-payments', 'log' ) ); ?>"><?php esc_html_e( 'Clear filters', 'my-iapsnj' ); ?></a><?php endif; ?>
+            </form>
+            <p class="fcrm-muted"><?php echo esc_html( sprintf(
+                /* translators: 1: number of payments, 2: total */
+                _n( '%1$s payment · %2$s', '%1$s payments · %2$s', $result['total'], 'my-iapsnj' ),
+                number_format_i18n( $result['total'] ),
+                html_entity_decode( My_IAPSNJ_Membership::format_money( $result['sum_cents'], $result['currency'] ), ENT_QUOTES, 'UTF-8' )
+            ) ); ?></p>
+            <?php if ( ! $result['rows'] ) : ?>
+                <p><?php echo esc_html( $filtered ? __( 'No manual payments match these filters.', 'my-iapsnj' ) : __( 'No manual payments yet.', 'my-iapsnj' ) ); ?></p>
+            <?php else : ?>
+                <table class="widefat striped">
+                    <thead><tr>
+                        <th><?php esc_html_e( 'Paid', 'my-iapsnj' ); ?></th>
+                        <th><?php esc_html_e( 'Order', 'my-iapsnj' ); ?></th>
+                        <th><?php esc_html_e( 'Member', 'my-iapsnj' ); ?></th>
+                        <th><?php esc_html_e( 'Items', 'my-iapsnj' ); ?></th>
+                        <th><?php esc_html_e( 'Method', 'my-iapsnj' ); ?></th>
+                        <th><?php esc_html_e( 'Reference', 'my-iapsnj' ); ?></th>
+                        <th><?php esc_html_e( 'Amount', 'my-iapsnj' ); ?></th>
+                        <th><?php esc_html_e( 'Note', 'my-iapsnj' ); ?></th>
+                    </tr></thead>
+                    <tbody>
+                    <?php foreach ( $result['rows'] as $r ) : ?>
+                        <tr>
+                            <td><?php echo esc_html( $r['paid_on'] ); ?></td>
+                            <td><a href="<?php echo esc_url( $r['order_url'] ); ?>">#<?php echo (int) $r['order_id']; ?></a>
+                                <br><small class="fcrm-muted"><?php echo esc_html( $r['entered'] ? __( 'entered by hand', 'my-iapsnj' ) : __( 'checkout invoice', 'my-iapsnj' ) ); ?></small></td>
+                            <td><?php echo esc_html( $r['name'] !== '' ? $r['name'] : $r['email'] ); ?><?php if ( $r['name'] !== '' ) : ?><br><small class="fcrm-muted"><?php echo esc_html( $r['email'] ); ?></small><?php endif; ?></td>
+                            <td><?php echo esc_html( implode( '; ', $r['items'] ) ); ?></td>
+                            <td><?php echo esc_html( $r['method'] ); ?></td>
+                            <td><?php echo esc_html( $r['reference'] !== '' ? $r['reference'] : '—' ); ?></td>
+                            <td><?php echo esc_html( html_entity_decode( $r['amount'], ENT_QUOTES, 'UTF-8' ) ); ?><?php if ( $r['refunded'] ) : ?> <span class="fcrm-badge fcrm-badge-warn"><?php echo esc_html( $r['status'] ); ?></span><?php endif; ?></td>
+                            <td><small><?php echo esc_html( $r['note'] ); ?></small></td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+                <?php if ( $result['pages'] > 1 ) : ?>
+                    <div class="tablenav"><div class="tablenav-pages">
+                        <?php echo wp_kses_post( (string) paginate_links( [
+                            'base'      => add_query_arg( 'paged', '%#%' ),
+                            'format'    => '',
+                            'current'   => $result['paged'],
+                            'total'     => $result['pages'],
+                            'prev_text' => '&lsaquo;',
+                            'next_text' => '&rsaquo;',
+                        ] ) ); ?>
+                    </div></div>
+                <?php endif; ?>
+            <?php endif; ?>
         </div>
         <?php
     }
