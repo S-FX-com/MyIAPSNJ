@@ -141,17 +141,13 @@ class My_IAPSNJ_Applications {
     // -----------------------------------------------------------------------
 
     /**
-     * Join or renewal? A contact with Paid-YYYY history, or a comped type,
-     * is renewing; everyone else is joining.
+     * Join or renewal? A contact with any membership history (Paid-YYYY or
+     * legacy "YYYY Dues Paid" tags, a member number, join date, paid_through
+     * or member_type on file, or a comped type) is renewing; everyone else is
+     * joining.
      */
     public static function kind_for_contact( ?Subscriber $subscriber ): string {
-        if ( ! $subscriber instanceof Subscriber ) {
-            return self::KIND_JOIN;
-        }
-        if ( My_IAPSNJ_Schema::paid_years( $subscriber ) ) {
-            return self::KIND_RENEWAL;
-        }
-        if ( My_IAPSNJ_Schema::is_comped_type( My_IAPSNJ_Schema::field( $subscriber, My_IAPSNJ_Schema::FIELD_MEMBER_TYPE ) ) ) {
+        if ( $subscriber instanceof Subscriber && My_IAPSNJ_Schema::has_membership_history( $subscriber ) ) {
             return self::KIND_RENEWAL;
         }
         return self::KIND_JOIN;

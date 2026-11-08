@@ -554,6 +554,35 @@ final class My_IAPSNJ_Schema {
     }
 
     /**
+     * Does this contact already have a membership on record before the order
+     * being processed? Used to tell a renewal from a new member.
+     *
+     * Contacts imported from the legacy system have no Paid-YYYY tag: they
+     * carry "YYYY Dues Paid" tags and the legacy member_number / join_date /
+     * paid_through / member_type values instead. The plugin only writes
+     * member_type, paid_through and join_date when it applies a payment, and
+     * member numbers are assigned by staff, so any of these means the person
+     * has been a member before.
+     */
+    public static function has_membership_history( Subscriber $subscriber ): bool {
+        if ( self::paid_years( $subscriber ) ) {
+            return true;
+        }
+        foreach ( $subscriber->tags()->get() as $tag ) {
+            if ( preg_match( '/^\d{4}[\s_-]*dues[\s_-]*paid$/i', trim( (string) $tag->slug ) )
+                || preg_match( '/^\d{4}[\s_-]*dues[\s_-]*paid$/i', trim( (string) $tag->title ) ) ) {
+                return true;
+            }
+        }
+        foreach ( [ self::FIELD_MEMBER_TYPE, self::FIELD_PAID_THROUGH, self::FIELD_MEMBER_NUMBER, self::FIELD_JOIN_DATE ] as $slug ) {
+            if ( trim( self::field( $subscriber, $slug ) ) !== '' ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Read one custom field value from a contact ('' when unset).
      */
     public static function field( Subscriber $subscriber, string $slug ): string {
