@@ -161,7 +161,8 @@ final class My_IAPSNJ_Notifications {
         foreach ( [ 'join', 'renewal' ] as $kind ) {
             $row = array_merge( $defaults[ $kind ], is_array( $saved[ $kind ] ?? null ) ? $saved[ $kind ] : [] );
             foreach ( [ 'subject', 'body' ] as $part ) {
-                if ( trim( (string) $row[ $part ] ) === '' ) {
+                $row[ $part ] = self::decode_from_storage( (string) $row[ $part ] );
+                if ( trim( $row[ $part ] ) === '' ) {
                     $row[ $part ] = $defaults[ $kind ][ $part ];
                 }
             }
@@ -183,15 +184,37 @@ final class My_IAPSNJ_Notifications {
         $out      = [ 'fluentcart' => array_merge( $defaults['fluentcart'], is_array( $saved['fluentcart'] ?? null ) ? $saved['fluentcart'] : [] ) ];
         foreach ( [ 'join', 'renewal' ] as $kind ) {
             $row = array_merge( $defaults[ $kind ], is_array( $saved[ $kind ] ?? null ) ? $saved[ $kind ] : [] );
-            if ( trim( (string) $row['subject'] ) === '' ) {
+            $row['subject'] = self::decode_from_storage( (string) $row['subject'] );
+            $row['body']    = self::decode_from_storage( (string) $row['body'] );
+            if ( trim( $row['subject'] ) === '' ) {
                 $row['subject'] = $defaults[ $kind ]['subject'];
             }
-            if ( trim( (string) $row['body'] ) === '' ) {
+            if ( trim( $row['body'] ) === '' ) {
                 $row['body'] = $defaults[ $kind ]['body'];
             }
             $out[ $kind ] = $row;
         }
         return $out;
+    }
+
+    /**
+     * Emoji are 4-byte characters. A database table that stores text as the
+     * older 3-byte utf8 refuses the whole write, and the setting silently does
+     * not save. They are stored as numeric entities (&#x1f6e1;) and turned
+     * back into the character whenever the setting is read.
+     */
+    private static function encode_for_storage( string $text ): string {
+        return function_exists( 'wp_encode_emoji' ) ? wp_encode_emoji( $text ) : $text;
+    }
+
+    private static function decode_from_storage( string $text ): string {
+        return (string) preg_replace_callback(
+            '/&#x[0-9a-f]{4,6};/i',
+            static function ( $m ) {
+                return html_entity_decode( $m[0], ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+            },
+            $text
+        );
     }
 
     /**
@@ -234,8 +257,8 @@ final class My_IAPSNJ_Notifications {
         foreach ( [ 'join', 'renewal' ] as $kind ) {
             $in = $raw['message'][ $kind ] ?? null;
             if ( is_array( $in ) ) {
-                $template[ $kind ]['subject'] = trim( mb_substr( sanitize_text_field( (string) ( $in['subject'] ?? '' ) ), 0, self::SUBJECT_MAX ) );
-                $template[ $kind ]['body']    = trim( mb_substr( wp_kses_post( (string) ( $in['body'] ?? '' ) ), 0, self::BODY_MAX ) );
+                $template[ $kind ]['subject'] = self::encode_for_storage( trim( mb_substr( sanitize_text_field( (string) ( $in['subject'] ?? '' ) ), 0, self::SUBJECT_MAX ) ) );
+                $template[ $kind ]['body']    = self::encode_for_storage( trim( mb_substr( wp_kses_post( (string) ( $in['body'] ?? '' ) ), 0, self::BODY_MAX ) ) );
             }
         }
         $out['message'] = $template;
@@ -265,8 +288,8 @@ final class My_IAPSNJ_Notifications {
             $in  = $raw[ $kind ] ?? null;
             if ( is_array( $in ) ) {
                 $row['enabled'] = ! empty( $in['enabled'] );
-                $row['subject'] = trim( mb_substr( sanitize_text_field( (string) ( $in['subject'] ?? '' ) ), 0, self::SUBJECT_MAX ) );
-                $row['body']    = trim( mb_substr( wp_kses_post( (string) ( $in['body'] ?? '' ) ), 0, self::BODY_MAX ) );
+                $row['subject'] = self::encode_for_storage( trim( mb_substr( sanitize_text_field( (string) ( $in['subject'] ?? '' ) ), 0, self::SUBJECT_MAX ) ) );
+                $row['body']    = self::encode_for_storage( trim( mb_substr( wp_kses_post( (string) ( $in['body'] ?? '' ) ), 0, self::BODY_MAX ) ) );
             }
             $out[ $kind ] = $row;
         }
