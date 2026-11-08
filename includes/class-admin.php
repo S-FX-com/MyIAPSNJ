@@ -2126,6 +2126,20 @@ class My_IAPSNJ_Admin {
             $settings['aging_days'] = 30;
         }
         update_option( 'my_iapsnj_settings', $settings );
+
+        // Read the row back from the database itself (not the object cache):
+        // a save that did not stick, or was overwritten by a stale copy, is
+        // reported instead of showing "Saved".
+        global $wpdb;
+        $raw    = $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", 'my_iapsnj_settings' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $stored = maybe_unserialize( $raw );
+        foreach ( [ 'staff_mail', 'member_mail' ] as $key ) {
+            if ( isset( $post[ $key ] ) && ( ! is_array( $stored ) || ( $stored[ $key ] ?? null ) != $settings[ $key ] ) ) { // phpcs:ignore Universal.Operators.StrictComparisons
+                error_log( 'My IAPSNJ: settings save for ' . $key . ' did not persist (database holds a different value).' );
+                wp_send_json_error( [ 'message' => __( 'Not saved: the database kept the old value. Another process may be overwriting the settings, or the site\'s object cache is out of date. Reload and try again, and tell the developer if it repeats.', 'my-iapsnj' ) ] );
+            }
+        }
+
         My_IAPSNJ_Reports::flush_summary(); // aging threshold / grace feed the Dashboard numbers
         wp_send_json_success();
     }
