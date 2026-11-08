@@ -361,6 +361,7 @@ class My_IAPSNJ_Membership {
 
         // ---- Snapshot before we touch anything (used by refunds) ----------
         $existing = $this->find_subscriber( $email, $order );
+        $had_history = $existing instanceof Subscriber && My_IAPSNJ_Schema::has_membership_history( $existing );
         $snapshot = [
             'subscriber_id' => $existing ? (int) $existing->id : 0,
             'member_type'   => $existing ? My_IAPSNJ_Schema::field( $existing, My_IAPSNJ_Schema::FIELD_MEMBER_TYPE ) : '',
@@ -426,24 +427,13 @@ class My_IAPSNJ_Membership {
         }
 
         // ---- New member? ---------------------------------------------------
-        $had_paid_years = false;
-        foreach ( $snapshot['tags'] as $slug ) {
-            if ( My_IAPSNJ_Schema::year_from_paid_slug( $slug ) ) {
-                $had_paid_years = true;
-                break;
-            }
-        }
-        $is_new = ( $app && $app->kind === My_IAPSNJ_Applications::KIND_JOIN )
-            || ( ! $had_paid_years && ! My_IAPSNJ_Schema::is_comped_type( $old_type ) && ! $existing );
-        if ( ! $is_new && ! $had_paid_years && ! My_IAPSNJ_Schema::is_comped_type( $old_type ) && ! $app ) {
-            // Existing contact with no payment history and no application on
-            // file: first payment we have seen for them. Treat as new so the
-            // certificate notification is not lost.
-            $is_new = true;
-        }
+        // Judged on the contact as it was before this payment. Any prior
+        // membership on record (see has_membership_history) makes this a
+        // renewal, whatever kind the application was stamped with at checkout.
+        $is_new = ! $had_history;
 
         // ---- join_date: the first payment, never overwritten ---------------
-        if ( My_IAPSNJ_Schema::field( $subscriber, My_IAPSNJ_Schema::FIELD_JOIN_DATE ) === '' && ( $is_new || ! $had_paid_years ) ) {
+        if ( My_IAPSNJ_Schema::field( $subscriber, My_IAPSNJ_Schema::FIELD_JOIN_DATE ) === '' && $is_new ) {
             My_IAPSNJ_Schema::set_fields( $subscriber, [ My_IAPSNJ_Schema::FIELD_JOIN_DATE => $plan['as_of'] ] );
         }
 
