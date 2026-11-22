@@ -558,11 +558,11 @@ final class My_IAPSNJ_Schema {
      * being processed? Used to tell a renewal from a new member.
      *
      * Contacts imported from the legacy system have no Paid-YYYY tag: they
-     * carry "YYYY Dues Paid" tags and the legacy member_number / join_date /
-     * paid_through / member_type values instead. The plugin only writes
-     * member_type, paid_through and join_date when it applies a payment, and
-     * member numbers are assigned by staff, so any of these means the person
-     * has been a member before.
+     * carry "YYYY Dues Paid" tags and the legacy join_date / paid_through /
+     * member_type values instead. The plugin only writes member_type,
+     * paid_through and join_date when it applies a payment, so any of these
+     * means the person has been a member before. member_number is not one of
+     * them: it is the WordPress user ID, so every login has one.
      */
     public static function has_membership_history( Subscriber $subscriber ): bool {
         if ( self::paid_years( $subscriber ) ) {
@@ -574,7 +574,7 @@ final class My_IAPSNJ_Schema {
                 return true;
             }
         }
-        foreach ( [ self::FIELD_MEMBER_TYPE, self::FIELD_PAID_THROUGH, self::FIELD_MEMBER_NUMBER, self::FIELD_JOIN_DATE ] as $slug ) {
+        foreach ( [ self::FIELD_MEMBER_TYPE, self::FIELD_PAID_THROUGH, self::FIELD_JOIN_DATE ] as $slug ) {
             if ( trim( self::field( $subscriber, $slug ) ) !== '' ) {
                 return true;
             }

@@ -783,6 +783,13 @@ class My_IAPSNJ_Membership {
         } catch ( \Throwable $e ) {
             error_log( 'My IAPSNJ: daily expiry run failed: ' . $e->getMessage() );
         }
+        // Backstop: any contact whose member_number is not its user ID (edited
+        // through a path that fires no event, imported, linked since) is put right.
+        try {
+            My_IAPSNJ_Engine::backfill_member_numbers();
+        } catch ( \Throwable $e ) {
+            error_log( 'My IAPSNJ: daily member-number run failed: ' . $e->getMessage() );
+        }
     }
 
     /**
@@ -1313,6 +1320,8 @@ class My_IAPSNJ_Membership {
             $subscriber->save();
         }
         My_IAPSNJ_Engine::remember_subscriber_link( (int) $user->ID, (int) $subscriber->id );
+        // The member number is the user ID; set before the welcome email reads it.
+        My_IAPSNJ_Engine::sync_member_number( (int) $subscriber->id, (int) $user->ID );
 
         if ( $customer && empty( $customer->user_id ) ) {
             try {

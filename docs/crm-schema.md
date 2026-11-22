@@ -28,7 +28,7 @@ Honorary is **never a product**: it is admin-assigned (tag + `member_type`).
 |---|---|---|---|
 | `member_type` | select-one | `Regular` / `Associate` / `Lifetime` / `Honorary` | **Mandatory.** The exclusion condition for dues campaigns is `member_type` is none of `Lifetime`, `Honorary`. A purchase never lowers the type. |
 | `paid_through` | date (Y-m-d) | e.g. `2027-12-31` | Set from the product (fixed calendar-year date), only ever extended (`max`). **Null for Lifetime and Honorary** — the plugin deletes the value; never a far-future date. |
-| `member_number` | number | | Migrated from ACF `MemberNum` (already synced pre-4.0). Printed on the memo line of checks; shown in Payments → Open Invoices. |
+| `member_number` | number | the contact's WordPress user ID | **Not editable (4.40).** Always equals the linked WordPress user's ID: set when a contact is linked to a user, restored whenever the contact or its custom fields are saved, backfilled by the 4.40 upgrade and rechecked by the daily job (`wp iapsnj member-numbers [--dry-run]` runs it on demand). The editor input is disabled in FluentCRM. Numbers that differed (the old ACF `MemberNum`) are kept in the `my_iapsnj_member_number_legacy` option. Contacts with no WordPress user have none until linked. Printed on the memo line of checks; shown in Payments → Open Invoices. |
 | `department` | text (or select-one, see below) | | Required on the checkout application (dropdown options set in the (hidden) Checkout Builder). |
 | `iapsnj_rank` | select-one | | The CRM's own Rank dropdown; its option list is what the checkout and profile offer (4.29). Earlier versions wrote a duplicate text field `rank_level`: the 4.29 upgrade copies its values here (see *Slugs the plugin once wrote*). |
 | `join_date` | date | `Y-m-d` | Migrated from ACF `join_date`; for new members set to the payment date of their first paid order (4.4.0), never overwritten. |
@@ -65,7 +65,7 @@ and populated it — the data is there; only the ACF side is dropped.
 | ACF field | Decision | CRM target | Reason |
 |---|---|---|---|
 | first_name / last_name / user_email | ✔ | default fields | core identity |
-| MemberNum | ✔ | `member_number` | already in CRM; used on checks |
+| MemberNum | ✔ → replaced | `member_number` | from 4.40 it is the WordPress user ID, not the ACF value; used on checks |
 | member_status | ✔ → replaced | `member_type` | the old free-form status becomes the controlled type |
 | join_date | ✔ | `join_date` | already in CRM |
 | expiration_date | ✔ → replaced | `paid_through` | derived from PMPro end date / orders, then owned by FluentCart |
