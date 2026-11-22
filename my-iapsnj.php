@@ -3,7 +3,7 @@
  * Plugin Name:       My IAPSNJ
  * Plugin URI:        https://github.com/S-FX-com/MyIAPSNJ
  * Description:       Membership operations for the IAPSNJ website. FluentCRM is the single source of truth: the membership application is collected on the FluentCart checkout page, FluentCart payments set membership state (Paid-YYYY tags, member_type, paid_through), applications are tracked until they are paid, mailed checks are reconciled in batch, and WordPress accounts get the role of their membership. Includes the PMPro → FluentCRM migration toolkit.
- * Version:           4.39.4
+ * Version:           4.40.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Requires Plugins:  fluent-crm
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'MY_IAPSNJ_VERSION', '4.39.4' );
+define( 'MY_IAPSNJ_VERSION', '4.40.0' );
 define( 'MY_IAPSNJ_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'MY_IAPSNJ_URL',     plugin_dir_url( __FILE__ ) );
 define( 'MY_IAPSNJ_FILE',    __FILE__ );
@@ -237,7 +237,7 @@ final class My_IAPSNJ_Plugin {
      * below; it is independent of MY_IAPSNJ_VERSION so that ordinary releases
      * do not re-run migrations.
      */
-    const DATA_VERSION = 19;
+    const DATA_VERSION = 20;
 
     /**
      * Runs any migration steps this install has not seen yet.
@@ -575,6 +575,26 @@ final class My_IAPSNJ_Plugin {
                     }
                     unset( $settings['notify_new_member'], $settings['notify_emails'] );
                     update_option( 'my_iapsnj_settings', $settings );
+                }
+            }
+
+            // ---- v20: member_number is the WordPress user ID (4.40) -----------
+            // Every contact linked to a user gets the user's ID as its Member
+            // Number (empty ones filled, differing ones replaced; replaced
+            // values are kept in the my_iapsnj_member_number_legacy option).
+            // The daily job repeats this for contacts linked later.
+            if ( $installed < 20 ) {
+                $finish20 = function () {
+                    try {
+                        My_IAPSNJ_Engine::backfill_member_numbers();
+                    } catch ( \Throwable $e ) {
+                        error_log( 'My IAPSNJ: could not backfill member numbers during upgrade: ' . $e->getMessage() );
+                    }
+                };
+                if ( did_action( 'init' ) ) {
+                    $finish20();
+                } else {
+                    add_action( 'init', $finish20, 20 );
                 }
             }
 

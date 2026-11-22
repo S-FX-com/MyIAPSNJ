@@ -493,7 +493,8 @@ final class My_IAPSNJ_Notifications {
             'order'         => '#' . (int) $order->id . ( $order->receipt_number ? ' (' . $order->receipt_number . ')' : '' ),
             'department'    => (string) ( $custom[ My_IAPSNJ_Schema::FIELD_DEPARTMENT ] ?? '' ),
             'rank'          => (string) ( $custom[ My_IAPSNJ_Schema::FIELD_RANK ] ?? '' ),
-            'member_number' => (string) ( $custom[ My_IAPSNJ_Schema::FIELD_MEMBER_NUMBER ] ?? '' ),
+            // The member number is the WordPress user ID (My_IAPSNJ_Engine::sync_member_number).
+            'member_number' => (string) ( $custom[ My_IAPSNJ_Schema::FIELD_MEMBER_NUMBER ] ?? '' ) ?: ( (int) $subscriber->user_id > 0 ? (string) (int) $subscriber->user_id : '' ),
             'crm_url'       => admin_url( 'admin.php?page=fluentcrm-admin#/subscribers/' . (int) $subscriber->id ),
             'order_url'     => My_IAPSNJ_Membership::order_admin_url( $order ),
         ];

@@ -13,6 +13,10 @@
  * back to the CRM.
  *
  * What is left:
+ *  - the contact's member_number custom field is its WordPress user ID: set
+ *    when a contact is linked to a user, restored whenever it is edited, and
+ *    backfilled for every linked contact (see sync_member_number() /
+ *    backfill_member_numbers()); it is never entered by hand;
  *  - find_linked_subscriber() / remember_subscriber_link(): the contact of a
  *    user, by subscriber.user_id, the cached id in user meta, else email;
  *  - a new WordPress user is linked to the contact with the same email, and a
@@ -63,12 +67,28 @@ class My_IAPSNJ_Engine {
         add_action( 'fluentcrm_contact_updated', [ $this, 'on_fcrm_contact_saved' ], 20 );
         add_action( 'user_register', [ $this, 'on_user_register' ], 20 );
         add_action( 'delete_user', [ $this, 'on_user_delete' ], 10 );
+
+        // member_number is the WordPress user ID and is not editable: put it
+        // back whenever a contact is created or saved, or its custom fields
+        // are written (admin edit, REST, import). Hook arguments differ by
+        // event, so the handler looks for the contact among them.
+        foreach ( [
+            'fluent_crm/contact_created',
+            'fluent_crm/contact_updated',
+            'fluent_crm/contact_custom_data_updated',
+            'fluentcrm_contact_created',
+            'fluentcrm_contact_updated',
+            'fluentcrm_contact_custom_data_updated',
+        ] as $hook ) {
+            add_action( $hook, [ $this, 'enforce_member_number' ], 30, 3 );
+        }
+        add_action( 'admin_footer', [ $this, 'lock_member_number_field' ] );
     }
 
     /**
      * A new WordPress user: link to the existing CRM contact (by email) and
-     * give the user the role of the contact's membership. No data flows to
-     * the CRM.
+     * give the user the role of the contact's membership. The only thing that
+     * reaches the CRM is the user ID, as the contact's member_number.
      */
     public function on_user_register( int $user_id ): void {
         $sub = self::find_linked_subscriber( $user_id );
@@ -77,6 +97,7 @@ class My_IAPSNJ_Engine {
                 $sub->user_id = $user_id;
                 $sub->save();
             }
+            self::sync_member_number( (int) $sub->id, $user_id );
             self::apply_role( $sub, $user_id );
         }
     }
@@ -121,6 +142,225 @@ class My_IAPSNJ_Engine {
             error_log( 'My IAPSNJ: could not set the WordPress role for contact #' . (int) $subscriber->id . ': ' . $e->getMessage() );
             return '';
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // member_number = WordPress user ID
+    // -----------------------------------------------------------------------
+
+    /** Option holding the member numbers that were replaced by a user ID: contact id => previous value. */
+    const LEGACY_NUMBERS_OPTION = 'my_iapsnj_member_number_legacy';
+
+    /**
+     * Restore the member_number of the contact an event is about. The
+     * handler is registered on several FluentCRM events whose arguments
+     * differ, so the contact is whichever argument is a Subscriber.
+     *
+     * @param mixed ...$args
+     */
+    public function enforce_member_number( ...$args ): void {
+        foreach ( $args as $arg ) {
+            if ( $arg instanceof Subscriber ) {
+                if ( (int) $arg->user_id > 0 ) {
+                    try {
+                        self::sync_member_number( (int) $arg->id, (int) $arg->user_id );
+                    } catch ( \Throwable $e ) {
+                        error_log( 'My IAPSNJ: could not set the member number of contact #' . (int) $arg->id . ': ' . $e->getMessage() );
+                    }
+                }
+                return;
+            }
+        }
+    }
+
+    /**
+     * Make a contact's member_number its WordPress user ID. A direct write
+     * (no FluentCRM events, so no loop and no automations). Idempotent.
+     *
+     * @return bool whether anything was written
+     */
+    public static function sync_member_number( int $subscriber_id, int $user_id ): bool {
+        global $wpdb;
+        if ( $subscriber_id <= 0 || $user_id <= 0 ) {
+            return false;
+        }
+        $meta = $wpdb->prefix . 'fc_subscriber_meta';
+        $want = (string) $user_id;
+        // phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared -- identifiers are the plugin's own, values are prepared
+        $rows = (array) $wpdb->get_results( $wpdb->prepare(
+            "SELECT id, `value` FROM {$meta} WHERE subscriber_id = %d AND object_type = 'custom_field' AND `key` = %s ORDER BY id ASC",
+            $subscriber_id,
+            My_IAPSNJ_Schema::FIELD_MEMBER_NUMBER
+        ) );
+        if ( count( $rows ) === 1 && trim( (string) $rows[0]->value ) === $want ) {
+            return false;
+        }
+        if ( ! $rows ) {
+            $wpdb->insert( $meta, [
+                'subscriber_id' => $subscriber_id,
+                'created_by'    => 0,
+                'object_type'   => 'custom_field',
+                'key'           => My_IAPSNJ_Schema::FIELD_MEMBER_NUMBER,
+                'value'         => $want,
+                'created_at'    => current_time( 'mysql', true ),
+                'updated_at'    => current_time( 'mysql', true ),
+            ] );
+            return true;
+        }
+        $old = trim( (string) $rows[0]->value );
+        if ( $old !== '' && $old !== $want ) {
+            self::remember_legacy_numbers( [ $subscriber_id => $old ] );
+        }
+        $wpdb->update( $meta, [ 'value' => $want, 'updated_at' => current_time( 'mysql', true ) ], [ 'id' => (int) $rows[0]->id ] );
+        foreach ( array_slice( $rows, 1 ) as $dupe ) {
+            $wpdb->delete( $meta, [ 'id' => (int) $dupe->id ] );
+        }
+        // phpcs:enable
+        return true;
+    }
+
+    /**
+     * Give every contact linked to a WordPress user the user's ID as its
+     * member_number: fills the empty ones and corrects the ones that differ
+     * (a number typed by hand, or one carried over from the old system; the
+     * replaced value is kept in LEGACY_NUMBERS_OPTION). Contacts with no
+     * linked user have nothing to match and are left alone (counted in
+     * 'unlinked'; the migration's link_subscribers step links them).
+     * Idempotent; direct table writes, no automations.
+     *
+     * @param bool $dry Count only.
+     * @return array{filled:int,corrected:int,unlinked:int,dry:bool}
+     */
+    public static function backfill_member_numbers( bool $dry = false ): array {
+        global $wpdb;
+        $subs  = $wpdb->prefix . 'fc_subscribers';
+        $meta  = $wpdb->prefix . 'fc_subscriber_meta';
+        $users = $wpdb->users;
+        $slug  = My_IAPSNJ_Schema::FIELD_MEMBER_NUMBER;
+        $now   = current_time( 'mysql', true );
+
+        // phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared -- identifiers are the plugin's own, values are prepared
+        $has_row   = "EXISTS (SELECT 1 FROM {$meta} m WHERE m.subscriber_id = s.id AND m.object_type = 'custom_field' AND m.`key` = %s)";
+        $filled    = (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM {$subs} s INNER JOIN {$users} u ON u.ID = s.user_id
+             WHERE s.user_id > 0 AND NOT EXISTS (SELECT 1 FROM {$meta} m WHERE m.subscriber_id = s.id AND m.object_type = 'custom_field' AND m.`key` = %s AND TRIM(COALESCE(m.`value`, '')) <> '')",
+            $slug
+        ) );
+        $differing = (array) $wpdb->get_results( $wpdb->prepare(
+            "SELECT s.id AS id, MAX(TRIM(m.`value`)) AS old FROM {$subs} s
+             INNER JOIN {$users} u ON u.ID = s.user_id
+             INNER JOIN {$meta} m ON m.subscriber_id = s.id AND m.object_type = 'custom_field' AND m.`key` = %s
+             WHERE s.user_id > 0 AND TRIM(COALESCE(m.`value`, '')) <> '' AND TRIM(m.`value`) <> CAST(s.user_id AS CHAR)
+               AND NOT EXISTS (SELECT 1 FROM {$meta} ok WHERE ok.subscriber_id = s.id AND ok.object_type = 'custom_field' AND ok.`key` = %s AND TRIM(ok.`value`) = CAST(s.user_id AS CHAR))
+             GROUP BY s.id",
+            $slug,
+            $slug
+        ) );
+        $unlinked = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$subs} WHERE user_id IS NULL OR user_id = 0" );
+        $report   = [ 'filled' => $filled, 'corrected' => count( $differing ), 'unlinked' => $unlinked, 'dry' => $dry ];
+        if ( $dry || ( ! $filled && ! $differing ) ) {
+            return $report;
+        }
+
+        // The field has to exist for the value to show on the contact.
+        My_IAPSNJ_Schema::ensure_custom_fields();
+
+        $legacy = [];
+        foreach ( $differing as $row ) {
+            $legacy[ (int) $row->id ] = (string) $row->old;
+        }
+        self::remember_legacy_numbers( $legacy );
+
+        // Rows that exist but are empty or different: set to the user ID.
+        $wpdb->query( $wpdb->prepare(
+            "UPDATE {$meta} m INNER JOIN {$subs} s ON s.id = m.subscriber_id INNER JOIN {$users} u ON u.ID = s.user_id
+             SET m.`value` = CAST(s.user_id AS CHAR), m.updated_at = %s
+             WHERE m.object_type = 'custom_field' AND m.`key` = %s AND s.user_id > 0 AND TRIM(COALESCE(m.`value`, '')) <> CAST(s.user_id AS CHAR)",
+            $now,
+            $slug
+        ) );
+        // Contacts with no row at all.
+        $wpdb->query( $wpdb->prepare(
+            "INSERT INTO {$meta} (subscriber_id, created_by, object_type, `key`, `value`, created_at, updated_at)
+             SELECT s.id, 0, 'custom_field', %s, CAST(s.user_id AS CHAR), %s, %s
+             FROM {$subs} s INNER JOIN {$users} u ON u.ID = s.user_id
+             WHERE s.user_id > 0 AND NOT {$has_row}",
+            $slug,
+            $now,
+            $now,
+            $slug
+        ) );
+        // phpcs:enable
+        return $report;
+    }
+
+    /**
+     * Keep the member numbers a user ID replaced (first value seen per
+     * contact wins), so a number from the old system is never lost.
+     *
+     * @param array<int,string> $numbers contact id => previous value
+     */
+    private static function remember_legacy_numbers( array $numbers ): void {
+        if ( ! $numbers ) {
+            return;
+        }
+        $kept = get_option( self::LEGACY_NUMBERS_OPTION, [] );
+        $kept = is_array( $kept ) ? $kept : [];
+        $new  = array_diff_key( $numbers, $kept );
+        if ( $new ) {
+            update_option( self::LEGACY_NUMBERS_OPTION, $kept + $new, false );
+        }
+    }
+
+    /**
+     * Member Number cannot be typed over in FluentCRM's contact editor: the
+     * input is disabled. (A save is put right by enforce_member_number()
+     * whatever the page does; this only stops the edit being offered.)
+     */
+    public function lock_member_number_field(): void {
+        if ( ! isset( $_GET['page'] ) || sanitize_key( wp_unslash( $_GET['page'] ) ) !== 'fluentcrm-admin' ) { // phpcs:ignore WordPress.Security.NonceVerification
+            return;
+        }
+        $label = 'Member Number';
+        foreach ( (array) fluentcrm_get_option( 'contact_custom_fields', [] ) as $f ) {
+            if ( is_array( $f ) && ( $f['slug'] ?? '' ) === My_IAPSNJ_Schema::FIELD_MEMBER_NUMBER && ! empty( $f['label'] ) ) {
+                $label = (string) $f['label'];
+            }
+        }
+        $note = __( 'Always the WordPress user ID.', 'my-iapsnj' );
+        ?>
+        <script>
+        (function () {
+            var label = <?php echo wp_json_encode( $label ); ?>;
+            var note = <?php echo wp_json_encode( $note ); ?>;
+            var queued = false;
+            function lock() {
+                queued = false;
+                document.querySelectorAll('.el-form-item').forEach(function (item) {
+                    var l = item.querySelector('.el-form-item__label');
+                    if (!l || l.textContent.replace(/[:*\s]+$/, '').replace(/^[*\s]+/, '') !== label) {
+                        return;
+                    }
+                    item.title = note;
+                    item.querySelectorAll('input, textarea').forEach(function (i) {
+                        i.readOnly = true;
+                        i.disabled = true;
+                    });
+                    item.querySelectorAll('.el-input-number__increase, .el-input-number__decrease').forEach(function (b) {
+                        b.style.display = 'none';
+                    });
+                });
+            }
+            new MutationObserver(function () {
+                if (!queued) {
+                    queued = true;
+                    window.requestAnimationFrame(lock);
+                }
+            }).observe(document.body, { childList: true, subtree: true });
+            lock();
+        })();
+        </script>
+        <?php
     }
 
     // -----------------------------------------------------------------------

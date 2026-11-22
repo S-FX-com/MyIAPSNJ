@@ -263,6 +263,26 @@ class My_IAPSNJ_CLI {
     }
 
     /**
+     * Set every linked contact's Member Number to its WordPress user ID
+     * (fills empty values, replaces differing ones; replaced values are kept
+     * in the my_iapsnj_member_number_legacy option).
+     *
+     * ## OPTIONS
+     *
+     * [--dry-run]
+     * : Report what would change without writing anything.
+     */
+    public function member_numbers( $args, $assoc ) {
+        $r = My_IAPSNJ_Engine::backfill_member_numbers( ! empty( $assoc['dry-run'] ) );
+        WP_CLI::log( sprintf( 'Empty, to fill: %d · Different, to replace: %d · Contacts with no WordPress user (left empty): %d', $r['filled'], $r['corrected'], $r['unlinked'] ) );
+        if ( $r['dry'] ) {
+            WP_CLI::success( 'Dry run, nothing written.' );
+        } else {
+            WP_CLI::success( sprintf( 'Filled %d, replaced %d.', $r['filled'], $r['corrected'] ) );
+        }
+    }
+
+    /**
      * Rename FluentCart's offline payment method at checkout.
      *
      * ## OPTIONS

@@ -14,6 +14,9 @@ schema, runbook, automations, forms, UAT matrix, what is not in git).
   gives them the role of their membership; it copies no member data onto the
   user (the Profile Mirror / Profile Sync are gone) and nothing is ever
   written from WordPress back to the CRM: never add a WP → CRM write path.
+  The one exception is `member_number`, which *is* the linked WordPress user
+  ID (`My_IAPSNJ_Engine::sync_member_number()` / `backfill_member_numbers()`):
+  never offer it for editing or write any other value to it.
 - The membership application is collected **on the FluentCart checkout page**
   (hooks `fluent_cart/before_payment_methods`, `checkout/validate_data`,
   `checkout/prepare_other_data`, `checkout/form_data_changed`). Fluent Forms is
